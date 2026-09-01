@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Ver alcance §3 y §7: el rol de negocio (Lender / Borrower / Viewer) no vive
+// acá — vive en la relación persona ↔ préstamo (LoanParty, todavía no
+// modelada). User es solo identidad, credenciales y 2FA.
+model User {
+  id       String @id @default(cuid())
+  name     String
+  email    String @unique
+  password String // hash bcrypt, nunca texto plano
+
+  twoFactorSecret    String?
+  isTwoFactorEnabled Boolean @default(false)
+
+  // Eliminado lógico: un usuario nunca se borra físicamente (puede quedar
+  // referenciado desde préstamos, documentos o la bitácora). "Eliminar" acá
+  // significa apagar el acceso, no borrar el registro.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}

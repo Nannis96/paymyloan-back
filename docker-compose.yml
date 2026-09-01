@@ -1,0 +1,61 @@
+# Producción: imagen compilada (target "runner"), sin volúmenes, sin
+# node_modules en runtime.
+#
+# Todavía no hay reverse proxy/TLS delante (ver README): el servicio publica
+# su puerto directo al host. Cuando este backend salga a un servidor real,
+# se puede sumar un nginx + certbot igual que en el proyecto paymyloan
+# (frontend), reutilizando ese mismo patrón.
+#
+#   docker compose up --build -d
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paymyloan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paymyloan}
+      POSTGRES_DB: ${POSTGRES_DB:-paymyloan}
+    volumes:
+      - paymyloan_back_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paymyloan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Job de un solo uso: aplica migraciones pendientes y termina. Usa el
+  # target "builder" (tiene node_modules + Prisma CLI) porque "runner" es
+  # standalone y no los lleva.
+  migrate:
+    build:
+      context: .
+      target: builder
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: npx prisma migrate deploy
+
+  api:
+    build:
+      context: .
+      target: runner
+    image: paymyloan-back:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4000}:4000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
