@@ -70,21 +70,21 @@ usuario no root y expone `HEALTHCHECK` sobre `/api/health`.
 
 ### Sin Docker (opcional, para editores/lint local)
 
-Requiere Node 22, npm y una Postgres alcanzable en `DATABASE_URL` (por
+Requiere Node 22, pnpm y una Postgres alcanzable en `DATABASE_URL` (por
 ejemplo, levantando solo el servicio `db` de `docker-compose.dev.yml`):
 
 ```bash
-npm install          # corre "prisma generate" vía postinstall
-npx prisma migrate dev
-npm run dev
+pnpm install          # corre "prisma generate" vía postinstall
+pnpm exec prisma migrate dev
+pnpm dev
 ```
 
 ### Base de datos (Prisma)
 
 ```bash
-npm run db:migrate          # nueva migración en desarrollo (requiere DB viva)
-npm run db:migrate:deploy   # aplica migraciones pendientes (lo que corre en Docker)
-npm run db:studio           # explorador visual de datos
+pnpm run db:migrate          # nueva migración en desarrollo (requiere DB viva)
+pnpm run db:migrate:deploy   # aplica migraciones pendientes (lo que corre en Docker)
+pnpm run db:studio           # explorador visual de datos
 ```
 
 `docker-compose.dev.yml` ya corre `prisma migrate deploy` antes de levantar
@@ -187,7 +187,7 @@ destino de edición/borrado (responde `404 USER_NOT_FOUND`).
 - **Forma de respuesta JSON única (`ApiSuccessBody`/`ApiErrorBody`).**
   Para que cada endpoint futuro no reinvente su propio formato de error o
   de éxito.
-- **`npm ci` con `package-lock.json` versionado**, igual que el frontend,
+- **`pnpm install --frozen-lockfile` con `pnpm-lock.yaml` versionado**,
   para builds de Docker reproducibles.
 - **`node:22-slim`, no `node:22-alpine`.** Prisma necesita un motor nativo
   con OpenSSL; alpine (musl) lo complica innecesariamente — mismo criterio

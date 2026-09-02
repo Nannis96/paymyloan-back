@@ -18,12 +18,16 @@ ENV DATABASE_URL="postgresql://user:password@localhost:5432/db?schema=public"
 RUN apt-get update && apt-get install -y --no-install-recommends openssl \
   && rm -rf /var/lib/apt/lists/*
 
+# Corepack (incluido en Node 22) instala y fija la versión exacta de pnpm
+# declarada en package.json ("packageManager"), igual en las 4 stages.
+RUN corepack enable && corepack prepare pnpm@11.3.0 --activate
+
 # ---------- dependencias ----------
 FROM base AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY prisma ./prisma
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
 # ---------- desarrollo (hot reload) ----------
 # Se usa con docker-compose.dev.yml. El codigo se monta como volumen.
@@ -32,14 +36,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 EXPOSE 4000
-CMD ["npm", "run", "dev", "--", "-H", "0.0.0.0", "-p", "4000"]
+CMD ["pnpm", "run", "dev", "-H", "0.0.0.0", "-p", "4000"]
 
 # ---------- build de produccion ----------
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # ---------- runtime ----------
 FROM base AS runner
@@ -57,7 +61,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Red de seguridad además de outputFileTracingIncludes (ver next.config.ts):
 # el motor nativo de Prisma no siempre queda en el tracing de "standalone".
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+# Con pnpm, el cliente generado vive dentro del store aislado
+# (node_modules/.pnpm/@prisma+client@.../node_modules/.prisma), no en
+# node_modules/.prisma como con npm.
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma ./node_modules/.prisma
 
 USER nextjs
 EXPOSE 4000

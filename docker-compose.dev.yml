@@ -25,7 +25,7 @@ services:
       - /app/node_modules
       - /app/.next
     # Aplica migraciones pendientes antes de levantar el server de desarrollo.
-    command: sh -c "npx prisma migrate deploy && npm run dev -- -H 0.0.0.0 -p 4000"
+    command: sh -c "pnpm exec prisma migrate deploy && pnpm run dev -H 0.0.0.0 -p 4000"
 
   db:
     image: postgres:16-alpine

@@ -19,7 +19,7 @@ Este documento cubre: inventario del código actual, inventario de Owner con cla
 
 Resumen de lo verificado en el código (ver inventario completo obtenido por investigación directa del repositorio):
 
-- **Stack**: Next.js 16 (App Router, sin UI — backend puro, `output: "standalone"`), TypeScript estricto, Prisma 6.19 + PostgreSQL 16, Zod 4 para validación, bcryptjs para hashing, npm.
+- **Stack**: Next.js 16 (App Router, sin UI — backend puro, `output: "standalone"`), TypeScript estricto, Prisma 6.19 + PostgreSQL 16, Zod 4 para validación, bcryptjs para hashing, pnpm.
 - **Schema actual**: un único modelo, `User` (`id, name, email, password, twoFactorSecret, isTwoFactorEnabled, deletedAt, createdAt, updatedAt`), mapeado a la tabla `users`. Sin enums, sin relaciones, sin `role`. Esto **confirma y valida** la premisa del documento de alcance: el rol de negocio no vive en `User`.
 - **Arquitectura en capas ya establecida** y que este diseño debe respetar: `route.ts → controller → service → Prisma`, con `AppError`/`handleRouteError` para errores, `apiSuccess`/`apiError` como único formato de respuesta, Zod como única fuente de validación, y un patrón `SafeUser`/`toSafeUser()` para nunca exponer campos sensibles — patrón que se debe replicar para cualquier entidad nueva con campos sensibles (p. ej. `PaymentMethod`, `Autopay`).
 - **API existente**: solo `GET /api/health`, `POST /api/users`, `PATCH /api/users/:id`, `DELETE /api/users/:id` (soft-delete). No hay `GET /api/users` ni `GET /api/users/:id`.

@@ -4,6 +4,7 @@ node_modules
 .github
 .vscode
 npm-debug.log*
+pnpm-debug.log*
 
 Dockerfile
 docker-compose*.yml

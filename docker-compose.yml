@@ -34,11 +34,11 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public
     depends_on:
       db:
         condition: service_healthy
-    command: npx prisma migrate deploy
+    command: pnpm exec prisma migrate deploy
 
   api:
     build:
@@ -53,9 +53,12 @@ services:
         required: false
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public
     depends_on:
       db:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+
+volumes:
+  paymyloan_back_db_data:
