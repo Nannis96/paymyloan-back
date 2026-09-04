@@ -2,7 +2,9 @@
 
 ---
 
-# Fase 1 — Database
+> **⚠️ Superado 2026-09-04**: este documento quedó desactualizado por el nuevo contexto funcional de Spencer y el Product Board (roles `BOOKKEEPER`/`INSURANCE_COMPANY`, `LenderCompany` como tenant real, `BorrowerProfile` a nivel de plataforma, entidad `Property`). Se conserva sin editar como registro histórico de la primera versión del backlog. **El backlog vigente de Fase 1 es [16. Fase 1 — plan actualizado](../16-fase-1-actualizada.md)**, y el modelo de datos vigente es [04. Base de datos](../04-base-de-datos.md). No implementar contra este documento.
+
+# Fase 1 — Database (histórico — ver aviso arriba)
 
 ## BE-008 — Enum `UserRole` + campo `role` en `User`
 - **Prioridad/Complejidad/Dependencias**: P0 / S / BE-001

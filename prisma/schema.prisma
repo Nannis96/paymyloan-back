@@ -7,28 +7,881 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Ver alcance §3 y §7: el rol de negocio (Lender / Borrower / Viewer) no vive
-// acá — vive en la relación persona ↔ préstamo (LoanParty, todavía no
-// modelada). User es solo identidad, credenciales y 2FA.
+// =============================================================================
+// Fase 1 — Database. Fuente de verdad del modelo: Docs/plan/04-base-de-datos.md
+// Backlog / razonamiento de cada decisión: Docs/plan/16-fase-1-actualizada.md
+// y Docs/plan/00-contradicciones-y-decisiones.md (IDs D-P1-1..D-P1-9).
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  LENDER
+  BORROWER
+  BOOKKEEPER
+  INSURANCE_COMPANY
+}
+
+enum LenderCompanyStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// Compartido por LenderBorrower y LenderCompanyBookkeeper — ambas son el
+// mismo patrón estructural "vínculo empresa prestamista <-> persona".
+enum TenantLinkStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum PropertyType {
+  SINGLE_FAMILY
+  MULTI_FAMILY
+  CONDO
+  TOWNHOUSE
+  LAND
+  COMMERCIAL
+  OTHER
+}
+
+enum ContractStatus {
+  DRAFT
+  PENDING_ACCEPTANCE
+  ACTIVE
+  DELINQUENT
+  PAID_OFF
+  CANCELLED
+}
+
+enum ContractTermsStatus {
+  DRAFT
+  PENDING_ACCEPTANCE
+  ACCEPTED
+  REJECTED
+  SUPERSEDED
+}
+
+enum AcceptanceDecision {
+  ACCEPTED
+  REJECTED
+}
+
+enum LoanStructure {
+  INTEREST_ONLY
+  AMORTIZED
+  BALLOON
+}
+
+enum DayCountConvention {
+  THIRTY_360
+  ACTUAL_365
+}
+
+enum LateFeeType {
+  FLAT
+  PERCENTAGE
+}
+
+enum ScheduledPaymentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  VOIDED
+}
+
+enum TransactionType {
+  SCHEDULED_PAYMENT
+  PRINCIPAL_PREPAYMENT
+  PAYOFF_PAYMENT
+  LATE_FEE_PAYMENT
+  REFUND
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  RETURNED
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentMethodChannel {
+  ACH
+  WIRE
+  CHECK
+  CARD
+  MANUAL
+}
+
+enum AllocationType {
+  LATE_FEE
+  INTEREST
+  PRINCIPAL
+}
+
+enum PaymentMethodStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum PaymentMethodVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  FAILED
+}
+
+enum AutopayStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+enum AutopayAmountType {
+  SCHEDULED_AMOUNT_DUE
+  FIXED_AMOUNT
+}
+
+enum WebhookProvider {
+  STRIPE
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// -----------------------------------------------------------------------------
+// Identidad
+// -----------------------------------------------------------------------------
+
+// BE-008. El rol es fijo por persona (a diferencia del modelo simétrico que
+// descarta 00-contradicciones-y-decisiones.md, decisión D0-1) — pero el
+// tenant real ya no es esta tabla, ver LenderCompany (D-P1-3).
 model User {
-  // UUIDv7 nativo de Postgres (BE-001, decisión D0-2): ordenable por tiempo
-  // de creación como un autoincrement, pero no adivinable/enumerable como
-  // un ID secuencial. Convención para toda tabla nueva del proyecto.
   id       String @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name     String
   email    String @unique
   password String // hash bcrypt, nunca texto plano
 
-  twoFactorSecret    String?
-  isTwoFactorEnabled Boolean @default(false)
+  role     UserRole
+  isActive Boolean  @default(true) // D-P1-2: activación reversible, distinta de deletedAt
 
-  // Eliminado lógico: un usuario nunca se borra físicamente (puede quedar
-  // referenciado desde préstamos, documentos o la bitácora). "Eliminar" acá
-  // significa apagar el acceso, no borrar el registro.
+  twoFactorSecret    String?
+  isTwoFactorEnabled Boolean   @default(false)
+  lastLoginAt        DateTime?
+
+  // Eliminación lógica "de verdad" (retiro permanente) — ver semántica
+  // redefinida en 04-base-de-datos.md §4.1, distinta de isActive.
   deletedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  lenderProfile           LenderProfile?           @relation("UserLenderProfile")
+  borrowerProfile         BorrowerProfile?         @relation("UserBorrowerProfile")
+  bookkeeperProfile       BookkeeperProfile?       @relation("UserBookkeeperProfile")
+  insuranceCompanyProfile InsuranceCompanyProfile? @relation("UserInsuranceCompanyProfile")
+
+  lenderProfilesCreated           LenderProfile[]           @relation("LenderProfileCreatedByAdmin")
+  lenderCompaniesCreated          LenderCompany[]           @relation("LenderCompanyCreatedBy")
+  borrowerProfilesCreated         BorrowerProfile[]         @relation("BorrowerProfileCreatedBy")
+  lenderBorrowerInvitesSent       LenderBorrower[]          @relation("LenderBorrowerInvitedBy")
+  bookkeeperProfilesCreated       BookkeeperProfile[]       @relation("BookkeeperProfileCreatedBy")
+  lenderCompanyBookkeeperInvites  LenderCompanyBookkeeper[] @relation("LenderCompanyBookkeeperInvitedBy")
+  insuranceCompanyProfilesCreated InsuranceCompanyProfile[] @relation("InsuranceCompanyProfileCreatedByAdmin")
+
+  propertiesCreated      Property[]         @relation("PropertyCreatedBy")
+  contractsCreated       Contract[]         @relation("ContractCreatedBy")
+  contractTermsCreated   ContractTerms[]    @relation("ContractTermsCreatedBy")
+  contractBorrowersAdded ContractBorrower[] @relation("ContractBorrowerAddedBy")
+  transactionsInitiated  Transaction[]      @relation("TransactionInitiatedBy")
+  autopaysCancelled      Autopay[]          @relation("AutopayCancelledBy")
+
+  paymentMethods         PaymentMethod[]
+  auditLogs              AuditLog[]              @relation("AuditLogActor")
+  refreshTokens          RefreshToken[]
+  passwordResetTokens    PasswordResetToken[]
+  twoFactorRecoveryCodes TwoFactorRecoveryCode[]
+
   @@map("users")
+}
+
+// BE-009. Identidad de la persona Prestamista — ya no es el tenant.
+model LenderProfile {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation("UserLenderProfile", fields: [userId], references: [id])
+
+  contactPhone String?
+
+  // Nulo cuando el propio Prestamista se auto-registró (D-P1-10) — solo
+  // tiene valor cuando lo dio de alta un Admin (flujo BE-040, que sigue
+  // existiendo en paralelo). Mismo patrón que BorrowerProfile.createdByUserId.
+  createdByAdminId String? @db.Uuid
+  createdByAdmin   User?   @relation("LenderProfileCreatedByAdmin", fields: [createdByAdminId], references: [id])
+
+  notes String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  lenderCompanies LenderCompany[]
+
+  @@map("lender_profiles")
+}
+
+// BE-090 (nueva). El tenant real (D-P1-3): un LenderProfile puede poseer
+// varias LenderCompany.
+model LenderCompany {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  lenderProfileId String        @db.Uuid
+  lenderProfile   LenderProfile @relation(fields: [lenderProfileId], references: [id], onDelete: Restrict)
+
+  companyName String
+  ein         String @unique // formato XX-XXXXXXX; validación de formato en Zod (Fase 4) — ver riesgo #13/#14
+
+  contactPhone String?
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String  @db.VarChar(2)
+  postalCode   String
+
+  isOpenToDeals Boolean             @default(true) // M-4
+  status        LenderCompanyStatus @default(ACTIVE) // D-P1-8
+
+  stripeConnectedAccountId String? // reservado — A-3 sin resolver
+
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("LenderCompanyCreatedBy", fields: [createdByUserId], references: [id])
+
+  notes String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  borrowers   LenderBorrower[]
+  bookkeepers LenderCompanyBookkeeper[]
+  properties  Property[]
+  contracts   Contract[]
+  auditLogs   AuditLog[]
+
+  @@index([lenderProfileId])
+  @@index([status])
+  @@map("lender_companies")
+}
+
+// BE-010. A nivel de plataforma desde D-P1-4 (formaliza C-1/M-1 de
+// IMPLEMENTATION_PROGRESS.md) — sin lenderId directo.
+model BorrowerProfile {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation("UserBorrowerProfile", fields: [userId], references: [id])
+
+  phone        String?
+  addressLine1 String?
+  city         String?
+  state        String? @db.VarChar(2)
+  postalCode   String?
+
+  createdByUserId String? @db.Uuid // nulo cuando el propio Deudor se auto-registró (D-P1-10, ver también PB-013)
+  createdByUser   User?   @relation("BorrowerProfileCreatedBy", fields: [createdByUserId], references: [id])
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  lenders             LenderBorrower[]
+  contracts           ContractBorrower[]
+  contractAcceptances ContractTermsAcceptance[]
+  autopays            Autopay[]
+
+  @@map("borrower_profiles")
+}
+
+// BE-091 (nueva, formaliza M-1). Vínculo N:M prestamista <-> deudor.
+model LenderBorrower {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Cascade)
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id], onDelete: Restrict)
+
+  status TenantLinkStatus @default(ACTIVE)
+  notes  String? // privado por relación, no en BorrowerProfile — D-P1-9
+
+  invitedByUserId String @db.Uuid
+  invitedByUser   User   @relation("LenderBorrowerInvitedBy", fields: [invitedByUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  removedAt DateTime?
+
+  @@unique([lenderCompanyId, borrowerProfileId])
+  @@index([borrowerProfileId])
+  @@map("lender_borrowers")
+}
+
+// BE-092 (nueva). Identidad del rol BOOKKEEPER.
+model BookkeeperProfile {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation("UserBookkeeperProfile", fields: [userId], references: [id])
+
+  phone String?
+
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("BookkeeperProfileCreatedBy", fields: [createdByUserId], references: [id])
+
+  notes String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  lenderCompanies LenderCompanyBookkeeper[]
+
+  @@map("bookkeeper_profiles")
+}
+
+// BE-093 (nueva). Vínculo N:M prestamista <-> contador. Mismo patrón que
+// LenderBorrower a propósito — ver D-P1-6.
+model LenderCompanyBookkeeper {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Cascade)
+
+  bookkeeperProfileId String            @db.Uuid
+  bookkeeperProfile   BookkeeperProfile @relation(fields: [bookkeeperProfileId], references: [id], onDelete: Restrict)
+
+  status TenantLinkStatus @default(ACTIVE)
+
+  invitedByUserId String @db.Uuid
+  invitedByUser   User   @relation("LenderCompanyBookkeeperInvitedBy", fields: [invitedByUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  removedAt DateTime?
+
+  @@unique([lenderCompanyId, bookkeeperProfileId])
+  @@index([bookkeeperProfileId])
+  @@map("lender_company_bookkeepers")
+}
+
+// BE-094 (nueva). Directorio de plataforma, no tenant-scoped — D-P1-7.
+model InsuranceCompanyProfile {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation("UserInsuranceCompanyProfile", fields: [userId], references: [id])
+
+  companyName   String
+  contactPhone  String?
+  licenseNumber String? // propuesto sin confirmar — riesgo #16
+
+  createdByAdminId String @db.Uuid
+  createdByAdmin   User   @relation("InsuranceCompanyProfileCreatedByAdmin", fields: [createdByAdminId], references: [id])
+
+  notes String?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  contracts Contract[]
+
+  @@map("insurance_company_profiles")
+}
+
+// -----------------------------------------------------------------------------
+// Garantía
+// -----------------------------------------------------------------------------
+
+// BE-095 (nueva). Revierte la decisión A-4 (dirección embebida) — D-P1-5.
+// Campos de valuation/ARV/taxes tomados de Owner/app/api/analyze/route.ts,
+// todos nullable (carga manual en esta fase, ver riesgo #15).
+model Property {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String  @db.VarChar(2)
+  postalCode   String
+  county       String?
+  parcelNumber String?
+
+  propertyType PropertyType
+
+  bedrooms       Int?
+  bathrooms      Decimal? @db.Decimal(3, 1)
+  squareFootage  Int?
+  lotSize        Int?
+  yearBuilt      Int?
+  conditionScale Int? // 0-5
+
+  estimatedRepairCost     Decimal?  @db.Decimal(14, 2)
+  estimatedMarketValue    Decimal?  @db.Decimal(14, 2)
+  afterRepairValue        Decimal?  @db.Decimal(14, 2)
+  lastSalePrice           Decimal?  @db.Decimal(14, 2)
+  lastSaleDate            DateTime?
+  annualPropertyTax       Decimal?  @db.Decimal(14, 2)
+  annualInsuranceEstimate Decimal?  @db.Decimal(14, 2)
+
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("PropertyCreatedBy", fields: [createdByUserId], references: [id])
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Restrict)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  contracts Contract[]
+
+  @@index([lenderCompanyId])
+  @@index([createdByUserId])
+  @@map("properties")
+}
+
+// -----------------------------------------------------------------------------
+// Contratos
+// -----------------------------------------------------------------------------
+
+// BE-011. lenderId -> lenderCompanyId (D-P1-3); dirección embebida
+// reemplazada por propertyId (D-P1-5); insuranceCompanyId nuevo (D-P1-7).
+model Contract {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Restrict)
+
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  insuranceCompanyId String?                  @db.Uuid
+  insuranceCompany   InsuranceCompanyProfile? @relation(fields: [insuranceCompanyId], references: [id], onDelete: SetNull)
+
+  contractNumber String         @unique
+  status         ContractStatus @default(DRAFT)
+
+  currentTermsId String?        @unique @db.Uuid
+  currentTerms   ContractTerms? @relation("ContractCurrentTerms", fields: [currentTermsId], references: [id])
+
+  currentPrincipalBalance Decimal?  @db.Decimal(14, 2)
+  nextPaymentDueDate      DateTime?
+
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("ContractCreatedBy", fields: [createdByUserId], references: [id])
+
+  activatedAt DateTime?
+  paidOffAt   DateTime?
+  cancelledAt DateTime?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  termsVersions     ContractTerms[]    @relation("ContractTermsVersions")
+  borrowers         ContractBorrower[]
+  scheduledPayments ScheduledPayment[]
+  transactions      Transaction[]
+  autopays          Autopay[]
+  auditLogs         AuditLog[]
+
+  @@index([lenderCompanyId, status])
+  @@index([lenderCompanyId, createdAt])
+  @@index([propertyId])
+  @@index([insuranceCompanyId])
+  @@map("contracts")
+}
+
+// BE-012. Términos versionados e inmutables una vez ACCEPTED — decisión D0-3.
+model ContractTerms {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractId String   @db.Uuid
+  contract   Contract @relation("ContractTermsVersions", fields: [contractId], references: [id], onDelete: Cascade)
+
+  versionNumber Int
+
+  structure                LoanStructure
+  principalAmount          Decimal            @db.Decimal(14, 2)
+  interestRate             Decimal            @db.Decimal(6, 3)
+  dayCountConvention       DayCountConvention @default(THIRTY_360)
+  amortizationTermMonths   Int
+  firstPaymentDate         DateTime
+  paymentDueDay            Int
+  maturityDate             DateTime
+  lateFeeType              LateFeeType
+  lateFeeAmount            Decimal            @db.Decimal(14, 2)
+  gracePeriodDays          Int                @default(10)
+  calculatedMonthlyPayment Decimal?           @db.Decimal(14, 2)
+
+  status ContractTermsStatus @default(DRAFT)
+
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("ContractTermsCreatedBy", fields: [createdByUserId], references: [id])
+
+  changeSummary String?
+
+  supersedesId String?        @unique @db.Uuid
+  supersedes   ContractTerms? @relation("ContractTermsSupersedes", fields: [supersedesId], references: [id])
+  supersededBy ContractTerms? @relation("ContractTermsSupersedes")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  currentForContract Contract?                 @relation("ContractCurrentTerms")
+  acceptances        ContractTermsAcceptance[]
+  scheduledPayments  ScheduledPayment[]
+
+  @@unique([contractId, versionNumber])
+  @@index([contractId, status])
+  @@map("contract_terms")
+}
+
+// BE-013. Inmutable por regla de aplicación — nunca se actualiza una fila.
+model ContractTermsAcceptance {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractTermsId String        @db.Uuid
+  contractTerms   ContractTerms @relation(fields: [contractTermsId], references: [id], onDelete: Cascade)
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id])
+
+  decision  AcceptanceDecision
+  decidedAt DateTime
+  ipAddress String?
+  userAgent String?
+  comment   String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([contractTermsId, borrowerProfileId])
+  @@index([borrowerProfileId])
+  @@map("contract_terms_acceptances")
+}
+
+// BE-014. PK compuesta — soporta co-deudores.
+model ContractBorrower {
+  contractId String   @db.Uuid
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id])
+
+  isPrimary Boolean @default(true)
+
+  addedByUserId String @db.Uuid
+  addedByUser   User   @relation("ContractBorrowerAddedBy", fields: [addedByUserId], references: [id])
+
+  addedAt   DateTime  @default(now())
+  removedAt DateTime?
+
+  @@id([contractId, borrowerProfileId])
+  @@index([borrowerProfileId])
+  @@map("contract_borrowers")
+}
+
+// -----------------------------------------------------------------------------
+// Pagos
+// -----------------------------------------------------------------------------
+
+// BE-015. Lo que se debe — nunca nace PAID (corrige a Owner).
+model ScheduledPayment {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractId String   @db.Uuid
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  contractTermsId String        @db.Uuid
+  contractTerms   ContractTerms @relation(fields: [contractTermsId], references: [id])
+
+  sequenceNumber Int
+  dueDate        DateTime
+
+  principalDue              Decimal @db.Decimal(14, 2)
+  interestDue               Decimal @db.Decimal(14, 2)
+  totalDue                  Decimal @db.Decimal(14, 2)
+  projectedRemainingBalance Decimal @db.Decimal(14, 2)
+  amountPaid                Decimal @default(0) @db.Decimal(14, 2)
+
+  status ScheduledPaymentStatus @default(PENDING)
+
+  paidInFullAt DateTime?
+
+  lateFeeAssessed   Decimal   @default(0) @db.Decimal(14, 2)
+  lateFeeAssessedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  allocations TransactionAllocation[]
+
+  @@unique([contractTermsId, sequenceNumber])
+  @@index([contractId, dueDate])
+  @@index([contractId, status])
+  @@map("scheduled_payments")
+}
+
+// BE-016. Lo que realmente ocurrió — repone TransactionType.PAYOFF_PAYMENT
+// (M-5).
+model Transaction {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractId String   @db.Uuid
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  type   TransactionType
+  status TransactionStatus    @default(PENDING)
+  method PaymentMethodChannel @default(ACH)
+
+  amount   Decimal @db.Decimal(14, 2)
+  currency String  @default("USD") @db.VarChar(3)
+
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String?
+  stripePaymentMethodId String?
+  last4                 String?
+
+  failureReason String?
+  returnCode    String?
+
+  initiatedByUserId String? @db.Uuid
+  initiatedByUser   User?   @relation("TransactionInitiatedBy", fields: [initiatedByUserId], references: [id])
+
+  initiatedAt DateTime?
+  processedAt DateTime?
+  settledAt   DateTime?
+  failedAt    DateTime?
+  returnedAt  DateTime?
+  refundedAt  DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  allocations TransactionAllocation[]
+
+  @@index([contractId, status])
+  @@index([contractId, createdAt])
+  @@map("transactions")
+}
+
+// BE-017. Une ScheduledPayment <-> Transaction; permite reparto mora/interés/capital.
+model TransactionAllocation {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  transactionId String      @db.Uuid
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  scheduledPaymentId String?           @db.Uuid
+  scheduledPayment   ScheduledPayment? @relation(fields: [scheduledPaymentId], references: [id], onDelete: SetNull)
+
+  allocationType AllocationType
+  amount         Decimal        @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([scheduledPaymentId])
+  @@map("transaction_allocations")
+}
+
+// BE-018. Método de pago guardado del deudor (referencia a Stripe, nunca
+// datos bancarios completos).
+model PaymentMethod {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id])
+
+  status PaymentMethodStatus @default(ACTIVE)
+
+  stripeCustomerId      String
+  stripePaymentMethodId String  @unique
+  bankName              String?
+  last4                 String
+
+  verificationStatus PaymentMethodVerificationStatus @default(PENDING_VERIFICATION)
+  isDefault          Boolean                         @default(false)
+
+  removedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  autopays Autopay[]
+
+  @@index([userId])
+  @@map("payment_methods")
+}
+
+// BE-096 (nueva, formaliza M-6). Modelada sin activar — A-2 sigue vigente.
+// Ningún servicio ni job la usa todavía.
+model Autopay {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractId String   @db.Uuid
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id])
+
+  paymentMethodId String        @db.Uuid
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+
+  status     AutopayStatus     @default(ACTIVE)
+  amountType AutopayAmountType
+
+  fixedAmount Decimal? @db.Decimal(14, 2)
+
+  nextAttemptScheduledFor DateTime?
+
+  cancelledByUserId String?   @db.Uuid
+  cancelledByUser   User?     @relation("AutopayCancelledBy", fields: [cancelledByUserId], references: [id])
+  cancelledAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contractId, borrowerProfileId])
+  @@index([status, nextAttemptScheduledFor])
+  @@map("autopays")
+}
+
+// -----------------------------------------------------------------------------
+// Webhooks y auditoría
+// -----------------------------------------------------------------------------
+
+// BE-019. Gate de idempotencia para eventos de Stripe — D9 de
+// PAYMYLOAN_DATABASE_DESIGN.md, sigue vigente.
+model WebhookEvent {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  provider        WebhookProvider @default(STRIPE)
+  externalEventId String          @unique
+  eventType       String
+  payload         Json
+
+  status WebhookEventStatus @default(RECEIVED)
+  error  String?
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status])
+  @@map("webhook_events")
+}
+
+// BE-020. Solo inserción — nunca se actualiza ni se borra. lenderCompanyId
+// reemplaza a lenderId (D-P1-3). contractId se agrega para cerrar la
+// inconsistencia entre el ERD original (que ya mostraba Contract-AuditLog)
+// y la tabla de campos, que nunca lo había listado explícitamente.
+model AuditLog {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  actorUserId      String? @db.Uuid
+  actorUser        User?   @relation("AuditLogActor", fields: [actorUserId], references: [id])
+  isSystemActor    Boolean @default(false)
+  systemActorLabel String?
+
+  action     String
+  entityType String
+  entityId   String?
+
+  lenderCompanyId String?        @db.Uuid
+  lenderCompany   LenderCompany? @relation(fields: [lenderCompanyId], references: [id], onDelete: SetNull)
+
+  contractId String?   @db.Uuid
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([lenderCompanyId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+  @@index([contractId, createdAt])
+  @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Autenticación (soporte)
+// -----------------------------------------------------------------------------
+
+// BE-021.
+model RefreshToken {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  replacedByTokenId String?       @unique @db.Uuid
+  replacedByToken   RefreshToken? @relation("RefreshTokenReplacement", fields: [replacedByTokenId], references: [id])
+  replacesToken     RefreshToken? @relation("RefreshTokenReplacement")
+
+  userAgent String?
+  ipAddress String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model TwoFactorRecoveryCode {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  codeHash String    @unique
+  usedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@map("two_factor_recovery_codes")
 }

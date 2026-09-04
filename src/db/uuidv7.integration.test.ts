@@ -14,6 +14,7 @@ describe("uuidv7 id strategy (BE-001)", () => {
         name: "Test UUIDv7",
         email: `uuidv7-${Date.now()}@test.local`,
         password: "hash-de-prueba",
+        role: "BORROWER",
       },
     });
 

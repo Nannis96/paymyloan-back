@@ -16,8 +16,9 @@ Leyenda: ✅ hecho y verificado · 🚧 en progreso · ⬜ pendiente
 | C-1 | Deudor a nivel plataforma, no atado a un solo prestamista | Se quita `lenderId` de `BorrowerProfile`; entra tabla puente `LenderBorrower` |
 | C-2 | Alcance = backlog completo + Core Features del board | Se agregan payoff, documentos/PDF, rating PML, alta propia del deudor. "Coming Soon" del board queda fuera de esta ronda |
 | C-3 | Autopay se modela en el schema, no se activa | Tabla y enums entran ahora; el cobro recurrente queda bloqueado por la decisión de Stripe Connect |
+| C-4 | 2026-09-04: nuevo contexto funcional de Spencer + Product Board — roles `BOOKKEEPER`/`INSURANCE_COMPANY`, tenant real = `LenderCompany` (no `LenderProfile`), entidad `Property`, `User.isActive` | `C-1`/`M-1`/`M-4`/`M-5`/`M-6` (abajo) quedan **formalizados** dentro del plan base — ver [00. Decisiones 2026-09-04](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-04-ronda-fase-1) y el backlog reescrito en [16. Fase 1 — plan actualizado](plan/16-fase-1-actualizada.md) |
 
-Ver detalle completo en el plan aprobado.
+Ver detalle completo en el plan aprobado y, para la ronda 2026-09-04, en [16. Fase 1 — plan actualizado](plan/16-fase-1-actualizada.md).
 
 ---
 
@@ -38,30 +39,41 @@ Ver detalle completo en el plan aprobado.
 
 ---
 
-## ⬜ Fase 1 — Database
+## ✅ Fase 1 — Database (completa, verificada)
 
-Con los deltas M-1, M-4, M-5, M-6 incorporados directamente (no después).
+> **Backlog reescrito 2026-09-04** — implementado contra el plan vigente en [16. Fase 1 — plan actualizado](plan/16-fase-1-actualizada.md), no el original de [fases/fase-01-database.md](plan/fases/fase-01-database.md) (histórico). Los deltas `M-1`, `M-4`, `M-5`, `M-6` ya no son notas sueltas — cada uno tuvo ticket propio, todos aplicados en la misma migración `20260904204328_phase1_database_model` (decisión de implementación: una migración cohesiva para toda la fase en vez de 19 micro-migraciones — dev-only, sin consumidores externos entre pasos, riesgo bajo).
+>
+> **Ajuste posterior el mismo día (`D-P1-10`)**: Spencer aclaró que `LENDER` y `BORROWER` pueden auto-registrarse (adicional a los flujos existentes, no en reemplazo — ver [00](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-04-ronda-fase-1)). Esto forzó `LenderProfile.createdByAdminId` de obligatorio a opcional, aplicado en una segunda migración: `20260904234340_lender_profile_self_registration`.
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-008 | Enum `UserRole` + campo `role` en `User` |
-| ⬜ BE-009 | Tabla `LenderProfile` (+ M-4: campo `isOpenToDeals`) |
-| ⬜ BE-010 | Tabla `BorrowerProfile` (**sin** `lenderId` — ver M-1) |
-| ⬜ M-1 | Tabla nueva `LenderBorrower` (vínculo prestamista↔deudor, N:M) |
-| ⬜ BE-011 | Enums de contrato + tabla `Contract` |
-| ⬜ BE-012 | Tabla `ContractTerms` + FK circular `Contract.currentTermsId` |
-| ⬜ BE-013 | Tabla `ContractTermsAcceptance` |
-| ⬜ BE-014 | Tabla `ContractBorrower` |
-| ⬜ BE-015 | Enums de pago + tabla `ScheduledPayment` |
-| ⬜ BE-016 | Tabla `Transaction` (+ M-5: reponer `TransactionType.PAYOFF_PAYMENT`) |
-| ⬜ BE-017 | Tabla `TransactionAllocation` |
-| ⬜ BE-018 | Tabla `PaymentMethod` (+ M-6: tabla `Autopay` y sus enums, sin activar) |
-| ⬜ BE-019 | Tabla `WebhookEvent` |
-| ⬜ BE-020 | Tabla `AuditLog` + helper `logAuditEvent()` |
-| ⬜ BE-021 | Tablas `RefreshToken`, `PasswordResetToken`, `TwoFactorRecoveryCode` |
-| ⬜ BE-023 | Seed inicial (admin + 2-3 lenders/borrowers + 1-2 contratos de ejemplo) |
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-008 | Enum `UserRole` (5 valores: + `BOOKKEEPER`, `INSURANCE_COMPANY`) + `User.role` + `User.isActive` | Fila de prueba `fase0@example.com` sin `role` se eliminó antes de migrar (dato descartable de la Fase 0). `createUserSchema`/`users.service.ts` actualizados para exigir `role` — sin esto el endpoint `POST /api/users` existente hubiera roto el build. |
+| ✅ BE-009 | Tabla `LenderProfile` (reducida — identidad de la persona) | `createdByAdminId` es opcional (`D-P1-10`) — nulo cuando el Prestamista se auto-registra. |
+| ✅ BE-090 | Tabla `LenderCompany` (el tenant real; `ein` único + M-4 `isOpenToDeals`) | |
+| ✅ BE-010 | Tabla `BorrowerProfile` (**sin** `lenderId` — plataforma, ver M-1) | |
+| ✅ BE-091 | Tabla `LenderBorrower` (N:M, formaliza M-1) | |
+| ✅ BE-092 | Tabla `BookkeeperProfile` | |
+| ✅ BE-093 | Tabla `LenderCompanyBookkeeper` (N:M) | |
+| ✅ BE-094 | Tabla `InsuranceCompanyProfile` (directorio de plataforma) | |
+| ✅ BE-095 | Tabla `Property` (dirección + ARV/valuation/taxes — revierte A-4) | Campos de valuation modelados sobre el precedente de `Owner/app/api/analyze/route.ts`, todos `nullable`/carga manual. |
+| ✅ BE-011 | Enums de contrato + tabla `Contract` (`lenderCompanyId`, `propertyId`, `insuranceCompanyId`) | |
+| ✅ BE-012 | Tabla `ContractTerms` + FK circular `Contract.currentTermsId` | Prisma resolvió la referencia circular automáticamente (crea ambas tablas, agrega el `ALTER TABLE ... ADD CONSTRAINT` al final de la misma migración) — verificado en el SQL generado. |
+| ✅ BE-013 | Tabla `ContractTermsAcceptance` | |
+| ✅ BE-014 | Tabla `ContractBorrower` | |
+| ✅ BE-015 | Enums de pago + tabla `ScheduledPayment` | |
+| ✅ BE-016 | Tabla `Transaction` (+ M-5: repuesto `TransactionType.PAYOFF_PAYMENT`) | |
+| ✅ BE-017 | Tabla `TransactionAllocation` | |
+| ✅ BE-018 | Tabla `PaymentMethod` | |
+| ✅ BE-096 | Tabla `Autopay` y sus enums, sin activar (formaliza M-6) | Ningún servicio la referencia todavía, por diseño. |
+| ✅ BE-019 | Tabla `WebhookEvent` | |
+| ✅ BE-020 | Tabla `AuditLog` (`lenderCompanyId` + `contractId` + acciones nuevas) + helper `logAuditEvent()` en `src/lib/audit.ts` | Se agregó `contractId` a `AuditLog`: el ERD de `04-base-de-datos.md` ya mostraba la relación `Contract ↔ AuditLog` pero la tabla de campos nunca la había listado — inconsistencia heredada del plan original, corregida durante la implementación. |
+| ✅ BE-021 | Tablas `RefreshToken`, `PasswordResetToken`, `TwoFactorRecoveryCode` | |
+| ⬜ BE-022 | Tabla `Document` (opcional) | Diferida a Fase 11, según lo planeado — no implementada. |
+| ✅ BE-023 | Seed inicial (`prisma/seed.ts`, `pnpm run db:seed`) | Admin + 3 Lenders (uno con 2 `LenderCompany`, una `isOpenToDeals=false`; uno auto-registrado sin Admin — `lender3@paymyloan.dev`, `D-P1-10`) + 3 Borrowers auto-registrados (uno vinculado a 2 lenders) + 1 Bookkeeper + 1 Insurance Company + 3 `Property` + 2 `Contract` (`DRAFT` y `ACTIVE` con calendario simplificado, `Transaction`+`TransactionAllocation` de ejemplo). Idempotente: corrido dos veces seguidas, la segunda detecta el admin existente y no repite nada. |
 
-*(BE-022 Document queda absorbido por la Fase 11, no como ítem opcional aparte)*
+**Verificado end-to-end:** `type-check`, `lint`, 14 tests unitarios + 32 de integración (contra Postgres real en `db-test`, nunca mocks — cubren unicidad de `role`/`ein`/`contractNumber`/tokens, el vínculo N:M multi-lender de `LenderBorrower`/`LenderCompanyBookkeeper`, `LenderProfile.createdByAdminId` nulo (auto-registro, `D-P1-10`), la FK circular `Contract.currentTermsId`, `Transaction.type=PAYOFF_PAYMENT`, `AuditLog` sin `updatedAt`, y `logAuditEvent()`), seed corrido dos veces contra la base de desarrollo, y camino dorado por `curl` contra el contenedor `api` real (`POST /api/users` rechaza sin `role`, acepta con `role` y devuelve `role`/`isActive` en la respuesta).
+
+Detalle ticket por ticket (objetivo, Prisma, migración, tests, criterios de aceptación, riesgos, decisiones pendientes) en [16. Fase 1 — plan actualizado](plan/16-fase-1-actualizada.md).
 
 ---
 
@@ -195,9 +207,15 @@ Con los deltas M-1, M-4, M-5, M-6 incorporados directamente (no después).
 ## Fuera de esta ronda (Coming Soon del board — solo diseño, no se construye)
 
 Marketplace de prestamistas · Directorio con filtro Near Me · Mapa de deals a
-nivel zip · Integración de seguros (EOI + bidding de carriers) · Verificación
-del deudor (crédito, entidad, background check) · Suscripciones y
-facturación de la plataforma.
+nivel zip · Integración de seguros **avanzada** (solicitud de EOI dentro de la
+plataforma, bidding de carriers, mortgagee clause auto-rellenado) ·
+Verificación del deudor (crédito, entidad, background check) ·
+Suscripciones y facturación de la plataforma.
+
+*(La asociación básica aseguradora↔contrato al momento de la firma **sí**
+entra en esta ronda — `InsuranceCompanyProfile` + `Contract.insuranceCompanyId`,
+ver BE-094/BE-011 en [16. Fase 1 — plan actualizado](plan/16-fase-1-actualizada.md).
+Lo que queda afuera es el flujo de EOI/bidding en sí, no la tabla.)*
 
 ## Decisiones que siguen abiertas (bloquean partes concretas)
 

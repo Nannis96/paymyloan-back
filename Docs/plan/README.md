@@ -30,7 +30,8 @@ repartido y se convirtieron las referencias cruzadas en enlaces navegables.
 | 12 | [Docker / despliegue](12-docker-y-despliegue.md) | Postgres 18, compose, health checks, build de producción |
 | 13 | [Backlog detallado](13-backlog.md) | Convención de los tickets → **[una fase por documento](fases/)** |
 | 14 | [Roadmap recomendado](14-roadmap.md) | Orden de ejecución y qué está bloqueado |
-| 15 | [Riesgos y decisiones pendientes](15-riesgos-y-decisiones-pendientes.md) | Los 10 pendientes que pueden cambiar el diseño |
+| 15 | [Riesgos y decisiones pendientes](15-riesgos-y-decisiones-pendientes.md) | Los pendientes que pueden cambiar el diseño (10 originales + 9 nuevos del 2026-09-04) |
+| 16 | [Fase 1 — plan actualizado (2026-09-04)](16-fase-1-actualizada.md) | Backlog vigente de la Fase 1 — reemplaza a [fases/fase-01-database.md](fases/fase-01-database.md), incorpora roles nuevos, `LenderCompany`, `Property` |
 
 ## Fases de implementación (backlog)
 

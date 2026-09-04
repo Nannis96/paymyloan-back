@@ -10,6 +10,8 @@ export interface SafeUser {
   id: string;
   name: string;
   email: string;
+  role: User["role"];
+  isActive: boolean;
   isTwoFactorEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -18,8 +20,8 @@ export interface SafeUser {
 
 // Nunca se devuelve `password` ni `twoFactorSecret` fuera de este service.
 function toSafeUser(user: User): SafeUser {
-  const { id, name, email, isTwoFactorEnabled, createdAt, updatedAt, deletedAt } = user;
-  return { id, name, email, isTwoFactorEnabled, createdAt, updatedAt, deletedAt };
+  const { id, name, email, role, isActive, isTwoFactorEnabled, createdAt, updatedAt, deletedAt } = user;
+  return { id, name, email, role, isActive, isTwoFactorEnabled, createdAt, updatedAt, deletedAt };
 }
 
 export async function listUsers(): Promise<SafeUser[]> {
@@ -38,7 +40,7 @@ export async function createUser(input: CreateUserInput): Promise<SafeUser> {
 
   const password = await bcrypt.hash(input.password, BCRYPT_COST);
   const user = await prisma.user.create({
-    data: { name: input.name, email: input.email, password },
+    data: { name: input.name, email: input.email, password, role: input.role },
   });
 
   return toSafeUser(user);

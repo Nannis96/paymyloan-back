@@ -8,10 +8,10 @@ que ya existe y corre; esto documenta lo que se decidió construir y por qué.
 
 | Documento | Qué es | Cuándo consultarlo |
 |---|---|---|
-| [plan/](plan/) | **Plan de implementación del backend**, dividido en 16 secciones + 11 fases de backlog | Es el documento de referencia: arquitectura, schema, endpoints, auth, backlog y roadmap |
+| [plan/](plan/) | **Plan de implementación del backend**, dividido en 17 secciones (16 originales + [16. Fase 1 actualizada](plan/16-fase-1-actualizada.md)) + 11 fases de backlog | Es el documento de referencia: arquitectura, schema, endpoints, auth, backlog y roadmap. [plan/04-base-de-datos.md](plan/04-base-de-datos.md) es la **única fuente de verdad del modelo de datos** |
 | [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md) | Checklist de avance real contra el plan | Para saber qué está hecho, qué falta y qué decisiones siguen abiertas |
 | [PAYMYLOAN_DATABASE_DESIGN.md](PAYMYLOAN_DATABASE_DESIGN.md) | Diseño de datos previo, con el análisis profundo de `Owner` | Fuente de la lógica financiera (amortización, waterfall, ACH, idempotencia). Su capa de identidad quedó **superada** por el plan — ver [decisión D0-1](plan/00-contradicciones-y-decisiones.md) |
-| [PML — PayMyLoan.ai Product Board.pdf](PML%20—%20PayMyLoan.ai%20Product%20Board.pdf) | Product Board del 3 sep 2026 | Origen de los deltas `M-*` y de los tickets `PB-*` que aparecen en el progreso pero no en el plan original |
+| [PML — PayMyLoan.ai Product Board.pdf](PML%20—%20PayMyLoan.ai%20Product%20Board.pdf) | Product Board del 3 sep 2026 | Origen de los deltas `M-*`/`C-*`, de los tickets `PB-*`, y — desde el 2026-09-04 — de los roles `BOOKKEEPER`/`INSURANCE_COMPANY` y la entidad `Property` formalizados en [plan/00 §Decisiones 2026-09-04](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-04-ronda-fase-1) |
 
 ## Orden de lectura sugerido
 

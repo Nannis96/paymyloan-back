@@ -28,9 +28,13 @@ Contract.status:
 - **Consultar**: `GET /api/contracts/:id` devuelve contrato + términos vigentes + deudores asociados + resumen de saldo; el detalle de calendario/transacciones vive en sub-rutas para no sobrecargar la respuesta principal (paginación en frontend).
 - **Eliminar**: ver [8.1](08-contratos.md#81-ciclo-de-vida-y-estados).
 
-## 8.3 Dirección de la propiedad
+## 8.3 Propiedad del contrato
 
-Campos embebidos directamente en `Contract` (sección [4.3](04-base-de-datos.md#43-tablas)) — decisión A-4. No hay reutilización posible entre contratos (a diferencia de una tabla `Property` compartida): cada contrato captura su propia dirección aunque dos contratos del mismo prestamista coincidan en la misma casa. Trade-off consciente: si más adelante se confirma que se necesitan *blanket loans* (una hipoteca sobre varias propiedades — pregunta abierta del alcance, no mencionada por el encargo de este plan), este modelo requeriría una migración real (extraer `Property` + tabla puente) — se documenta como riesgo aceptado en la sección [15](15-riesgos-y-decisiones-pendientes.md), no se sobre-diseña ahora sin confirmación.
+> **Actualizado 2026-09-04** (`D-P1-5`): esta sección describía la dirección embebida directamente en `Contract` (decisión `A-4`). Esa decisión quedó **revertida** — ver [00 §Decisiones 2026-09-04](00-contradicciones-y-decisiones.md#decisiones-2026-09-04-ronda-fase-1) y [04 §Property](04-base-de-datos.md#property-nueva). Se conserva el razonamiento original abajo, tachado conceptualmente, para que quede registro de por qué se decidió cada cosa en su momento.
+
+`Contract.propertyId` es una FK obligatoria a la tabla `Property` (dirección + campos de valuation/ARV/taxes). Una `Property` puede estar asociada a varios `Contract` a lo largo del tiempo (refinanciamiento, segunda posición, un préstamo nuevo tras el payoff del anterior); un `Contract` tiene exactamente una `Property`. *Blanket loans* (una hipoteca sobre varias propiedades) sigue sin soportarse en esta fase — pregunta abierta, ver riesgo #7 en la sección [15](15-riesgos-y-decisiones-pendientes.md) — pero ahora es más barato de agregar después (reemplazar la FK simple por una tabla puente `ContractProperty`, sin tener que extraer `Property` de `Contract` primero).
+
+*(Razonamiento original, ya no vigente: "Campos embebidos directamente en `Contract` — decisión A-4. No hay reutilización posible entre contratos... cada contrato captura su propia dirección aunque dos contratos del mismo prestamista coincidan en la misma casa.")*
 
 ## 8.4 Datos financieros y amortización
 
