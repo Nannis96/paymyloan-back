@@ -1,0 +1,129 @@
+# Backlog — Fases de implementación
+
+Sección 13 del [plan de backend](../README.md), repartida en un documento por
+fase. Cada ticket conserva su convención original: **Objetivo**, **Archivos
+afectados**, **Dependencias**, **Prioridad** (P0 bloqueante / P1 core / P2
+importante / P3 opcional), **Complejidad** (S/M/L), **Implementación**,
+**Validaciones**, **Tests**, **Criterios de aceptación**.
+
+El orden de ejecución **no** es el orden de numeración — ver
+[14. Roadmap recomendado](../14-roadmap.md): el testing (Fase 8) va
+intercalado en cada fase, no al final, y parte de Pagos (Fase 7) está
+bloqueada por la decisión de Stripe Connect.
+
+---
+
+## Fases
+
+| Fase | Documento | Tickets | Nota |
+|---|---|---|---|
+| 0 | [Foundation](fase-00-foundation.md) | BE-001 → BE-007 | Completa — ver [progreso](../../IMPLEMENTATION_PROGRESS.md) |
+| 1 | [Database](fase-01-database.md) | BE-008 → BE-023 | Todo el schema, en migraciones por bloque lógico |
+| 2 | [Authentication](fase-02-authentication.md) | BE-024 → BE-034 | JWT propio + 2FA |
+| 3 | [Authorization](fase-03-authorization.md) | BE-035 → BE-039 | RBAC + aislamiento multi-tenant |
+| 4 | [Users / Admin / Lenders](fase-04-admin-lenders.md) | BE-040 → BE-044 | El Admin da de alta tenants |
+| 5 | [Borrowers](fase-05-borrowers.md) | BE-045 → BE-050 | CRUD de deudores + autoservicio |
+| 6 | [Contracts](fase-06-contracts.md) | BE-051 → BE-064 | Núcleo del producto: términos, aceptación, amortización |
+| 7 | [Payments](fase-07-payments.md) | BE-065 → BE-072 | BE-065/066/070 bloqueados por Stripe Connect |
+| 8 | [Testing](fase-08-testing.md) | BE-073 → BE-079 | Transversal, en paralelo a cada fase |
+| 9 | [Docker / Deployment](fase-09-docker-deployment.md) | BE-080 → BE-084 | Cierre |
+| 10 | [Opcional](fase-10-opcional.md) | BE-085 | Fuera del roadmap mínimo |
+
+---
+
+## Índice de tickets
+
+Los ítems se citan entre sí por ID (`BE-0XX`) a lo largo de todo el plan;
+esta tabla dice en qué documento vive cada uno.
+
+| ID | Título | Prioridad | Complejidad |
+|---|---|---|---|
+| [BE-001](fase-00-foundation.md#be-001--adoptar-uuidv7-como-estrategia-de-ids) | Adoptar UUIDv7 como estrategia de IDs | P0 | S |
+| [BE-002](fase-00-foundation.md#be-002--validación-fail-fast-de-variables-de-entorno) | Validación fail-fast de variables de entorno | P0 | S |
+| [BE-003](fase-00-foundation.md#be-003--configurar-cors) | Configurar CORS | P0 | S |
+| [BE-004](fase-00-foundation.md#be-004--logger-estructurado--requestid) | Logger estructurado + requestId | P1 | S |
+| [BE-005](fase-00-foundation.md#be-005--rate-limiting-en-endpoints-sensibles) | Rate limiting en endpoints sensibles | P1 | M |
+| [BE-006](fase-00-foundation.md#be-006--cliente-de-correo-transaccional) | Cliente de correo transaccional | P1 | M |
+| [BE-007](fase-00-foundation.md#be-007--reestructurar-carpetas-por-dominio) | Reestructurar carpetas por dominio | P1 | S |
+| [BE-008](fase-01-database.md#be-008--enum-userrole--campo-role-en-user) | Enum `UserRole` + campo `role` en `User` | P0 | S |
+| [BE-009](fase-01-database.md#be-009--tabla-lenderprofile) | Tabla `LenderProfile` | P0 | M |
+| [BE-010](fase-01-database.md#be-010--tabla-borrowerprofile) | Tabla `BorrowerProfile` | P0 | M |
+| [BE-011](fase-01-database.md#be-011--enums-de-contrato--tabla-contract) | Enums de contrato + tabla `Contract` | P0 | M |
+| [BE-012](fase-01-database.md#be-012--tabla-contractterms--resolver-fk-circular-con-contractcurrenttermsid) | Tabla `ContractTerms` + resolver FK circular con `Contract.currentTermsId` | P0 | M |
+| [BE-013](fase-01-database.md#be-013--tabla-contracttermsacceptance) | Tabla `ContractTermsAcceptance` | P0 | S |
+| [BE-014](fase-01-database.md#be-014--tabla-contractborrower) | Tabla `ContractBorrower` | P0 | S |
+| [BE-015](fase-01-database.md#be-015--enums-de-pago--tabla-scheduledpayment) | Enums de pago + tabla `ScheduledPayment` | P1 | M |
+| [BE-016](fase-01-database.md#be-016--tabla-transaction) | Tabla `Transaction` | P1 | M |
+| [BE-017](fase-01-database.md#be-017--tabla-transactionallocation) | Tabla `TransactionAllocation` | P1 | S |
+| [BE-018](fase-01-database.md#be-018--tabla-paymentmethod) | Tabla `PaymentMethod` | P1 | S |
+| [BE-019](fase-01-database.md#be-019--tabla-webhookevent) | Tabla `WebhookEvent` | P1 | S |
+| [BE-020](fase-01-database.md#be-020--tabla-auditlog) | Tabla `AuditLog` | P0 | M |
+| [BE-021](fase-01-database.md#be-021--tablas-refreshtoken-passwordresettoken-twofactorrecoverycode) | Tablas `RefreshToken`, `PasswordResetToken`, `TwoFactorRecoveryCode` | P0 | M |
+| [BE-022](fase-01-database.md#be-022--opcionalfase-2-tabla-document) | (Opcional/fase 2) Tabla `Document` | P3 | M |
+| [BE-023](fase-01-database.md#be-023--seed-inicial) | Seed inicial | P0 | M |
+| [BE-024](fase-02-authentication.md#be-024--módulo-srcauthpasswordts) | Módulo `src/auth/password.ts` | P0 | S |
+| [BE-025](fase-02-authentication.md#be-025--módulo-srcauthjwtts) | Módulo `src/auth/jwt.ts` | P0 | M |
+| [BE-026](fase-02-authentication.md#be-026--módulo-srcauthtotpts) | Módulo `src/auth/totp.ts` | P0 | S |
+| [BE-027](fase-02-authentication.md#be-027--post-apiauthlogin) | `POST /api/auth/login` | P0 | M |
+| [BE-028](fase-02-authentication.md#be-028--post-apiauthlogin2fa) | `POST /api/auth/login/2fa` | P0 | M |
+| [BE-029](fase-02-authentication.md#be-029--post-apiauthrefresh) | `POST /api/auth/refresh` | P0 | M |
+| [BE-030](fase-02-authentication.md#be-030--post-apiauthlogout-y-logout-all) | `POST /api/auth/logout` y `/logout-all` | P1 | S |
+| [BE-031](fase-02-authentication.md#be-031--get-apiauthme) | `GET /api/auth/me` | P0 | S |
+| [BE-032](fase-02-authentication.md#be-032--post-apiauthpasswordforgot-y-reset) | `POST /api/auth/password/forgot` y `/reset` | P1 | M |
+| [BE-033](fase-02-authentication.md#be-033--post-apiauth2fasetup-y-verify) | `POST /api/auth/2fa/setup` y `/verify` | P0 | M |
+| [BE-034](fase-02-authentication.md#be-034--post-apiauth2fadisable-y-recovery-codes) | `POST /api/auth/2fa/disable` y `/recovery-codes` | P1 | M |
+| [BE-035](fase-03-authorization.md#be-035--middleware-withauth) | Middleware `withAuth` | P0 | M |
+| [BE-036](fase-03-authorization.md#be-036--middleware-withrole) | Middleware `withRole` | P0 | M |
+| [BE-037](fase-03-authorization.md#be-037--middleware-withtenantscope) | Middleware `withTenantScope` | P0 | M |
+| [BE-038](fase-03-authorization.md#be-038--helper-requirecontractaccesssession-contractid) | Helper `requireContractAccess(session, contractId)` | P0 | M |
+| [BE-039](fase-03-authorization.md#be-039--auditoría-automática-de-accesos-denegados) | Auditoría automática de accesos denegados | P2 | S |
+| [BE-040](fase-04-admin-lenders.md#be-040--post-apiadminlenders) | `POST /api/admin/lenders` | P0 | M |
+| [BE-041](fase-04-admin-lenders.md#be-041--get-apiadminlenders-lista--búsqueda--paginación) | `GET /api/admin/lenders` (lista + búsqueda + paginación) | P0 | M |
+| [BE-042](fase-04-admin-lenders.md#be-042--get-apiadminlendersid) | `GET /api/admin/lenders/:id` | P0 | S |
+| [BE-043](fase-04-admin-lenders.md#be-043--patch-apiadminlendersid) | `PATCH /api/admin/lenders/:id` | P1 | S |
+| [BE-044](fase-04-admin-lenders.md#be-044--delete-apiadminlendersid) | `DELETE /api/admin/lenders/:id` | P1 | M |
+| [BE-045](fase-05-borrowers.md#be-045--post-apilendersmeborrowers) | `POST /api/lenders/me/borrowers` | P0 | M |
+| [BE-046](fase-05-borrowers.md#be-046--get-apilendersmeborrowers-lista--búsqueda--paginación) | `GET /api/lenders/me/borrowers` (lista + búsqueda + paginación) | P0 | M |
+| [BE-047](fase-05-borrowers.md#be-047--get-apilendersmeborrowersid) | `GET /api/lenders/me/borrowers/:id` | P0 | S |
+| [BE-048](fase-05-borrowers.md#be-048--patch-apilendersmeborrowersid) | `PATCH /api/lenders/me/borrowers/:id` | P1 | S |
+| [BE-049](fase-05-borrowers.md#be-049--delete-apilendersmeborrowersid) | `DELETE /api/lenders/me/borrowers/:id` | P1 | M |
+| [BE-050](fase-05-borrowers.md#be-050--get-apiborrowersme-patch-apiborrowersme-post-apiborrowersmepassword) | `GET /api/borrowers/me`, `PATCH /api/borrowers/me`, `POST /api/borrowers/me/password` | P0 | M |
+| [BE-051](fase-06-contracts.md#be-051--post-apicontracts) | `POST /api/contracts` | P0 | L |
+| [BE-052](fase-06-contracts.md#be-052--get-apicontracts-lista--filtros--paginación-por-rol) | `GET /api/contracts` (lista + filtros + paginación, por rol) | P0 | M |
+| [BE-053](fase-06-contracts.md#be-053--get-apicontractsid) | `GET /api/contracts/:id` | P0 | M |
+| [BE-054](fase-06-contracts.md#be-054--patch-apicontractsid) | `PATCH /api/contracts/:id` | P1 | M |
+| [BE-055](fase-06-contracts.md#be-055--delete-apicontractsid) | `DELETE /api/contracts/:id` | P1 | S |
+| [BE-056](fase-06-contracts.md#be-056--post-apicontractsidcancel) | `POST /api/contracts/:id/cancel` | P1 | M |
+| [BE-057](fase-06-contracts.md#be-057--postdelete-apicontractsidborrowers) | `POST/DELETE /api/contracts/:id/borrowers` | P0 | M |
+| [BE-058](fase-06-contracts.md#be-058--servicio-de-amortización-calculateamortizedpayment-calculateinterestonlypayment-calculateballoonpayment-calculateaccruedinterest) | Servicio de amortización (`calculateAmortizedPayment`, `calculateInterestOnlyPayment`, `calculateBalloonPayment`, `calculateAccruedInterest`) | P0 | L |
+| [BE-059](fase-06-contracts.md#be-059--servicio-generateamortizationschedule--activación-automática) | Servicio `generateAmortizationSchedule` + activación automática | P0 | L |
+| [BE-060](fase-06-contracts.md#be-060--post-apicontractsidterms-proponer-nueva-versión--submit) | `POST /api/contracts/:id/terms` (proponer nueva versión) + `submit` | P1 | M |
+| [BE-061](fase-06-contracts.md#be-061--post-apicontractsidtermstermsidaccept-y-reject) | `POST /api/contracts/:id/terms/:termsId/accept` y `/reject` | P0 | L |
+| [BE-062](fase-06-contracts.md#be-062--get-apicontractsidschedule-y-balance) | `GET /api/contracts/:id/schedule` y `/balance` | P0 | M |
+| [BE-063](fase-06-contracts.md#be-063--job-recomputecontractdelinquencystatus) | Job `recomputeContractDelinquencyStatus` | P2 | M |
+| [BE-064](fase-06-contracts.md#be-064--job-assesslatefee) | Job `assessLateFee` | P2 | M |
+| [BE-065](fase-07-payments.md#be-065--post-apipayment-methods-setupintent-y-getdelete) | `POST /api/payment-methods` (SetupIntent) y `GET`/`DELETE` | P1 | L |
+| [BE-066](fase-07-payments.md#be-066--post-apicontractsidpayments-ach-del-deudor) | `POST /api/contracts/:id/payments` (ACH del deudor) | P1 | L |
+| [BE-067](fase-07-payments.md#be-067--post-apicontractsidpaymentsmanual) | `POST /api/contracts/:id/payments/manual` | P1 | M |
+| [BE-068](fase-07-payments.md#be-068--servicio-calculatepaymentallocation--applytransaction) | Servicio `calculatePaymentAllocation` + `applyTransaction` | P0 | L |
+| [BE-069](fase-07-payments.md#be-069--get-apicontractsidtransactions-y-get-apitransactionsid) | `GET /api/contracts/:id/transactions` y `GET /api/transactions/:id` | P1 | M |
+| [BE-070](fase-07-payments.md#be-070--post-apiwebhooksstripe--webhookevent) | `POST /api/webhooks/stripe` + `WebhookEvent` | P1 | L |
+| [BE-071](fase-07-payments.md#be-071--servicio-reversetransaction--post-apitransactionsidreverse) | Servicio `reverseTransaction` + `POST /api/transactions/:id/reverse` | P1 | M |
+| [BE-072](fase-07-payments.md#be-072--get-apiaudit-logs) | `GET /api/audit-logs` | P2 | M |
+| [BE-073](fase-08-testing.md#be-073--configurar-entorno-de-test-db-de-test-vitestjest-scripts-pnpm-test) | Configurar entorno de test (DB de test, `vitest`/`jest`, scripts `pnpm test`) | P0 | M |
+| [BE-074](fase-08-testing.md#be-074--suite-unit-amortización-y-allocation) | Suite unit: amortización y allocation | P0 | M |
+| [BE-075](fase-08-testing.md#be-075--suite-integration-contratos--calendario) | Suite integration: contratos + calendario | P0 | L |
+| [BE-076](fase-08-testing.md#be-076--suite-integration-pagos--waterfall--duplicados) | Suite integration: pagos + waterfall + duplicados | P0 | L |
+| [BE-077](fase-08-testing.md#be-077--suite-api-auth--2fa) | Suite API: auth + 2FA | P0 | L |
+| [BE-078](fase-08-testing.md#be-078--suite-multi-tenancy-parametrizada) | Suite multi-tenancy parametrizada | P0 | L |
+| [BE-079](fase-08-testing.md#be-079--suite-de-seguridad-negativa-rate-limit-jwt-manipulado-tokens-reusados) | Suite de seguridad negativa (rate limit, JWT manipulado, tokens reusados) | P1 | M |
+| [BE-080](fase-09-docker-deployment.md#be-080--actualizar-docker-composeymldevyml-a-postgres-18) | Actualizar `docker-compose.yml`/`.dev.yml` a Postgres 18 | P0 | S |
+| [BE-081](fase-09-docker-deployment.md#be-081--servicio-db-test-en-docker-composedevyml) | Servicio `db-test` en `docker-compose.dev.yml` | P1 | S |
+| [BE-082](fase-09-docker-deployment.md#be-082--healthcheck-con-verificación-real-de-conectividad-a-postgres) | `HEALTHCHECK` con verificación real de conectividad a Postgres | P1 | S |
+| [BE-083](fase-09-docker-deployment.md#be-083--documentar-variables-de-entorno-de-producción-y-secretos) | Documentar variables de entorno de producción y secretos | P1 | S |
+| [BE-084](fase-09-docker-deployment.md#be-084--definir-networking-de-producción-nginx-compartido-vs-subdominio-propio) | Definir networking de producción (nginx compartido vs subdominio propio) | P2 | M |
+| [BE-085](fase-10-opcional.md#be-085--módulo-de-documentos-s3-privado-urls-firmadas) | Módulo de Documentos (S3 privado, URLs firmadas) | P3 | L |
+
+---
+
+[← Índice del plan](../README.md)  ·  [13. Backlog detallado](../13-backlog.md)  ·  [14. Roadmap recomendado](../14-roadmap.md)

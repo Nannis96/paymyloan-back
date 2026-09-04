@@ -11,7 +11,10 @@ datasource db {
 // acá — vive en la relación persona ↔ préstamo (LoanParty, todavía no
 // modelada). User es solo identidad, credenciales y 2FA.
 model User {
-  id       String @id @default(cuid())
+  // UUIDv7 nativo de Postgres (BE-001, decisión D0-2): ordenable por tiempo
+  // de creación como un autoincrement, pero no adivinable/enumerable como
+  // un ID secuencial. Convención para toda tabla nueva del proyecto.
+  id       String @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name     String
   email    String @unique
   password String // hash bcrypt, nunca texto plano

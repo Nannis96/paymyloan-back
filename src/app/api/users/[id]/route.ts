@@ -19,20 +19,20 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const user = await updateUser(id, body);
     return apiSuccess(user);
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, request);
   }
 }
 
 // DELETE /api/users/:id — eliminado lógico: apaga el usuario (deletedAt).
 // Nunca borra la fila, porque puede quedar referenciada desde préstamos,
 // documentos o la bitácora de auditoría.
-export async function DELETE(_request: Request, { params }: RouteContext) {
+export async function DELETE(request: Request, { params }: RouteContext) {
   const { id } = await params;
 
   try {
     const user = await deleteUser(id);
     return apiSuccess(user);
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, request);
   }
 }

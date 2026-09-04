@@ -15,12 +15,14 @@ portable entre repos.
 | Next.js (App Router, Turbopack) | 16.1.1 |
 | React / React DOM | 19.2.3 (dependencia de Next; no se usa JSX) |
 | TypeScript | 5.x |
-| Prisma / PostgreSQL | 6.19.3 / 16 |
+| Prisma / PostgreSQL | 6.19.3 / 18 |
 | bcryptjs / zod | 3.0.3 / 4.5.4 |
+| vitest | 4.x (unit + integración) |
 
 Sin Tailwind, sin `lucide-react`: no hay UI, es un backend puro. Sin
 NextAuth todavía: no hay sesión ni login, solo el modelo de usuario y sus
-endpoints CRUD.
+endpoints CRUD (la [Fase 2](Docs/plan/fases/fase-02-authentication.md) del
+plan de backend agrega JWT propio + 2FA).
 
 ## Por qué Next.js como backend
 
@@ -91,6 +93,26 @@ pnpm run db:studio           # explorador visual de datos
 el server; `docker-compose.yml` lo hace en un servicio `migrate` aparte
 (target `builder`, porque `runner` es standalone y no lleva el CLI de Prisma).
 
+Postgres 18 (BE-001): las imágenes oficiales cambiaron la convención de
+volumen en esta versión mayor — se monta en `/var/lib/postgresql` (no
+`.../data`), el propio contenedor arma el subdirectorio por versión.
+
+### Tests
+
+```bash
+pnpm test                # unitarios (funciones puras, sin DB) — vitest.config.mts
+pnpm run test:watch      # igual, en modo watch
+
+docker compose -f docker-compose.dev.yml up -d db-test
+pnpm run test:integration   # contra Postgres real (servicio "db-test"), nunca mocks de Prisma
+```
+
+`db-test` es una base Postgres 18 separada de la de desarrollo (puerto
+`5433`, sin volumen persistente): `test:integration` le aplica las
+migraciones y corre ahí, así nunca toca los datos de `db`. Convención de
+nombre de archivo: `*.test.ts` = unitario, `*.integration.test.ts` = contra
+Postgres real (ver plan de backend §11).
+
 ## Puerto
 
 **4000** (dev y prod), para no chocar con el frontend, que usa 3000.
@@ -100,17 +122,18 @@ siempre escucha en 4000 puertas adentro).
 
 ## Variables de entorno
 
-Ver `.env.example`. `PORT` y `NODE_ENV` se leen en `src/config/env.ts`;
-`DATABASE_URL` la lee Prisma directamente (`prisma/schema.prisma`). El
-archivo también documenta, comentadas, variables reservadas para cuando
-existan esas piezas (`JWT_SECRET`, `CORS_ORIGIN`): no se leen en ningún
-lado del código todavía.
+Ver `.env.example` para el detalle de cada una. Todas se leen en un solo
+lugar, `src/config/env.ts` (export `env`), que además valida al arrancar:
+en `NODE_ENV=production` faltar `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` o
+`DATABASE_URL` corta el proceso con un mensaje claro (`process.exit(1)`) en
+vez de arrancar a medias. En desarrollo/test esas mismas variables tienen
+un placeholder inseguro si se dejan vacías, para no bloquear el flujo local.
 
 ## Estructura
 
 ```
 prisma/
-  schema.prisma            datasource + modelo User
+  schema.prisma            datasource + modelo User (id UUIDv7)
   migrations/               historial de migraciones SQL
 src/
   app/
@@ -118,8 +141,9 @@ src/
       health/route.ts       GET /api/health — sonda de infraestructura
       users/route.ts         POST /api/users — alta de usuario
       users/[id]/route.ts     PATCH (edición) y DELETE (eliminado lógico)
+  proxy.ts                  CORS + requestId, corre antes de toda ruta /api/*
   config/
-    env.ts                  punto único de lectura de variables de entorno
+    env.ts                  punto único de lectura de variables de entorno (fail-fast)
   controllers/
     health.controller.ts    orquesta la respuesta del endpoint de salud
     users.controller.ts     valida input (Zod) y llama a users.service
@@ -127,31 +151,42 @@ src/
     users.service.ts        lógica de negocio: alta, edición, eliminado lógico
   validations/
     users.validation.ts     esquemas Zod de entrada para /api/users
-  middlewares/               middlewares reutilizables (vacío por ahora)
+  middlewares/
+    cors.ts                 decide qué origen se permite (CORS_ORIGIN)
+    rateLimit.ts            contador en memoria por key (login, 2FA, reset)
+  auth/                     vacío — Fase 2 (jwt.ts, password.ts, totp.ts)
+  repositories/             vacío — Fase 6 (queries complejas de contracts/payments)
+  jobs/                     vacío — Fase 6 (mora, late fees, expiración de tokens)
   db/
     prisma.ts                cliente Prisma (instancia única, reusada en dev)
   errors/
     AppError.ts              error tipado con statusCode/code
-    errorHandler.ts          convierte cualquier error en respuesta HTTP
+    errorHandler.ts          convierte cualquier error en respuesta HTTP, logueado con requestId
   lib/
     apiResponse.ts           helpers apiSuccess()/apiError() (forma JSON única)
+    logger.ts                logger JSON estructurado + getRequestId()
+    email.ts                 sendEmail() agnóstico de proveedor (Resend hoy)
   types/
     api.ts                   tipos compartidos de la forma de respuesta
 public/                     estáticos servidos tal cual (vacío hoy)
 Dockerfile                  multietapa: deps → dev / builder → runner
 docker-compose.yml          producción (db + migrate + api)
-docker-compose.dev.yml      desarrollo con hot reload (db + api)
-.env.example                variables soportadas hoy + reservadas a futuro
+docker-compose.dev.yml      desarrollo con hot reload (db + db-test + api)
+vitest.config.mts           tests unitarios (*.test.ts)
+vitest.integration.config.mts  tests de integración (*.integration.test.ts, Postgres real)
+.env.example                todas las variables soportadas hoy, documentadas
 ```
 
 ### Flujo de una request
 
-`route.ts` (HTTP) → `controller` (valida el input con Zod y llama a un
-`service`) → `service` (lógica de negocio, habla con Prisma) → `lib/apiResponse`
-(formatea `{ success, data }` / `{ success: false, error }`) — con
-`errors/errorHandler.ts` capturando cualquier excepción en el medio.
-`GET /api/health` sigue siendo el ejemplo mínimo sin negocio ni DB;
-`/api/users` es el primero que implementa la cadena completa contra Postgres.
+`proxy.ts` (CORS + requestId) → `route.ts` (HTTP) → `controller` (valida el
+input con Zod y llama a un `service`) → `service` (lógica de negocio, habla
+con Prisma) → `lib/apiResponse` (formatea `{ success, data }` /
+`{ success: false, error }`) — con `errors/errorHandler.ts` capturando
+cualquier excepción en el medio y logueándola con el `requestId` de esa
+request (`lib/logger.ts`). `GET /api/health` sigue siendo el ejemplo mínimo
+sin negocio ni DB; `/api/users` es el primero que implementa la cadena
+completa contra Postgres.
 
 ### API de usuarios
 
@@ -162,6 +197,7 @@ sin modelar (ver alcance §3/§7). Todas las respuestas usan la forma
 
 | Método | Ruta | Qué hace |
 |---|---|---|
+| `GET` | `/api/users` | Lista los usuarios activos (excluye eliminados lógicamente) |
 | `POST` | `/api/users` | Crea un usuario (`name`, `email`, `password`) |
 | `PATCH` | `/api/users/:id` | Edita `name`/`email`/`password` (parcial) |
 | `DELETE` | `/api/users/:id` | Eliminado lógico: apaga `deletedAt`, no borra la fila |
@@ -178,9 +214,22 @@ destino de edición/borrado (responde `404 USER_NOT_FOUND`).
 - **Sin páginas, solo `api/`.** Es un backend, no una app con UI. Se
   verificó que Next.js construye y corre sin problema sin ningún
   `page.tsx`/`layout.tsx` en el árbol.
-- **`middlewares/` sigue vacío a propósito.** Todavía no hay nada que deba
-  correr antes de que la request llegue a una ruta (ej. sesión/JWT); se
-  llena cuando exista auth real.
+- **CORS y requestId en `src/proxy.ts` (no `middlewares/`).** Next.js 16
+  exige ese archivo/convención (reemplazo de `middleware.ts`, ver
+  https://nextjs.org/docs/messages/middleware-to-proxy) para que algo corra
+  antes de *cualquier* ruta; `middlewares/` queda para lógica invocada
+  explícitamente desde un controller (rate limiting, y desde la Fase 3 los
+  guards de auth/tenancy).
+- **UUIDv7 nativo de Postgres (`dbgenerated("uuidv7()")`), no `cuid()`.**
+  Ordenable por tiempo de creación como un autoincrement, pero no
+  adivinable/enumerable como un ID secuencial — requiere Postgres 18
+  (verificado sin warnings contra Prisma 6.19.3).
+- **Fail-fast de variables de entorno con corte real del proceso.** Un
+  `throw` en la evaluación de un módulo no basta: el runtime de Next
+  (Turbopack) lo atrapa y sigue sirviendo requests degradado en vez de
+  terminar — verificado con la imagen `runner`. `src/config/env.ts` hace
+  `process.exit(1)` explícito para que falte-una-variable sea un corte
+  visible, no un contenedor "Up" respondiendo 500 en bucle.
 - **Endpoint de salud como pieza de infraestructura, no de negocio.**
   Sigue demostrando el patrón route → controller → error handler mínimo
   (sin DB), y es lo que usa el `HEALTHCHECK` del `Dockerfile`.
@@ -207,19 +256,21 @@ destino de edición/borrado (responde `404 USER_NOT_FOUND`).
   que se decida cómo se va a desplegar (mismo dominio detrás de un mismo
   nginx, subdominio propio, etc. — decisión de infraestructura pendiente).
 
-## Qué queda pendiente (fuera de alcance de esta etapa, a propósito)
+## Qué queda pendiente
+
+Ver [`Docs/plan/`](Docs/plan/) para el plan completo y
+[`Docs/plan/fases/`](Docs/plan/fases/) para el backlog
+(BE-001..BE-085 + PB-001..PB-015). Lo inmediato después de esta etapa
+(Fase 0 — Foundation, completa):
 
 - Conectar el frontend a este backend (hoy `paymyloan` no le apunta a
   nada; sigue funcionando standalone vía `NEXT_PUBLIC_REGISTRO_ENDPOINT`
   vacío).
-- Autenticación (sesión, JWT, 2FA por TOTP — `User` ya tiene los campos,
-  falta el flujo).
-- `GET /api/users` (listar/leer): no se pidió para esta etapa, solo alta,
-  edición y eliminado lógico.
-- `Property`, `Loan`, `LoanParty` y el resto del modelo de datos de
-  `../paymyloan-alcance.html` §7 — `User` es la primera pieza únicamente.
-- CORS: definir `CORS_ORIGIN` y aplicarlo cuando el frontend empiece a
-  llamar a esta API desde el navegador.
+- Fase 1 (Database): `role` en `User`, `LenderProfile`, `BorrowerProfile`
+  + `LenderBorrower`, `Contract`/`ContractTerms` y el resto del modelo de
+  negocio — `User` sigue siendo la única tabla real.
+- Autenticación real (JWT access+refresh, 2FA por TOTP — `User` ya tiene
+  los campos, falta el flujo completo de Fase 2).
 - Decidir infraestructura de despliegue (reverse proxy/TLS, mismo servidor
   que el frontend o separado, y si Postgres corre en el mismo Docker host
   o en un servicio administrado).

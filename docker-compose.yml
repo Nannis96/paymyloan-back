@@ -9,14 +9,19 @@
 #   docker compose up --build -d
 services:
   db:
-    image: postgres:16-alpine
+    # postgres:18 (BE-001): uuidv7() nativo para las PK de toda tabla nueva
+    # (decisión D0-2) — verificado compatible con Prisma 6.19 sin warnings.
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-paymyloan}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paymyloan}
       POSTGRES_DB: ${POSTGRES_DB:-paymyloan}
     volumes:
-      - paymyloan_back_db_data:/var/lib/postgresql/data
+      # postgres:18 cambió la convención: monta en /var/lib/postgresql (no
+      # ".../data") para que el propio contenedor arme subdirectorios por
+      # versión mayor (soporte de pg_upgrade in-place en el futuro).
+      - paymyloan_back_db_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paymyloan}"]
       interval: 5s

@@ -3,12 +3,12 @@ import { handleRouteError } from "@/errors/errorHandler";
 import { apiError, apiSuccess } from "@/lib/apiResponse";
 
 // GET /api/users — lista los usuarios activos (excluye eliminados lógicamente).
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const users = await listUsers();
     return apiSuccess(users);
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, request);
   }
 }
 
@@ -26,6 +26,6 @@ export async function POST(request: Request) {
     const user = await createUser(body);
     return apiSuccess(user, 201);
   } catch (error) {
-    return handleRouteError(error);
+    return handleRouteError(error, request);
   }
 }
