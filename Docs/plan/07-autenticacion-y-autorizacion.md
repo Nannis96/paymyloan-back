@@ -6,7 +6,9 @@
 
 ## 7.1 Estrategia de sesión
 
-**JWT propio, access + refresh** (ver A-1). Access token de vida corta (15 min, `JWT_ACCESS_TTL`), payload mínimo: `{ sub: userId, role, lenderId? }` (`lenderId` presente solo si `role ∈ {LENDER, BORROWER}`, resuelto en el momento del login, nunca confiado si viniera de otro lado). Refresh token de vida larga (30 días), opaco (no JWT), hash almacenado en `refresh_tokens` (nunca el valor en claro), con rotación en cada uso (`replacedByTokenId`) para detectar reuso de un token robado.
+**JWT propio, access + refresh** (ver A-1). Access token de vida corta (15 min, `JWT_ACCESS_TTL`), payload mínimo: `{ sub: userId, role }`. Refresh token de vida larga (30 días), opaco (no JWT), hash almacenado en `refresh_tokens` (nunca el valor en claro), con rotación en cada uso (`replacedByTokenId`) para detectar reuso de un token robado.
+
+> **Corregido 2026-09-06 (`D-P2-2`)**: la versión original de este payload incluía `lenderId?`, resuelto en el login. Eso dejó de ser implementable desde `D-P1-3` (el tenant real es `LenderCompany`, y un `LenderProfile` puede tener N) — no hay un único `lenderId` que resolver en el momento de loguearse. El JWT implementado en Fase 2 lleva **solo `{ sub, role }`**; `GET /api/auth/me` (§7.7) devuelve la lista completa de empresas asociadas para que el cliente elija. Cómo esa elección viaja en requests posteriores es explícitamente trabajo de Fase 3 (`withTenantScope`, `BE-037`) — ver riesgo #18 en [15](15-riesgos-y-decisiones-pendientes.md), acotado pero no cerrado del todo.
 
 ## 7.2 Login / logout / refresh
 
@@ -84,6 +86,34 @@ Este es el requisito de seguridad más importante del encargo. Mecanismo, en cap
 | `withRole(...roles)` | 403 si `session.role` no está en la lista; para ADMIN/LENDER, adicionalmente 403 `TWO_FACTOR_REQUIRED` si no tiene 2FA activo (salvo en rutas `/api/auth/2fa/*`) |
 | `withTenantScope` | Inyecta `session.lenderId` como único origen de verdad del tenant en el contexto de la request |
 | `rateLimit(bucket)` | Limita intentos en `login`, `login/2fa`, `password/forgot` — ver BE-006 |
+
+> **Fase 2 (implementado)** trae un helper provisorio, `src/auth/session.ts` (`requireSession`/`requireRole`), para los endpoints de esta misma fase que ya necesitan sesión (`/me`, `/logout`, `/2fa/*`, `/admin/users/:id/activate`). A propósito **no** aplica la regla de 2FA obligatorio de arriba — eso es explícitamente `BE-036`, de Fase 3, que reemplaza este helper por el `withAuth`/`withRole` definitivo de la tabla.
+
+## 7.7 Auto-registro y activación (`D-P2-1`, nuevo 2026-09-06)
+
+`LENDER` y `BORROWER` pueden auto-registrarse — adicional a los flujos existentes (Admin crea Lender, Lender crea/vincula Borrower), no en reemplazo (`D-P1-10`). `ADMIN`, `BOOKKEEPER` e `INSURANCE_COMPANY` no tienen este endpoint.
+
+```
+POST /api/auth/register  (Público)
+  body: { name, email, role }   — role ∈ { LENDER, BORROWER }, sin contraseña
+  → crea User(isActive=false, password=hash de un valor aleatorio que nadie conoce)
+    + LenderProfile(createdByAdminId=null) o BorrowerProfile(createdByUserId=null)
+  → responde 202 siempre con el mismo mensaje genérico, exista o no ya el correo
+    (misma postura anti-enumeración que password/forgot)
+
+POST /api/admin/users/:id/activate   (ADMIN)
+  → si el usuario nunca inició sesión (lastLoginAt=null): genera una contraseña
+    temporal, la guarda hasheada (bcrypt) y la envía por correo (plantilla
+    account-activated); responde { user, emailSent }
+  → si ya había iniciado sesión antes (reactivación): solo isActive=true, no
+    toca la contraseña ni reenvía correo — este mismo endpoint es el
+    reintento si el primer envío falló (desactivar + activar de nuevo)
+
+POST /api/admin/users/:id/deactivate   (ADMIN)
+  → isActive=false + revoca todos los refresh tokens vigentes del usuario
+```
+
+La cuenta nace inactiva porque el negocio quiere poder revisarla antes de dejarla operar (riesgo #20, resuelto). El registro no pide contraseña porque nadie la va a escribir en ese momento — se genera recién al activar, y se entrega por el único canal que en ese punto ya se verificó que el usuario controla: su correo.
 
 ---
 

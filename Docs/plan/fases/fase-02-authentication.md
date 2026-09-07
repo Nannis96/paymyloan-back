@@ -2,6 +2,8 @@
 
 ---
 
+> **Fase 2 reescrita 2026-09-07**: este documento queda como histórico — los 11 tickets de abajo (`BE-024`..`BE-034`) se implementaron tal cual están especificados acá, sin cambios. El backlog vigente, con el ticket nuevo `BE-097` (activación de cuenta) y la corrección de `PB-013` (ambos roles LENDER/BORROWER, sin contraseña en el registro), es **[17. Fase 2 — plan actualizado](../17-fase-2-actualizada.md)**.
+
 # Fase 2 — Authentication
 
 ## BE-024 — Módulo `src/auth/password.ts`

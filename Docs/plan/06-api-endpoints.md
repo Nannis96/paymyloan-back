@@ -10,6 +10,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 
 | Método | Ruta | Rol | Notas |
 |---|---|---|---|
+| POST | `/api/auth/register` | Público | `D-P2-1`, nuevo — auto-registro de LENDER/BORROWER (`D-P1-10`), sin contraseña; siempre 202 con el mismo mensaje, ver [§7.7](07-autenticacion-y-autorizacion.md#77-auto-registro-y-activación-d-p2-1-nuevo-2026-09-06) |
 | POST | `/api/auth/login` | Público | paso 1: credenciales; si `isTwoFactorEnabled`, responde `2FA_REQUIRED` sin emitir tokens |
 | POST | `/api/auth/login/2fa` | Público (con token temporal de paso 1) | paso 2: código TOTP |
 | POST | `/api/auth/refresh` | Público (con refresh token) | rota el refresh token |
@@ -32,6 +33,8 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | GET | `/api/admin/lenders/:id` | ADMIN | N/A |
 | PATCH | `/api/admin/lenders/:id` | ADMIN | N/A |
 | DELETE | `/api/admin/lenders/:id` | ADMIN | N/A — soft delete, bloqueado si tiene contratos `ACTIVE` |
+| POST | `/api/admin/users/:id/activate` | ADMIN | `BE-097`, nuevo (`D-P2-1`) — primera activación genera y envía contraseña temporal; reactivación solo reabre acceso |
+| POST | `/api/admin/users/:id/deactivate` | ADMIN | `BE-097`, nuevo — además revoca los refresh tokens vigentes del usuario |
 
 ## 6.3 Lenders (perfil propio y borrowers)
 

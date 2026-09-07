@@ -19,7 +19,9 @@ export interface SafeUser {
 }
 
 // Nunca se devuelve `password` ni `twoFactorSecret` fuera de este service.
-function toSafeUser(user: User): SafeUser {
+// Exportada para que auth.service.ts/adminUsers.service.ts (Fase 2) reusen
+// el mismo mapeo en vez de duplicarlo.
+export function toSafeUser(user: User): SafeUser {
   const { id, name, email, role, isActive, isTwoFactorEnabled, createdAt, updatedAt, deletedAt } = user;
   return { id, name, email, role, isActive, isTwoFactorEnabled, createdAt, updatedAt, deletedAt };
 }

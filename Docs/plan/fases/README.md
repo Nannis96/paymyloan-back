@@ -19,7 +19,7 @@ bloqueada por la decisión de Stripe Connect.
 |---|---|---|---|
 | 0 | [Foundation](fase-00-foundation.md) | BE-001 → BE-007 | Completa — ver [progreso](../../IMPLEMENTATION_PROGRESS.md) |
 | 1 | [Database](fase-01-database.md) | BE-008 → BE-023 | Todo el schema, en migraciones por bloque lógico |
-| 2 | [Authentication](fase-02-authentication.md) | BE-024 → BE-034 | JWT propio + 2FA |
+| 2 | [Authentication](fase-02-authentication.md) | BE-024 → BE-034 | Completa — histórico, reemplazado por [17. Fase 2 — plan actualizado](../17-fase-2-actualizada.md) (agrega `PB-013` corregido + `BE-097`) |
 | 3 | [Authorization](fase-03-authorization.md) | BE-035 → BE-039 | RBAC + aislamiento multi-tenant |
 | 4 | [Users / Admin / Lenders](fase-04-admin-lenders.md) | BE-040 → BE-044 | El Admin da de alta tenants |
 | 5 | [Borrowers](fase-05-borrowers.md) | BE-045 → BE-050 | CRUD de deudores + autoservicio |
@@ -72,6 +72,7 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-032](fase-02-authentication.md#be-032--post-apiauthpasswordforgot-y-reset) | `POST /api/auth/password/forgot` y `/reset` | P1 | M |
 | [BE-033](fase-02-authentication.md#be-033--post-apiauth2fasetup-y-verify) | `POST /api/auth/2fa/setup` y `/verify` | P0 | M |
 | [BE-034](fase-02-authentication.md#be-034--post-apiauth2fadisable-y-recovery-codes) | `POST /api/auth/2fa/disable` y `/recovery-codes` | P1 | M |
+| [BE-097](../17-fase-2-actualizada.md) | `POST /api/admin/users/:id/activate` y `/deactivate` (nuevo, `D-P2-1`) | P0 | M |
 | [BE-035](fase-03-authorization.md#be-035--middleware-withauth) | Middleware `withAuth` | P0 | M |
 | [BE-036](fase-03-authorization.md#be-036--middleware-withrole) | Middleware `withRole` | P0 | M |
 | [BE-037](fase-03-authorization.md#be-037--middleware-withtenantscope) | Middleware `withTenantScope` | P0 | M |

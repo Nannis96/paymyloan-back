@@ -1,4 +1,6 @@
 import type { UserRole } from "@prisma/client";
+import { hashPassword } from "@/auth/password";
+import { generateSecret } from "@/auth/totp";
 import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 
@@ -26,6 +28,39 @@ export async function createTestUser(role: UserRole) {
 
 export function createTestAdmin() {
   return createTestUser("ADMIN");
+}
+
+// Fase 2 (auth): a diferencia de createTestUser (hash literal "hash-de-
+// prueba", nunca verificable), esta fixture hashea una contraseña real —
+// hace falta para probar login/refresh/2FA de punta a punta.
+export async function createTestUserWithPassword(role: UserRole, plainPassword: string) {
+  const password = await hashPassword(plainPassword);
+  return prisma.user.create({
+    data: {
+      name: `Test ${role} (con password real)`,
+      email: `${unique(role.toLowerCase())}@test.local`,
+      password,
+      role,
+    },
+  });
+}
+
+// Idem, pero con 2FA ya activo — devuelve también el secreto en claro para
+// que el test pueda generar códigos válidos con generateCodeForTesting().
+export async function createTestUserWithTwoFactor(role: UserRole, plainPassword: string) {
+  const password = await hashPassword(plainPassword);
+  const secret = generateSecret();
+  const user = await prisma.user.create({
+    data: {
+      name: `Test ${role} (2FA)`,
+      email: `${unique(role.toLowerCase())}@test.local`,
+      password,
+      role,
+      isTwoFactorEnabled: true,
+      twoFactorSecret: secret,
+    },
+  });
+  return { user, secret };
 }
 
 export async function createTestLenderCompany() {

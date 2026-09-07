@@ -1,7 +1,7 @@
 import { env } from "@/config/env";
 import { logger } from "@/lib/logger";
 
-export type EmailTemplate = "welcome-borrower" | "password-reset" | "terms-updated";
+export type EmailTemplate = "welcome-borrower" | "password-reset" | "terms-updated" | "account-activated";
 
 export interface SendEmailInput {
   to: string;
@@ -23,6 +23,13 @@ const TEMPLATES: Record<EmailTemplate, (data: Record<string, string>) => string>
   "terms-updated": (data) =>
     `<p>El prestamista propuso una nueva versión de los términos del contrato ${data.contractNumber}. ` +
     `Ingresa a PayMyLoan para revisarla y aceptarla o rechazarla.</p>`,
+  // D-P2-1: el auto-registrado no elige contraseña — nace inactivo y esta
+  // es la plantilla que recibe al activarlo un Admin, con la contraseña
+  // temporal generada en ese momento (adminUsers.service.ts).
+  "account-activated": (data) =>
+    `<p>Hola ${data.name},</p>` +
+    `<p>Tu cuenta de PayMyLoan ya está activa. Tu contraseña temporal es <strong>${data.temporaryPassword}</strong>; ` +
+    `te la va a pedir cambiar al iniciar sesión por primera vez.</p>`,
 };
 
 // Wrapper agnóstico de proveedor (BE-006): el resto del código solo llama a
@@ -31,6 +38,20 @@ const TEMPLATES: Record<EmailTemplate, (data: Record<string, string>) => string>
 // cambiarlo es tocar solo este archivo.
 export async function sendEmail(input: SendEmailInput): Promise<void> {
   const html = TEMPLATES[input.template](input.data);
+
+  // Sin EMAIL_API_KEY no hay forma de llamar a Resend de verdad — en vez de
+  // fallar (lo que dejaría intransitable el flujo de activación en
+  // desarrollo/test, ver D-P2-1), se loguea el correo completo. Nunca pasa
+  // en producción: BE-002 exige las variables reales ahí.
+  if (!env.emailApiKey) {
+    logger.info("Correo simulado (EMAIL_API_KEY vacío, no se llamó a Resend)", {
+      to: input.to,
+      subject: input.subject,
+      template: input.template,
+      html,
+    });
+    return;
+  }
 
   switch (env.emailProvider) {
     case "resend":

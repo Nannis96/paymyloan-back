@@ -77,22 +77,31 @@ Detalle ticket por ticket (objetivo, Prisma, migración, tests, criterios de ace
 
 ---
 
-## ⬜ Fase 2 — Auth
+## ✅ Fase 2 — Auth (completa, verificada)
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-024 | `src/auth/password.ts` (bcrypt) |
-| ⬜ BE-025 | `src/auth/jwt.ts` (access + refresh) |
-| ⬜ BE-026 | `src/auth/totp.ts` (2FA) |
-| ⬜ BE-027 | `POST /api/auth/login` |
-| ⬜ BE-028 | `POST /api/auth/login/2fa` |
-| ⬜ BE-029 | `POST /api/auth/refresh` |
-| ⬜ BE-030 | `POST /api/auth/logout` y `/logout-all` |
-| ⬜ BE-031 | `GET /api/auth/me` |
-| ⬜ BE-032 | `POST /api/auth/password/forgot` y `/reset` |
-| ⬜ BE-033 | `POST /api/auth/2fa/setup` y `/verify` |
-| ⬜ BE-034 | `POST /api/auth/2fa/disable` y `/recovery-codes` |
-| ⬜ PB-013 | `POST /api/auth/register` (alta propia del deudor, rol BORROWER) |
+> **Backlog reescrito 2026-09-06/07** — implementado contra el plan vigente en [17. Fase 2 — plan actualizado](plan/17-fase-2-actualizada.md), no el original de [fases/fase-02-authentication.md](plan/fases/fase-02-authentication.md) (histórico, `BE-024`..`BE-034` sin cambios). `PB-013` se corrigió: **ambos** roles `LENDER`/`BORROWER` pueden auto-registrarse (`D-P1-10`, ya lo decía [00](plan/00-contradicciones-y-decisiones.md) — este documento tenía la versión vieja, solo `BORROWER`), sin contraseña en el registro, y se agregó `BE-097` (activación por Admin, resuelve el riesgo #20). Detalle completo de las tres decisiones en [00 — Decisiones 2026-09-06 (ronda Fase 2)](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-06-ronda-fase-2).
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-024 | `src/auth/password.ts` (bcrypt) | + `generateTemporaryPassword` (para `BE-097`) y `verifyDummyPassword` (timing attack, `BE-027`) |
+| ✅ BE-025 | `src/auth/jwt.ts` (access + refresh) | Payload `{ sub, role }`, sin `lenderId` (`D-P2-2`, corrige §7.1). `jose`, no `jsonwebtoken` — edge-compatible para cuando Fase 3 monte `withAuth` en `src/proxy.ts`. Refresh/reset/recovery codes: token opaco + hash SHA-256 (`D-P2-3`) |
+| ✅ BE-026 | `src/auth/totp.ts` (2FA) | `otplib` v13 (API funcional, no la clase `authenticator` de v12). **Hallazgo no previsto**: `epochTolerance` se mide en segundos, no en "steps" — no está documentado así, verificado empíricamente. La ventana ±1 step de 30s es `epochTolerance: 30` |
+| ✅ BE-027 | `POST /api/auth/login` | 401 `INVALID_CREDENTIALS` idéntico para correo inexistente y contraseña incorrecta, con `bcrypt.compare` contra un hash dummy en el primer caso |
+| ✅ BE-028 | `POST /api/auth/login/2fa` | TOTP o recovery code de un solo uso; bucket de rate limit propio (`login2fa`, separado de `login`) |
+| ✅ BE-029 | `POST /api/auth/refresh` | Rota siempre. **Hallazgo no previsto**: la primera versión revocaba toda la cadena del usuario ante *cualquier* token con `revokedAt` seteado — incluyendo uno revocado por un `logout()` normal, lo que tumbaba sesiones de otros dispositivos sin motivo. Corregido: la cascada de revocación solo dispara cuando `replacedByTokenId` está seteado (reuso de un token *rotado*, la señal de robo real que pide el ticket) |
+| ✅ BE-030 | `POST /api/auth/logout` y `/logout-all` | |
+| ✅ BE-031 | `GET /api/auth/me` | Devuelve `LenderProfile`/`BorrowerProfile` + lista de `LenderCompany` asociadas (reemplaza al `lenderId` que ya no viaja en el JWT, `D-P2-2`) |
+| ✅ BE-032 | `POST /api/auth/password/forgot` y `/reset` | Reset revoca todos los refresh tokens del usuario |
+| ✅ BE-033 | `POST /api/auth/2fa/setup` y `/verify` | `verify` exitoso genera exactamente 8 recovery codes, devueltos una única vez |
+| ✅ BE-034 | `POST /api/auth/2fa/disable` y `/recovery-codes` | Exigen contraseña + código TOTP vigente, no solo la sesión |
+| ✅ PB-013 | `POST /api/auth/register` | **Corregido** (ver nota arriba): `LENDER` y `BORROWER`, sin contraseña — se genera y se envía por correo al activar (`D-P2-1`) |
+| ✅ BE-097 | `POST /api/admin/users/:id/activate` y `/deactivate` | Nuevo, adelantado desde Fase 4 por `D-P2-1` (resuelve riesgo #20). Primera activación genera+envía contraseña temporal; reactivación posterior no la toca — mismo endpoint sirve de reintento si el correo falló |
+
+**Cambios en archivos existentes**: `src/lib/email.ts` (plantilla `account-activated`; modo dev que loguea el correo en vez de llamar a Resend cuando `EMAIL_API_KEY` está vacío — sin esto, activar una cuenta era imposible de probar en desarrollo), `src/db/testFixtures.ts` (`createTestUserWithPassword`/`createTestUserWithTwoFactor`, con contraseña bcrypt real — las fixtures de Fase 1 usaban el literal `"hash-de-prueba"`, no verificable), `src/services/users.service.ts` (`toSafeUser` exportado), `src/controllers/users.controller.ts` (usa el `parseOrThrow` compartido, extraído a `src/validations/parse.ts`).
+
+**Verificado end-to-end**: `type-check`, `lint`, 31 tests unitarios (`src/auth/*.test.ts` nuevos: hash/compare, token expirado/manipulado, drift de TOTP) + 61 de integración (contra Postgres real en `db-test`, nunca mocks — incluye `src/app/api/auth/auth-routes.integration.test.ts`, los **primeros tests de este repo a nivel HTTP real**, invocando los route handlers en vez de Prisma/servicios directo: 401 idéntico, 429 de rate limit, camino dorado completo registro→activación→login→`/me`), y camino dorado por `curl` contra el contenedor `api` real con el seed cargado: registro → login rechazado (inactivo) → activación por `admin@paymyloan.dev` → contraseña temporal capturada del log del contenedor (modo dev de `sendEmail`) → login con esa contraseña → `/me` → `refresh` con rotación → reuso del token viejo *y* del nuevo rotado ambos rechazados (cadena revocada) → `2fa/setup` → código TOTP generado a mano (HMAC-SHA1/RFC 6238) → `2fa/verify` → login en dos pasos con 2FA. Sin migraciones nuevas — `prisma migrate status` sigue mostrando las mismas 4 de Fase 1.
+
+Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backlog original, tests) en [17. Fase 2 — plan actualizado](plan/17-fase-2-actualizada.md).
 
 ---
 

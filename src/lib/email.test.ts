@@ -10,6 +10,8 @@ describe("sendEmail (BE-006)", () => {
   it("envía vía Resend con el HTML de la plantilla y responde ok", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
+    vi.doMock("@/config/env", () => ({ env: { emailProvider: "resend", emailApiKey: "test-key", emailFrom: "servicing@paymyloan.ai" } }));
+    vi.resetModules();
 
     const { sendEmail } = await import("@/lib/email");
     await sendEmail({
@@ -29,6 +31,8 @@ describe("sendEmail (BE-006)", () => {
 
   it("propaga el error si Resend responde con status no-ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("boom", { status: 500 })));
+    vi.doMock("@/config/env", () => ({ env: { emailProvider: "resend", emailApiKey: "test-key", emailFrom: "servicing@paymyloan.ai" } }));
+    vi.resetModules();
 
     const { sendEmail } = await import("@/lib/email");
     await expect(
@@ -42,12 +46,31 @@ describe("sendEmail (BE-006)", () => {
   });
 
   it("lanza si EMAIL_PROVIDER no es soportado", async () => {
-    vi.doMock("@/config/env", () => ({ env: { emailProvider: "unsupported" } }));
+    vi.doMock("@/config/env", () => ({ env: { emailProvider: "unsupported", emailApiKey: "test-key" } }));
     vi.resetModules();
 
     const { sendEmail } = await import("@/lib/email");
     await expect(
       sendEmail({ to: "x@example.com", subject: "x", template: "password-reset", data: { resetUrl: "x" } }),
     ).rejects.toThrow(/no soportado/);
+  });
+
+  it("con EMAIL_API_KEY vacío, loguea en vez de llamar a Resend (D-P2-1, modo dev)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.doMock("@/config/env", () => ({ env: { emailProvider: "resend", emailApiKey: "" } }));
+    vi.resetModules();
+
+    const { sendEmail } = await import("@/lib/email");
+    await expect(
+      sendEmail({
+        to: "lender@example.com",
+        subject: "Tu cuenta ya está activa",
+        template: "account-activated",
+        data: { name: "Ana", temporaryPassword: "temp123" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

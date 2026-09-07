@@ -32,6 +32,7 @@ repartido y se convirtieron las referencias cruzadas en enlaces navegables.
 | 14 | [Roadmap recomendado](14-roadmap.md) | Orden de ejecución y qué está bloqueado |
 | 15 | [Riesgos y decisiones pendientes](15-riesgos-y-decisiones-pendientes.md) | Los pendientes que pueden cambiar el diseño (10 originales + 9 nuevos del 2026-09-04) |
 | 16 | [Fase 1 — plan actualizado (2026-09-04)](16-fase-1-actualizada.md) | Backlog vigente de la Fase 1 — reemplaza a [fases/fase-01-database.md](fases/fase-01-database.md), incorpora roles nuevos, `LenderCompany`, `Property` |
+| 17 | [Fase 2 — plan actualizado (2026-09-07)](17-fase-2-actualizada.md) | Backlog vigente de la Fase 2, implementado — corrige `PB-013` (auto-registro LENDER+BORROWER, sin contraseña) y agrega `BE-097` (activación por Admin) |
 
 ## Fases de implementación (backlog)
 
