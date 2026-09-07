@@ -22,13 +22,15 @@ export async function verifyDummyPassword(plain: string): Promise<void> {
   await bcrypt.compare(plain, DUMMY_HASH);
 }
 
-const TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%";
+const TEMP_PASSWORD_LENGTH = 8;
 
-// Contraseña temporal generada al activar una cuenta auto-registrada
-// (D-P2-1): nadie la escribe a mano, así que no necesita ser memorizable —
-// solo aleatoria y con entropía suficiente. Se envía una única vez por
-// correo (adminUsers.service.ts) y nunca se vuelve a mostrar.
-export function generateTemporaryPassword(length = 16): string {
+// Contraseña temporal generada al activar una cuenta (D-P2-1) — ya sea por
+// auto-registro, por creación directa del Admin con isActive:true, o por un
+// PATCH que active a alguien después (D-P2-5). Genérica de 8 dígitos
+// numéricos a propósito: nadie la escribe de memoria, se comunica una sola
+// vez (por correo y/o en la respuesta mientras no haya proveedor de correo
+// real) y se puede dictar/copiar sin ambigüedad de mayúsculas o símbolos.
+export function generateTemporaryPassword(length = TEMP_PASSWORD_LENGTH): string {
   const randomValues = crypto.getRandomValues(new Uint32Array(length));
-  return Array.from(randomValues, (value) => TEMP_PASSWORD_ALPHABET[value % TEMP_PASSWORD_ALPHABET.length]).join("");
+  return Array.from(randomValues, (value) => String(value % 10)).join("");
 }

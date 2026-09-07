@@ -17,6 +17,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | POST | `/api/auth/logout` | Autenticado | revoca el refresh token actual |
 | POST | `/api/auth/logout-all` | Autenticado | revoca todos los refresh tokens del usuario |
 | GET | `/api/auth/me` | Autenticado | perfil propio + perfil de rol (`LenderProfile`/`BorrowerProfile`) |
+| PATCH | `/api/auth/me` | Autenticado | `BE-099`, nuevo (`D-P2-4`) — autoservicio, solo `name`/`phone` |
 | POST | `/api/auth/password/forgot` | Público | siempre responde 200 (no filtra si el email existe) |
 | POST | `/api/auth/password/reset` | Público (con token) | |
 | POST | `/api/auth/2fa/setup` | ADMIN, LENDER | genera secreto + QR, no activa todavía |

@@ -297,8 +297,8 @@ export async function getMe(userId: string): Promise<MeResult> {
 }
 
 const REGISTER_RESPONSE_MESSAGE =
-  "Si los datos son válidos, tu cuenta quedará pendiente de activación. " +
-  "Una vez que un administrador la active, recibirás un correo con tu contraseña temporal.";
+  "If the information provided is valid, your account will remain pending activation. " +
+  "Once an administrator activates your account, you will receive an email with your temporary password.";
 
 // PB-013 / D-P2-1. LENDER y BORROWER pueden auto-registrarse (D-P1-10);
 // nacen `isActive=false` y sin contraseña utilizable — el registro nunca la
@@ -319,6 +319,7 @@ export async function register(input: RegisterInput): Promise<{ message: string 
         data: {
           name: input.name,
           email: input.email,
+          phone: input.phone,
           role: input.role,
           password: placeholderPassword,
           isActive: false,

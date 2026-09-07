@@ -166,9 +166,10 @@ enum WebhookEventStatus {
 // descarta 00-contradicciones-y-decisiones.md, decisión D0-1) — pero el
 // tenant real ya no es esta tabla, ver LenderCompany (D-P1-3).
 model User {
-  id       String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  id       String  @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name     String
-  email    String @unique
+  email    String  @unique
+  phone    String? @db.VarChar(10) // D-P2-4: 10 dígitos, validado en Zod — cuenta/identidad, distinto del contactPhone de LenderProfile (empresa) o el phone de BorrowerProfile
   password String // hash bcrypt, nunca texto plano
 
   role     UserRole

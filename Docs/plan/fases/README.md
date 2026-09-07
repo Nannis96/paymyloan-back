@@ -73,6 +73,8 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-033](fase-02-authentication.md#be-033--post-apiauth2fasetup-y-verify) | `POST /api/auth/2fa/setup` y `/verify` | P0 | M |
 | [BE-034](fase-02-authentication.md#be-034--post-apiauth2fadisable-y-recovery-codes) | `POST /api/auth/2fa/disable` y `/recovery-codes` | P1 | M |
 | [BE-097](../17-fase-2-actualizada.md) | `POST /api/admin/users/:id/activate` y `/deactivate` (nuevo, `D-P2-1`) | P0 | M |
+| [BE-098](../13-backlog.md#be-098--restringir-apiusers-a-admin--isactive-administrable--userphone) | `/api/users` restringido a ADMIN + `isActive`/`phone` (nuevo, `D-P2-4`) | P0 | M |
+| [BE-099](../13-backlog.md#be-099--patch-apiauthme-autoservicio-de-perfil-propio) | `PATCH /api/auth/me` — autoservicio de perfil propio (nuevo, `D-P2-4`) | P1 | S |
 | [BE-035](fase-03-authorization.md#be-035--middleware-withauth) | Middleware `withAuth` | P0 | M |
 | [BE-036](fase-03-authorization.md#be-036--middleware-withrole) | Middleware `withRole` | P0 | M |
 | [BE-037](fase-03-authorization.md#be-037--middleware-withtenantscope) | Middleware `withTenantScope` | P0 | M |

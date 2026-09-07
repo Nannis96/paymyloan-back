@@ -4,6 +4,7 @@ import type { RequestMeta } from "@/lib/requestMeta";
 import { checkRateLimit } from "@/middlewares/rateLimit";
 import * as authService from "@/services/auth.service";
 import * as passwordResetService from "@/services/passwordReset.service";
+import * as usersService from "@/services/users.service";
 import { parseOrThrow } from "@/validations/parse";
 import {
   loginSchema,
@@ -14,6 +15,7 @@ import {
   refreshSchema,
   registerSchema,
 } from "@/validations/auth.validation";
+import { updateMeSchema } from "@/validations/users.validation";
 
 // BE-028: cada endpoint sensible tiene su propio bucket — un código de 2FA
 // incorrecto no debe consumir el cupo de `login`, y viceversa.
@@ -57,6 +59,16 @@ export async function logoutAll(request: Request) {
 export async function me(request: Request) {
   const session = await requireSession(request);
   return authService.getMe(session.userId);
+}
+
+// PATCH /api/auth/me — el usuario edita su propia información personal
+// (nombre, teléfono). Nunca email/password/role/isActive desde acá — esos
+// tienen flujos propios (D-P2-4).
+export async function updateMe(request: Request, body: unknown) {
+  const session = await requireSession(request);
+  const input = parseOrThrow(updateMeSchema, body);
+  const user = await usersService.updateOwnProfile(session.userId, input);
+  return { user };
 }
 
 export async function forgotPassword(body: unknown, meta: RequestMeta) {

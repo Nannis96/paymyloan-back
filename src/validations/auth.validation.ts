@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phone } from "@/validations/users.validation";
 
 const email = z.email("Correo inválido").trim().toLowerCase();
 const name = z.string().trim().min(1, "El nombre es obligatorio").max(120);
@@ -13,6 +14,7 @@ const totpCode = z.string().trim().min(1, "El código es obligatorio").max(64);
 export const registerSchema = z.object({
   name,
   email,
+  phone,
   role: z.enum(["LENDER", "BORROWER"]),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;

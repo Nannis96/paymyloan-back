@@ -18,11 +18,12 @@ describe("auth/password (BE-024)", () => {
     await expect(verifyDummyPassword("cualquier-cosa")).resolves.toBeUndefined();
   });
 
-  it("generateTemporaryPassword produce valores únicos con la longitud pedida", () => {
+  it("generateTemporaryPassword produce valores únicos, de 8 dígitos numéricos por default (D-P2-5)", () => {
     const a = generateTemporaryPassword();
     const b = generateTemporaryPassword();
     expect(a).not.toBe(b);
-    expect(a).toHaveLength(16);
-    expect(generateTemporaryPassword(24)).toHaveLength(24);
+    expect(a).toHaveLength(8);
+    expect(a).toMatch(/^\d{8}$/);
+    expect(generateTemporaryPassword(12)).toMatch(/^\d{12}$/);
   });
 });

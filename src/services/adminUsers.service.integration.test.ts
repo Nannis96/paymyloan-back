@@ -20,12 +20,14 @@ describe("adminUsers.service — activate/deactivate (BE-097, D-P2-1/riesgo #20)
 
     expect(result.user.isActive).toBe(true);
     expect(result.emailSent).toBe(true);
+    expect(result.temporaryPassword).toEqual(expect.any(String));
     expect(sendEmailSpy).toHaveBeenCalledWith(expect.objectContaining({ to: email, template: "account-activated" }));
-
-    const temporaryPassword = sendEmailSpy.mock.calls[0][0].data.temporaryPassword;
+    // La respuesta trae la misma contraseña que se "envió" por correo
+    // (D-P2-4 — mientras no haya proveedor de correo real).
+    expect(sendEmailSpy.mock.calls[0][0].data.temporaryPassword).toBe(result.temporaryPassword);
     sendEmailSpy.mockRestore();
 
-    const login = await authService.login({ email, password: temporaryPassword });
+    const login = await authService.login({ email, password: result.temporaryPassword! });
     expect(login.requiresTwoFactor).toBe(false);
   });
 

@@ -31,4 +31,29 @@ El orden de implementación no es el de numeración — ver [14. Roadmap recomen
 
 ---
 
+## Ajustes posteriores a las fases (2026-09-07)
+
+Dos tickets nuevos, fuera de la numeración de fase por fase — surgieron de un pedido puntual de Spencer sobre el CRUD de usuarios de Fase 0 y el módulo de auth de Fase 2, no de una fase completa nueva. `BE-098` se corrigió el mismo día (`D-P2-5`) para que la creación tampoco pida contraseña. Decisión y motivo completos en [00 — `D-P2-4`/`D-P2-5`](00-contradicciones-y-decisiones.md#decisiones-2026-09-06-ronda-fase-2); contrato HTTP completo en [API_REFERENCE.md](../API_REFERENCE.md).
+
+### BE-098 — Restringir `/api/users` a ADMIN + `isActive` administrable + `User.phone` (+ `D-P2-5`: sin password en la creación)
+
+- **Prioridad/Complejidad/Dependencias**: P0 / M / BE-025 (sesión), BE-097 (activación)
+- **Objetivo**: cerrar el hueco de que el CRUD de usuarios de Fase 0 no verificaba sesión ni rol; permitir que el Admin fije `isActive` directamente al crear/editar; agregar teléfono a la identidad del usuario; que la creación no pida contraseña.
+- **Archivos**: `prisma/schema.prisma` (+ migración `20260907213645_add_user_phone`), `src/auth/password.ts` (`generateTemporaryPassword`), `src/validations/users.validation.ts`, `src/services/users.service.ts`, `src/services/userActivation.service.ts` (nuevo — lógica de activación compartida con `BE-097`), `src/services/adminUsers.service.ts` (refactor para reusarla en vez de duplicarla), `src/controllers/users.controller.ts`, `src/app/api/users/route.ts`, `src/app/api/users/[id]/route.ts`.
+- **Implementación**: los 4 endpoints exigen `requireSession` + `requireRole(ADMIN)`. `createUserSchema` gana `phone` (regex 10 dígitos) e `isActive` (boolean) — **y pierde `password`** (`D-P2-5`, corregido el mismo día): `POST /api/users` nunca pide contraseña, igual que el auto-registro. La cuenta nace con un valor aleatorio inutilizable; si el resultado es una cuenta activa (`isActive:true` explícito, o sin el campo — sigue siendo el default), `createUser()` reusa `activateUserAccount()` para generar+hashear+enviar por correo una contraseña temporal y **la devuelve en la respuesta** (`temporaryPassword`). `updateUserSchema` sí conserva `password` (edición directa por el Admin, caso distinto de la creación). En `PATCH /api/users/:id`, una transición `isActive: false → true` dispara esa misma lógica de activación (mismo camino que `POST /api/admin/users/:id/activate`); una reactivación no la toca. Una transición `true → false` revoca los refresh tokens vigentes, igual que `/deactivate`. Toda esa lógica vive una sola vez en `userActivation.service.ts` — ni `users.service.ts` ni `adminUsers.service.ts` la duplican (evita el ciclo de imports que se daría si uno importara del otro). `generateTemporaryPassword()` pasa de 16 caracteres alfanuméricos+símbolos a **8 dígitos numéricos** (`D-P2-5`) — cambio que alcanza parejo a los tres caminos que la usan (`POST /api/users`, `PATCH /api/users/:id`, `POST /api/admin/users/:id/activate`).
+- **Validaciones**: `phone` opcional, exactamente 10 dígitos (`^\d{10}$`); si se manda `password` en un `PATCH` junto con una transición a `isActive:true`, se ignora — gana la contraseña recién generada, para no pisarla en silencio.
+- **Tests**: `src/services/users.service.integration.test.ts` (nuevo), `src/app/api/users/users-routes.integration.test.ts` (nuevo — primeros tests HTTP de este módulo).
+- **Criterios de aceptación**: sin `Authorization`, cualquiera de los 4 endpoints responde `401 UNAUTHENTICATED`; con una sesión que no es ADMIN, `403 FORBIDDEN`; `POST /api/users` con `phone` de menos de 10 dígitos responde `400 VALIDATION_ERROR`; `POST /api/users` sin `isActive` (o con `isActive:true`) responde `temporaryPassword` de 8 dígitos numéricos y esa contraseña permite loguear; `PATCH /api/users/:id` con `{isActive:true}` sobre un usuario que nunca inició sesión responde igual.
+
+### BE-099 — `PATCH /api/auth/me` (autoservicio de perfil propio)
+
+- **Prioridad/Complejidad/Dependencias**: P1 / S / BE-031 (`GET /api/auth/me`)
+- **Objetivo**: que cualquier usuario autenticado pueda editar su propia información de contacto, sin pasar por el Admin.
+- **Archivos**: `src/validations/users.validation.ts` (`updateMeSchema`), `src/services/users.service.ts` (`updateOwnProfile`), `src/controllers/auth.controller.ts` (`updateMe`), `src/app/api/auth/me/route.ts` (`PATCH`).
+- **Implementación**: acepta únicamente `name`/`phone` — nunca `email`/`password`/`role`/`isActive` desde acá (esos ya tienen sus propios flujos con sus propias reglas de seguridad, y un campo ajeno al schema se descarta en vez de aplicarse). Requiere sesión (`requireSession`), sin restricción de rol adicional — es autoservicio para cualquiera.
+- **Tests**: agregado a `src/app/api/auth/auth-routes.integration.test.ts`.
+- **Criterios de aceptación**: un usuario puede cambiar su nombre/teléfono con su propio access token; ni el body ni la respuesta permiten tocar `role`/`isActive`/`email`/`password`.
+
+---
+
 [← Índice del plan](README.md)  ·  [Anterior: 12. Docker / despliegue](12-docker-y-despliegue.md)  ·  [Siguiente: 14. Roadmap recomendado](14-roadmap.md)

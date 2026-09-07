@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as activateRoute } from "@/app/api/admin/users/[id]/activate/route";
-import { GET as meRoute } from "@/app/api/auth/me/route";
+import { GET as meRoute, PATCH as updateMeRoute } from "@/app/api/auth/me/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { POST as registerRoute } from "@/app/api/auth/register/route";
 import { prisma } from "@/db/prisma";
@@ -190,5 +190,40 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
       { params: Promise.resolve({ id: lender.id }) },
     );
     expect(withoutAuth.status).toBe(401);
+  });
+
+  it("PATCH /api/auth/me edita nombre/teléfono propios, nunca email/role/isActive (D-P2-4)", async () => {
+    const borrower = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+    const loginResponse = await loginRoute(
+      jsonRequest(
+        "http://localhost/api/auth/login",
+        { email: borrower.email, password: PLAIN_PASSWORD },
+        { "x-forwarded-for": "10.0.4.1" },
+      ),
+    );
+    const loginBody = await loginResponse.json();
+    const accessToken = loginBody.data.accessToken as string;
+
+    const withoutAuth = await updateMeRoute(
+      new Request("http://localhost/api/auth/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Sin sesión" }),
+      }),
+    );
+    expect(withoutAuth.status).toBe(401);
+
+    const response = await updateMeRoute(
+      new Request("http://localhost/api/auth/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name: "Nombre Nuevo", phone: "5512345678" }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.user.name).toBe("Nombre Nuevo");
+    expect(body.data.user.phone).toBe("5512345678");
+    expect(body.data.user.email).toBe(borrower.email);
   });
 });

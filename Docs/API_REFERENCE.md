@@ -43,7 +43,7 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 
 **Autenticación**: `Authorization: Bearer <accessToken>` en las rutas marcadas "Autenticado". El access token es un JWT propio (no NextAuth, no cookies) firmado con `JWT_ACCESS_SECRET`, payload `{ sub: userId, role }` — **sin** `lenderId` (ver [D-P2-2](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-06-ronda-fase-2)); para saber con qué `LenderCompany`(s) opera un usuario hay que llamar a [`GET /api/auth/me`](#get-apiauthme). Vida corta: 15 min (`JWT_ACCESS_TTL`).
 
-**Sesión vs. rol**: hoy la verificación de sesión es un helper provisorio (`src/auth/session.ts`, `requireSession`/`requireRole`) — los middlewares definitivos (`withAuth`/`withRole`, con la regla de 2FA obligatorio para ADMIN/LENDER) son Fase 3 y todavía no existen. Ese detalle importa para leer correctamente la columna "Auth" de cada endpoint de abajo: **`/api/users` no tiene ninguna verificación de sesión todavía** — cualquiera puede listar/crear/editar/borrar usuarios sin loguearse. Es esperado en el estado actual del roadmap (Fase 0), no un bug — Fase 3 lo cierra.
+**Sesión vs. rol**: hoy la verificación de sesión es un helper provisorio (`src/auth/session.ts`, `requireSession`/`requireRole`) — los middlewares definitivos (`withAuth`/`withRole`, con la regla de 2FA obligatorio para ADMIN/LENDER) son Fase 3 y todavía no existen. Igual, todo endpoint marcado "Autenticado" en este documento ya exige `Authorization: Bearer` de verdad con ese helper — incluyendo `/api/users`, restringido a ADMIN desde el 2026-09-07 (`D-P2-4`).
 
 **Rate limiting**: en memoria por proceso (`src/middlewares/rateLimit.ts`), no distribuido — si el backend corre con más de una réplica, cada una lleva su propio contador. La clave es `"<bucket>:<ip>"`, con la IP tomada de `X-Forwarded-For` (primer valor de la lista; sin ese header, la clave es `"<bucket>:unknown"` y todos los clientes sin ese header comparten el mismo cupo). Cada bucket (`login`, `login2fa`, `password-forgot`) es independiente — agotar uno no afecta a los demás (criterio explícito de `BE-028`: un código de 2FA incorrecto no debe consumir el cupo de `login`).
 
@@ -93,48 +93,74 @@ Sonda de infraestructura (Docker `HEALTHCHECK`, balanceador, monitoreo externo) 
 
 ## Usuarios (`src/app/api/users/`)
 
-> ⚠️ **Sin protección de sesión todavía.** Estos 4 endpoints son de Fase 0 (fundaciones) — un CRUD genérico para poder tener usuarios en la base antes de que existiera auth. Ni el rol ni la sesión se verifican; cualquiera que llegue a la API puede listar, crear, editar o borrar usuarios. Fase 3 (`withAuth`/`withRole`) cierra esto — hasta entonces, no exponer este backend fuera de una red de confianza.
+> **Restringido a ADMIN desde el 2026-09-07 (`D-P2-4`, `BE-098`).** Hasta esa fecha estos 4 endpoints no verificaban sesión ni rol — quedó documentado acá como aviso mientras duró y ya no aplica. Hoy los 4 exigen `Authorization: Bearer <accessToken>` de un usuario con `role=ADMIN`.
 
 ### `GET /api/users`
 
-Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incluye tanto activos como inactivos.
+Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incluye tanto activos como inactivos, es lo que el Admin necesita ver para decidir a quién activar/desactivar.
 
-- **Auth**: Público (ver aviso arriba).
+- **Auth**: Autenticado, rol `ADMIN`.
 - **Response `200`**: `data` = array de `SafeUser` (ver forma abajo), orden `createdAt desc`.
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (sesión válida pero no es ADMIN).
 
 ### `POST /api/users`
 
-Alta de usuario "genérica" (identidad + contraseña + rol, sin flujo de negocio asociado). Este es el CRUD directo del Admin — no confundir con el auto-registro (`POST /api/auth/register`, más abajo), que no pide contraseña y nace inactivo.
+Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActive`). **No pide contraseña** (`D-P2-5`, 2026-09-07) — nace sin una utilizable, igual que el auto-registro (`POST /api/auth/register`, más abajo). No confundir tampoco con ese endpoint: acá lo llama un Admin autenticado y la cuenta queda **activa por default** salvo que se mande `isActive:false` explícito (el auto-registro siempre nace inactivo).
 
-- **Auth**: Público (ver aviso arriba).
+- **Auth**: Autenticado, rol `ADMIN`.
 - **Request body**:
 
   | Campo | Tipo | Validación |
   |---|---|---|
   | `name` | string | 1–120 caracteres, se recorta (`trim`) |
   | `email` | string | formato email, se normaliza a minúsculas |
-  | `password` | string | 8–72 caracteres (72 = límite de bcrypt; más largo se rechaza en vez de truncarse en silencio) |
+  | `phone` | string | opcional — **exactamente 10 dígitos** (`^\d{10}$`), sin espacios/guiones/`+` |
   | `role` | string | uno de `ADMIN`, `LENDER`, `BORROWER`, `BOOKKEEPER`, `INSURANCE_COMPANY` — obligatorio, sin default |
+  | `isActive` | boolean | opcional — sin este campo, nace **activo** (mismo default que la tabla) |
 
-- **Response `201`**: `data` = `SafeUser` del usuario creado.
-- **Errores**: `400 VALIDATION_ERROR` (body inválido) · `409 EMAIL_TAKEN` (el correo ya existe).
+- **Response `201`**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      /* ...SafeUser... */
+      // presentes salvo que se haya mandado isActive:false
+      "temporaryPassword": "48213967",
+      "emailSent": true
+    }
+  }
+  ```
+  Sin `isActive:false` en el body, la cuenta queda activa de inmediato: se genera una contraseña temporal de **8 dígitos numéricos**, se intenta enviar por correo, y se devuelve en `temporaryPassword` — mismo mecanismo que activar por `PATCH`/`POST /api/admin/users/:id/activate` (ver [esas secciones](#patch-apiusersid)). Con `isActive:false`, la respuesta no trae `temporaryPassword` ni `emailSent` — la cuenta queda sin contraseña utilizable hasta que alguien la active después.
+- **Errores**: `400 VALIDATION_ERROR` (body inválido, incluyendo un `phone` que no tiene 10 dígitos) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` · `409 EMAIL_TAKEN` (el correo ya existe).
 
 ### `PATCH /api/users/:id`
 
-Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`password`.
+Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`phone`/`password`/`isActive`.
 
-- **Auth**: Público (ver aviso arriba).
-- **Request body**: mismas reglas que arriba, todos los campos opcionales, pero **al menos uno** debe venir.
-- **Response `200`**: `data` = `SafeUser` actualizado.
-- **Errores**: `400 VALIDATION_ERROR` · `404 USER_NOT_FOUND` · `409 EMAIL_TAKEN` (si el nuevo correo ya lo usa otro usuario).
+- **Auth**: Autenticado, rol `ADMIN`.
+- **Request body**: mismos campos que `POST` (todos opcionales), pero **al menos uno** debe venir.
+- **Response `200`**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      /* ...SafeUser... */
+      // presentes solo si este PATCH disparó una primera activación (ver abajo)
+      "temporaryPassword": "48213967",
+      "emailSent": true
+    }
+  }
+  ```
+- **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` · `404 USER_NOT_FOUND` · `409 EMAIL_TAKEN` (si el nuevo correo ya lo usa otro usuario).
+- **`isActive`, activación/desactivación desde este mismo endpoint (`D-P2-4`)**: si `isActive` pasa de `false` a `true`, corre exactamente la misma lógica que [`POST /api/admin/users/:id/activate`](#post-apiadminusersidactivate) — en la primera activación (el usuario nunca inició sesión) genera una contraseña temporal, la guarda hasheada, intenta enviarla por correo, **y la devuelve en la respuesta** (`temporaryPassword`) — mientras no haya un proveedor de correo real configurado, esta es la forma confiable de que el Admin la vea. Una reactivación (el usuario ya había iniciado sesión antes) no toca la contraseña ni agrega `temporaryPassword`. Si `isActive` pasa de `true` a `false`, revoca todos los refresh tokens vigentes del usuario, igual que `/deactivate`. Un `password` explícito enviado en el mismo body que dispara una primera activación se ignora — gana la contraseña generada.
 
 ### `DELETE /api/users/:id`
 
-Eliminación **lógica**: pone `deletedAt = now()`. Nunca borra la fila (puede estar referenciada desde préstamos, documentos o auditoría) — distinto de `isActive` (activar/desactivar, ver más abajo), que es reversible y no oculta al usuario de listados.
+Eliminación **lógica**: pone `deletedAt = now()`. Nunca borra la fila (puede estar referenciada desde préstamos, documentos o auditoría) — distinto de `isActive` (activar/desactivar), que es reversible y no oculta al usuario de listados.
 
-- **Auth**: Público (ver aviso arriba).
+- **Auth**: Autenticado, rol `ADMIN`.
 - **Response `200`**: `data` = `SafeUser` con `deletedAt` seteado.
-- **Errores**: `404 USER_NOT_FOUND`.
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` · `404 USER_NOT_FOUND`.
 
 ### Forma de `SafeUser`
 
@@ -145,6 +171,7 @@ Nunca incluye `password` ni `twoFactorSecret` — es lo único que la API expone
   "id": "01a0...",           // UUIDv7
   "name": "Dev Admin",
   "email": "admin@paymyloan.dev",
+  "phone": null,              // string de 10 dígitos, o null
   "role": "ADMIN",           // ADMIN | LENDER | BORROWER | BOOKKEEPER | INSURANCE_COMPANY
   "isActive": true,
   "isTwoFactorEnabled": false,
@@ -169,6 +196,7 @@ JWT propio (access + refresh), sin NextAuth ni cookies — ver [plan/07 §7.1](p
 | POST | `/api/auth/logout` | Autenticado | — |
 | POST | `/api/auth/logout-all` | Autenticado | — |
 | GET | `/api/auth/me` | Autenticado | — |
+| PATCH | `/api/auth/me` | Autenticado | — |
 | POST | `/api/auth/password/forgot` | Público | bucket `password-forgot` |
 | POST | `/api/auth/password/reset` | Público (con `token`) | — |
 | POST | `/api/auth/2fa/setup` | Autenticado, rol ADMIN o LENDER | — |
@@ -187,6 +215,7 @@ Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin
   |---|---|---|
   | `name` | string | 1–120 caracteres |
   | `email` | string | formato email, se normaliza a minúsculas |
+  | `phone` | string | opcional — exactamente 10 dígitos (`^\d{10}$`) |
   | `role` | string | **solo** `LENDER` o `BORROWER` — `ADMIN`/`BOOKKEEPER`/`INSURANCE_COMPANY` no pueden auto-registrarse |
 
 - **Response `202`** (siempre, exista o no ya el correo — anti-enumeración, misma postura que `password/forgot`):
@@ -281,6 +310,18 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
   ```
 - **Errores**: `401 UNAUTHENTICATED` / `401 INVALID_TOKEN` · `404 USER_NOT_FOUND` (el usuario del token fue borrado después de emitirse).
 
+### `PATCH /api/auth/me`
+
+Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información de contacto. Deliberadamente **no** acepta `email`/`password`/`role`/`isActive` — un campo fuera de este schema se descarta en vez de aplicarse, así que no hay forma de colarlos en el mismo body.
+
+- **Auth**: Autenticado. Sin restricción de rol — cualquiera edita lo suyo.
+- **Request body**: `{ "name"?: string, "phone"?: string }` — al menos uno de los dos, `phone` con el mismo formato de 10 dígitos que el resto de la API.
+- **Response `200`**:
+  ```json
+  { "success": true, "data": { "user": /* SafeUser actualizado */ {} } }
+  ```
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `400 VALIDATION_ERROR` (body vacío o `phone` inválido).
+
 ### `POST /api/auth/password/forgot`
 
 - **Auth**: Público. **Rate limit**: bucket `password-forgot`.
@@ -353,14 +394,23 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
 
 - **Auth**: Autenticado, rol `ADMIN`.
 - **Response `200`**:
-  ```json
-  { "success": true, "data": { "user": /* SafeUser, isActive: true */ {}, "emailSent": true } }
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      "user": /* SafeUser, isActive: true */ {},
+      "emailSent": true,
+      // presente solo en una primera activación (ver abajo)
+      "temporaryPassword": "48213967"
+    }
+  }
   ```
 - **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `404 USER_NOT_FOUND`.
 - **Comportamiento según el historial del usuario**:
-  - **Primera activación** (`lastLoginAt` nulo — nunca inició sesión, típicamente recién auto-registrado): genera una contraseña temporal, la guarda hasheada (bcrypt) y la envía por correo (plantilla `account-activated`, ver [variables de entorno](#variables-de-entorno) — sin `EMAIL_API_KEY`, el correo se loguea en vez de enviarse de verdad). `emailSent` indica si el envío tuvo éxito.
-  - **Reactivación** (el usuario ya había iniciado sesión alguna vez): solo pone `isActive=true`, **no** toca la contraseña ni reenvía correo — `emailSent` viene `false`.
+  - **Primera activación** (`lastLoginAt` nulo — nunca inició sesión, típicamente recién auto-registrado): genera una contraseña temporal, la guarda hasheada (bcrypt), intenta enviarla por correo (plantilla `account-activated`, ver [variables de entorno](#variables-de-entorno) — sin `EMAIL_API_KEY`, el correo se loguea en vez de enviarse de verdad) **y la devuelve también en `temporaryPassword`** (`D-P2-4` — mientras no haya un proveedor de correo real conectado, es la forma confiable de que el Admin la tenga a mano). `emailSent` indica si el envío tuvo éxito, independientemente de que `temporaryPassword` siempre esté presente en este caso.
+  - **Reactivación** (el usuario ya había iniciado sesión alguna vez): solo pone `isActive=true`, **no** toca la contraseña ni reenvía correo — `emailSent` viene `false` y `temporaryPassword` no viene en la respuesta.
   - Si el correo de la primera activación falla, el reintento es: `deactivate` → `activate` de nuevo (vuelve a contar como "primera activación" porque `lastLoginAt` sigue nulo, así que regenera y reenvía).
+  - El mismo comportamiento (con la misma forma de respuesta) se dispara también desde `PATCH /api/users/:id` con `{ "isActive": true }` — ver [esa sección](#patch-apiusersid).
 
 ### `POST /api/admin/users/:id/deactivate`
 
