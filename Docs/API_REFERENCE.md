@@ -21,6 +21,8 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Usuarios](#usuarios-srcappapiusers)
 - [Autenticación](#autenticación-srcappapiauth)
 - [Administración de usuarios](#administración-de-usuarios-srcappapiadminusersid)
+- [Prestamistas — Admin](#prestamistas--admin-srcappapiadminlenders)
+- [Prestamistas y Deudores — autoservicio](#prestamistas-y-deudores--autoservicio)
 - [Catálogo de códigos de error](#catálogo-de-códigos-de-error)
 
 ---
@@ -43,11 +45,19 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 
 **Autenticación**: `Authorization: Bearer <accessToken>` en las rutas marcadas "Autenticado". El access token es un JWT propio (no NextAuth, no cookies) firmado con `JWT_ACCESS_SECRET`, payload `{ sub: userId, role }` — **sin** `lenderId` (ver [D-P2-2](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-06-ronda-fase-2)); para saber con qué `LenderCompany`(s) opera un usuario hay que llamar a [`GET /api/auth/me`](#get-apiauthme). Vida corta: 15 min (`JWT_ACCESS_TTL`).
 
-**Sesión vs. rol**: hoy la verificación de sesión es un helper provisorio (`src/auth/session.ts`, `requireSession`/`requireRole`) — los middlewares definitivos (`withAuth`/`withRole`, con la regla de 2FA obligatorio para ADMIN/LENDER) son Fase 3 y todavía no existen. Igual, todo endpoint marcado "Autenticado" en este documento ya exige `Authorization: Bearer` de verdad con ese helper — incluyendo `/api/users`, restringido a ADMIN desde el 2026-09-07 (`D-P2-4`).
+**Sesión vs. rol**: `src/middlewares/withAuth.ts` (verifica el token, adjunta `session`) y `src/middlewares/withRole.ts` (verifica el rol) son los middlewares definitivos (Fase 3). **`withRole` además exige 2FA activo por default para ADMIN/LENDER** en endpoints de negocio (escrituras) — ver el aviso en cada endpoint afectado y el código `TWO_FACTOR_REQUIRED` en el [catálogo](#catálogo-de-códigos-de-error). Quedan exentos de ese chequeo de 2FA: lecturas (`GET /api/users`), autoservicio sin rol específico (`logout`, `logout-all`, `GET`/`PATCH /api/auth/me`) y las propias rutas `/api/auth/2fa/*` (ahí es donde se activa el 2FA que la regla exige en el resto).
 
 **Rate limiting**: en memoria por proceso (`src/middlewares/rateLimit.ts`), no distribuido — si el backend corre con más de una réplica, cada una lleva su propio contador. La clave es `"<bucket>:<ip>"`, con la IP tomada de `X-Forwarded-For` (primer valor de la lista; sin ese header, la clave es `"<bucket>:unknown"` y todos los clientes sin ese header comparten el mismo cupo). Cada bucket (`login`, `login2fa`, `password-forgot`) es independiente — agotar uno no afecta a los demás (criterio explícito de `BE-028`: un código de 2FA incorrecto no debe consumir el cupo de `login`).
 
 **`x-request-id`**: todo response lleva ese header (generado por `src/proxy.ts` si el cliente no lo mandó); útil para correlacionar con los logs estructurados del backend.
+
+**Paginación** (`GET /api/admin/lenders`, `GET /api/lenders/me/borrowers`): query params `page` (default `1`), `pageSize` (default `20`, máximo `100`), `search` (opcional). Respuesta:
+
+```jsonc
+{ "success": true, "data": { "items": [ /* ... */ ], "page": 1, "pageSize": 20, "total": 3, "totalPages": 1 } }
+```
+
+**Acceso multi-empresa sin selector de tenant** (`D-P4-1`): un `LENDER` puede tener más de una `LenderCompany`. Como todavía no existe un mecanismo para indicar "con cuál empresa estoy operando" (`withTenantScope`, diferido a Fase 6), las lecturas de `/api/lenders/me/borrowers*` devuelven resultados de **todas** las empresas del Lender, y la creación (`POST .../borrowers`) resuelve la empresa destino sola si hay una sola, o exige `lenderCompanyId` explícito si hay más de una.
 
 ---
 
@@ -67,6 +77,7 @@ Fuente única: `src/config/env.ts` (`.env.example` documenta lo mismo con coment
 | `BCRYPT_COST` | `12` | `src/auth/password.ts`, `users.service.ts` | Costo de `bcrypt.hash` para `User.password` |
 | `CORS_ORIGIN` | `http://localhost:3000` | `src/proxy.ts` (CORS) y `passwordReset.service.ts` (arma la URL del link de reset) | Origen permitido; también base del link `{CORS_ORIGIN}/reset-password?token=...` que se envía por correo |
 | `TOTP_ISSUER` | `PayMyLoan` | `src/auth/totp.ts` | Nombre que muestra la app autenticadora (Google Authenticator, etc.) al escanear el QR |
+| `REQUIRE_TWO_FACTOR` | `true` (exigido salvo `"false"` explícito) | `src/middlewares/withRole.ts` | Interruptor temporal (`D-P4-4`) para probar el resto de la API sin activar 2FA en cada usuario de prueba — en `"false"`, `withRole` saltea solo el chequeo de 2FA (rol, cuenta activa, `mustChangePassword` siguen exigidos). Nunca se toca en producción; pensado para sacarse del todo más adelante |
 | `EMAIL_PROVIDER` | `resend` | `src/lib/email.ts` | Proveedor detrás de `sendEmail()` — hoy solo `"resend"` está implementado |
 | `EMAIL_API_KEY` | *(vacío)* | `src/lib/email.ts` | API key de Resend. **Si está vacío, `sendEmail()` no llama a ningún proveedor — loguea el correo completo (`to`/`subject`/`html`) y retorna** (modo dev, ver [D-P2-1](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-06-ronda-fase-2)) |
 | `EMAIL_FROM` | `servicing@paymyloan.ai` | `src/lib/email.ts` | Remitente en los correos enviados vía Resend |
@@ -107,7 +118,7 @@ Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incl
 
 Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActive`). **No pide contraseña** (`D-P2-5`, 2026-09-07) — nace sin una utilizable, igual que el auto-registro (`POST /api/auth/register`, más abajo). No confundir tampoco con ese endpoint: acá lo llama un Admin autenticado y la cuenta queda **activa por default** salvo que se mande `isActive:false` explícito (el auto-registro siempre nace inactivo).
 
-- **Auth**: Autenticado, rol `ADMIN`.
+- **Auth**: Autenticado, rol `ADMIN`. Es una escritura de negocio — el Admin necesita 2FA activo (`D-P3-1`, ver [Convenciones](#convenciones)).
 - **Request body**:
 
   | Campo | Tipo | Validación |
@@ -131,13 +142,13 @@ Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActi
   }
   ```
   Sin `isActive:false` en el body, la cuenta queda activa de inmediato: se genera una contraseña temporal de **8 dígitos numéricos**, se intenta enviar por correo, y se devuelve en `temporaryPassword` — mismo mecanismo que activar por `PATCH`/`POST /api/admin/users/:id/activate` (ver [esas secciones](#patch-apiusersid)). Con `isActive:false`, la respuesta no trae `temporaryPassword` ni `emailSent` — la cuenta queda sin contraseña utilizable hasta que alguien la active después.
-- **Errores**: `400 VALIDATION_ERROR` (body inválido, incluyendo un `phone` que no tiene 10 dígitos) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` · `409 EMAIL_TAKEN` (el correo ya existe).
+- **Errores**: `400 VALIDATION_ERROR` (body inválido, incluyendo un `phone` que no tiene 10 dígitos) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `403 TWO_FACTOR_REQUIRED` (es ADMIN, pero sin 2FA activo) · `409 EMAIL_TAKEN` (el correo ya existe).
 
 ### `PATCH /api/users/:id`
 
 Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`phone`/`password`/`isActive`.
 
-- **Auth**: Autenticado, rol `ADMIN`.
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Request body**: mismos campos que `POST` (todos opcionales), pero **al menos uno** debe venir.
 - **Response `200`**:
   ```jsonc
@@ -151,16 +162,16 @@ Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`phone`/`
     }
   }
   ```
-- **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` · `404 USER_NOT_FOUND` · `409 EMAIL_TAKEN` (si el nuevo correo ya lo usa otro usuario).
+- **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `403 TWO_FACTOR_REQUIRED` (es ADMIN, pero sin 2FA activo) · `404 USER_NOT_FOUND` · `409 EMAIL_TAKEN` (si el nuevo correo ya lo usa otro usuario).
 - **`isActive`, activación/desactivación desde este mismo endpoint (`D-P2-4`)**: si `isActive` pasa de `false` a `true`, corre exactamente la misma lógica que [`POST /api/admin/users/:id/activate`](#post-apiadminusersidactivate) — en la primera activación (el usuario nunca inició sesión) genera una contraseña temporal, la guarda hasheada, intenta enviarla por correo, **y la devuelve en la respuesta** (`temporaryPassword`) — mientras no haya un proveedor de correo real configurado, esta es la forma confiable de que el Admin la vea. Una reactivación (el usuario ya había iniciado sesión antes) no toca la contraseña ni agrega `temporaryPassword`. Si `isActive` pasa de `true` a `false`, revoca todos los refresh tokens vigentes del usuario, igual que `/deactivate`. Un `password` explícito enviado en el mismo body que dispara una primera activación se ignora — gana la contraseña generada.
 
 ### `DELETE /api/users/:id`
 
 Eliminación **lógica**: pone `deletedAt = now()`. Nunca borra la fila (puede estar referenciada desde préstamos, documentos o auditoría) — distinto de `isActive` (activar/desactivar), que es reversible y no oculta al usuario de listados.
 
-- **Auth**: Autenticado, rol `ADMIN`.
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Response `200`**: `data` = `SafeUser` con `deletedAt` seteado.
-- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` · `404 USER_NOT_FOUND`.
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `403 TWO_FACTOR_REQUIRED` (es ADMIN, pero sin 2FA activo) · `404 USER_NOT_FOUND`.
 
 ### Forma de `SafeUser`
 
@@ -175,6 +186,7 @@ Nunca incluye `password` ni `twoFactorSecret` — es lo único que la API expone
   "role": "ADMIN",           // ADMIN | LENDER | BORROWER | BOOKKEEPER | INSURANCE_COMPANY
   "isActive": true,
   "isTwoFactorEnabled": false,
+  "mustChangePassword": false, // true mientras siga siendo una contraseña generada por el sistema (D-P4-2)
   "createdAt": "2026-09-04T23:45:41.967Z",
   "updatedAt": "2026-09-04T23:45:41.967Z",
   "deletedAt": null
@@ -296,7 +308,6 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
       // presente solo si role === "LENDER"
       "lenderProfile": {
         "id": "...",
-        "contactPhone": null,
         "lenderCompanies": [ { "id": "...", "companyName": "...", "status": "ACTIVE", "isOpenToDeals": true } ]
       },
       // presente solo si role === "BORROWER"
@@ -392,7 +403,7 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
 
 ### `POST /api/admin/users/:id/activate`
 
-- **Auth**: Autenticado, rol `ADMIN`.
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Response `200`**:
   ```jsonc
   {
@@ -405,7 +416,7 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
     }
   }
   ```
-- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `404 USER_NOT_FOUND`.
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `403 TWO_FACTOR_REQUIRED` (es ADMIN, pero sin 2FA activo) · `404 USER_NOT_FOUND`.
 - **Comportamiento según el historial del usuario**:
   - **Primera activación** (`lastLoginAt` nulo — nunca inició sesión, típicamente recién auto-registrado): genera una contraseña temporal, la guarda hasheada (bcrypt), intenta enviarla por correo (plantilla `account-activated`, ver [variables de entorno](#variables-de-entorno) — sin `EMAIL_API_KEY`, el correo se loguea en vez de enviarse de verdad) **y la devuelve también en `temporaryPassword`** (`D-P2-4` — mientras no haya un proveedor de correo real conectado, es la forma confiable de que el Admin la tenga a mano). `emailSent` indica si el envío tuvo éxito, independientemente de que `temporaryPassword` siempre esté presente en este caso.
   - **Reactivación** (el usuario ya había iniciado sesión alguna vez): solo pone `isActive=true`, **no** toca la contraseña ni reenvía correo — `emailSent` viene `false` y `temporaryPassword` no viene en la respuesta.
@@ -414,29 +425,256 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
 
 ### `POST /api/admin/users/:id/deactivate`
 
-- **Auth**: Autenticado, rol `ADMIN`.
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Response `200`**: `{ "success": true, "data": /* SafeUser, isActive: false */ {} }`.
 - **Errores**: igual que `/activate`.
 - **Efecto secundario**: revoca todos los refresh tokens vigentes del usuario — una cuenta desactivada no puede seguir usando una sesión que ya tenía abierta.
 
 ---
 
+## Prestamistas — Admin (`src/app/api/admin/lenders/`)
+
+`BE-041..044`, `BE-040` (rescopeado `D-P4-5`). Este módulo ya **no** da de alta personas — un `LENDER` nace por autoservicio ([`POST /api/auth/register`](#post-apiauthregister)) y un Admin lo activa ([`POST /api/admin/users/:id/activate`](#post-apiadminusersidactivate)). Lo que sí cubre este módulo es la empresa (`LenderCompany`) — el tenant real — sobre un `LenderProfile` que ya existe.
+
+> **`:id` en las 4 rutas de abajo acepta `LenderProfile.id` o el `User.id` de la persona** (`D-P4-7`) — indistintamente. Existen porque [`GET /api/users`](#get-apiusers) (el único lugar donde un Admin ve el id de un Lender sin pasar por `GET /api/admin/lenders`) solo expone `User.id`; exigir `LenderProfile.id` ahí hacía inutilizable ese camino.
+
+### `POST /api/admin/lenders/:id/companies`
+
+Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunca toca `User`/`LenderProfile`, solo campos de la empresa (`D-P4-5`: rescopeo de `BE-040`, que antes creaba la persona también). Mismo servicio (`lenders.service.ts#createLenderCompany`) que usa la variante autoservicio, [`POST /api/lenders/me/companies`](#post-apilendersmecompanies), abajo.
+
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`).
+- **Request body**:
+
+  | Campo | Tipo | Validación |
+  |---|---|---|
+  | `companyName` | string | 1–200 caracteres |
+  | `ein` | string | formato `XX-XXXXXXX` |
+  | `contactPhone` | string | opcional, 10 dígitos — teléfono de la empresa (`LenderCompany.contactPhone`) |
+  | `addressLine1` / `addressLine2` / `city` / `state` (2 letras) / `postalCode` | string | dirección de la empresa; `addressLine2` opcional |
+
+- **Response `201`**: `{ "success": true, "data": { /* LenderCompanySummary, ver forma abajo */ } }`.
+- **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN`/`TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` · `409 EIN_TAKEN`.
+
+### `PATCH /api/admin/lenders/:id/companies/:companyId`
+
+`D-P4-8`, nuevo. Un Admin edita cualquier campo de una `LenderCompany` puntual — incluidos `status` (suspender/reactivar una empresa, `D-P1-8`) e `isOpenToDeals` (`M-4`). `:companyId` se valida contra `:id`: una empresa que existe pero es de otro Lender responde `404`, igual que si no existiera.
+
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`).
+- **Request body**: todos los campos de `POST .../companies` (arriba), todos opcionales, más `isOpenToDeals` (boolean) y `status` (`"ACTIVE"` | `"SUSPENDED"`) — al menos uno.
+- **Response `200`**: `{ "success": true, "data": { /* LenderCompanySummary */ } }`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` · `404 LENDER_COMPANY_NOT_FOUND` · `409 EIN_TAKEN`.
+
+### `DELETE /api/admin/lenders/:id/companies/:companyId`
+
+`D-P4-8`, nuevo. Soft-delete de **una sola** `LenderCompany` (no del Lender ni de sus otras empresas) — bloqueado si esa empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`. Puede dejar al Lender con cero empresas — estado ya válido (el mismo que un recién auto-registrado, `D-P2-1`).
+
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`).
+- **Response `200`**: `{ "success": true, "data": { "deleted": true } }`.
+- **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` · `404 LENDER_COMPANY_NOT_FOUND` · `409 LENDER_HAS_ACTIVE_CONTRACTS`.
+
+### `GET /api/admin/lenders`
+
+Lista + búsqueda (por nombre/email de la persona o `companyName`) + paginación (ver [Convenciones](#convenciones)) + filtro `status` (`ACTIVE`/`SUSPENDED`, sobre alguna `LenderCompany` del Lender).
+
+- **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
+- **Response `200`**: `data` = [resultado paginado](#convenciones) de objetos con la forma de `Lender` (ver abajo).
+
+### `GET /api/admin/lenders/:id`
+
+Incluye el resumen agregado de **todas** las `LenderCompany` del Lender — no depende de ninguna "empresa activa".
+
+- **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
+- **Response `200`**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      "id": "...",                 // LenderProfile.id
+      "user": /* SafeUser */ {},
+      "lenderCompanies": [ { "id": "...", "companyName": "...", "ein": "...", "contactPhone": null, "addressLine1": "...", "addressLine2": null, "city": "...", "state": "TX", "postalCode": "...", "isOpenToDeals": true, "status": "ACTIVE" } ],
+      "borrowersCount": 3,         // LenderBorrower activos, todas sus empresas
+      "activeContractsCount": 1    // Contract en ACTIVE o DELINQUENT, todas sus empresas
+    }
+  }
+  ```
+- **Errores**: `401`/`403` (igual que arriba) · `404 LENDER_NOT_FOUND`.
+
+> `LenderProfile` no tiene ningún campo propio editable (`D-P4-8`: su único campo, `contactPhone`, se eliminó por redundante con `User.phone`) — no hay `PATCH /api/admin/lenders/:id`. Editar una empresa es `PATCH .../companies/:companyId` (arriba); editar el nombre/teléfono de la persona es [`PATCH /api/users/:id`](#patch-apiusersid).
+
+### `DELETE /api/admin/lenders/:id`
+
+Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`deletedAt`, y el `User` además `isActive=false` + revoca sus refresh tokens) — bloqueado si alguna empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`.
+
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (escritura).
+- **Response `200`**: `data` = `SafeUser` con `deletedAt` seteado.
+- **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` · `409 LENDER_HAS_ACTIVE_CONTRACTS`.
+
+---
+
+## Prestamistas y Deudores — autoservicio
+
+### `GET /api/lenders/me`
+
+`BE-100` (nuevo — el mapa de endpoints del plan lo preveía sin ningún ticket detrás, `D-P4-3`). Mismo shape que `GET /api/admin/lenders/:id` (arriba), pero sobre el `LenderProfile` de la sesión. No hay `PATCH` acá (`D-P4-8`): `LenderProfile` no tiene ningún campo propio editable — `name`/`phone` de `User` se editan por [`PATCH /api/auth/me`](#patch-apiauthme) (`BE-099`); editar una empresa propia es cosa del Admin por ahora (`PATCH /api/admin/lenders/:id/companies/:companyId`), no hay autoservicio de edición de empresa todavía.
+
+- **Auth**: Autenticado, rol `LENDER`, exenta de 2FA (lectura).
+- **Errores**: `401`/`403` · `404 LENDER_NOT_FOUND`.
+
+### `POST /api/lenders/me/companies`
+
+`BE-101`, nuevo (`D-P4-5`). El propio Lender se crea una `LenderCompany` — mismo body/servicio que [`POST /api/admin/lenders/:id/companies`](#post-apiadminlendersidcompanies), resolviendo el `LenderProfile` desde la sesión en vez de un `:id`. Cierra el hueco de un Lender auto-registrado (`D-P2-1`) que nace con `LenderProfile` pero sin ninguna `LenderCompany` — antes no había ningún endpoint para que se diera de alta la primera.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (`D-P3-1`).
+- **Request body**: igual que `POST /api/admin/lenders/:id/companies` (`companyName`/`ein`/`contactPhone`?/dirección) — **sin** `name`/`email`, esos son de la persona, no de la empresa.
+- **Response `201`**: `{ "success": true, "data": { /* LenderCompanySummary, ver forma abajo */ } }`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` (perfil de prestamista de la sesión no encontrado) · `409 EIN_TAKEN`.
+
+### `POST /api/lenders/me/borrowers`
+
+`BE-045`. Crea `User(role=BORROWER)` + `BorrowerProfile` (sin `lenderId` — ya no existe, `D-P1-4`) + `LenderBorrower`, activo de inmediato con contraseña temporal por correo, **nunca en la respuesta** (mismo patrón que la activación por Admin, `BE-097`).
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
+- **Request body**:
+
+  | Campo | Tipo | Validación |
+  |---|---|---|
+  | `name` | string | 1–120 caracteres |
+  | `email` | string | formato email |
+  | `phone` | string | opcional, 10 dígitos |
+  | `lenderCompanyId` | string | **obligatorio solo si el Lender tiene más de una `LenderCompany`** — con una sola, se resuelve sola (`D-P4-1`) |
+
+- **Response `201`**: `{ "success": true, "data": { "borrower": { /* ver forma abajo */ }, "emailSent": true } }`.
+- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` (tiene más de una empresa y no mandó `lenderCompanyId`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId` no es una empresa del Lender — nunca se usa, § 7.5) · `409 EMAIL_TAKEN` · `409 NO_LENDER_COMPANY` (el Lender todavía no tiene ninguna empresa).
+
+### `GET /api/lenders/me/borrowers`
+
+Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `LenderCompany` del Lender (`D-P4-1`) — cada fila trae `lenderCompanies` con las empresas del Lender de las que ese deudor es parte, para distinguirlas si tiene más de una.
+
+- **Auth**: Autenticado, rol `LENDER` (lectura, exenta de 2FA).
+- **Response `200`**: `data` = [resultado paginado](#convenciones) de objetos con la forma de `Borrower` (ver abajo).
+
+### `GET /api/lenders/me/borrowers/:id`
+
+`:id` = `BorrowerProfile.id`. Mismo criterio anti-enumeración que [`requireContractAccess`](plan/07-autenticacion-y-autorizacion.md#75-rbac--aislamiento-multi-tenant--cómo-se-evita-que-un-prestamista-acceda-a-datos-de-otro): un deudor que existe pero no es del Lender responde `404`, nunca `403`.
+
+- **Auth**: Autenticado, rol `LENDER` (lectura, exenta de 2FA).
+- **Response `200`**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      "id": "...",                // BorrowerProfile.id
+      "user": /* SafeUser */ {},
+      "phone": null, "addressLine1": null, "city": null, "state": null, "postalCode": null,
+      "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
+    }
+  }
+  ```
+- **Errores**: `401`/`403` · `404 NOT_FOUND`.
+
+### `PATCH /api/lenders/me/borrowers/:id`
+
+Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/`postalCode`) — nunca `lenderCompanyId`.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
+- **Response `200`**: mismo shape que `GET .../borrowers/:id`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND`.
+
+### `DELETE /api/lenders/me/borrowers/:id`
+
+`BE-049` (`M-3`). **Desvincula** (`LenderBorrower.removedAt`+`status=REMOVED`) — nunca borra el `BorrowerProfile`, el deudor puede tener otros lenders. Bloqueado si tiene un `Contract` `ACTIVE`/`DELINQUENT` con alguna de las empresas de las que se lo está desvinculando.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
+- **Response `200`**: `{ "success": true, "data": { "removed": true } }`.
+- **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 BORROWER_HAS_ACTIVE_CONTRACTS`.
+
+### `GET /api/borrowers/me` / `PATCH /api/borrowers/me`
+
+`BE-050`. Perfil propio del Deudor — campos de contacto propios, nunca `lenderCompanyId`.
+
+- **Auth**: Autenticado, rol `BORROWER` (`BORROWER` nunca exige 2FA, `D-P3-1`).
+- **`PATCH` bloqueado con `403 PASSWORD_CHANGE_REQUIRED`** mientras `mustChangePassword=true` (`D-P4-2`) — un deudor recién creado por un Lender tiene que cambiar su contraseña temporal antes de poder editar su perfil. `GET` no está bloqueado (necesita poder ver el estado del flag).
+- **Response `200` (`GET`)**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      "user": /* SafeUser */ {},
+      "borrowerProfile": { "id": "...", "phone": null, "addressLine1": null, "city": null, "state": null, "postalCode": null },
+      "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
+    }
+  }
+  ```
+- **Errores**: `400 VALIDATION_ERROR` (solo `PATCH`) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 PASSWORD_CHANGE_REQUIRED` (solo `PATCH`) · `404 BORROWER_NOT_FOUND`.
+
+### `POST /api/borrowers/me/password`
+
+`BE-050`. Cambia la contraseña mientras el usuario ya está autenticado — exige la contraseña actual (defensa en profundidad, mismo criterio que `/2fa/disable`, `BE-034`). **Siempre accesible**, incluso con `mustChangePassword:true` — es el único camino para apagarlo.
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Request body**: `{ "currentPassword": string, "newPassword": string (8–72 chars) }`.
+- **Response `200`**: `{ "success": true, "data": { "changed": true } }`.
+- **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `401 INVALID_CREDENTIALS` (`currentPassword` incorrecta) · `404 USER_NOT_FOUND`.
+- **Efecto secundario**: apaga `mustChangePassword`, revoca todos los refresh tokens del usuario — igual que `password/reset` (`BE-032`).
+
+### Formas de `Lender`, `LenderCompanySummary` y `Borrower`
+
+```jsonc
+// Lender (GET /api/admin/lenders*, GET /api/lenders/me)
+{
+  "id": "...",                 // LenderProfile.id
+  "user": /* SafeUser */ {},
+  "lenderCompanies": [ /* LenderCompanySummary[] */ ]
+  // GET /api/admin/lenders/:id y GET /api/lenders/me además traen borrowersCount/activeContractsCount
+}
+
+// LenderCompanySummary — un ítem de "lenderCompanies" arriba, y también la
+// respuesta directa de POST/PATCH /api/admin/lenders/:id/companies[/:companyId]
+// y POST /api/lenders/me/companies
+{
+  "id": "...", "companyName": "...", "ein": "...", "contactPhone": null,
+  "addressLine1": "...", "addressLine2": null, "city": "...", "state": "TX", "postalCode": "...",
+  "isOpenToDeals": true, "status": "ACTIVE"
+}
+
+// Borrower (POST/GET/PATCH /api/lenders/me/borrowers*)
+{
+  "id": "...",                 // BorrowerProfile.id
+  "user": /* SafeUser */ {},
+  "phone": null, "addressLine1": null, "city": null, "state": null, "postalCode": null,
+  "lenderCompanies": [ { "id": "...", "companyName": "..." } ]  // solo las que comparte con el Lender que consulta
+}
+```
+
+---
+
 ## Catálogo de códigos de error
 
-`code` es estable entre versiones; `message` es texto en español pensado para mostrarse tal cual, no para parsearse.
+`code` es estable entre versiones; `message` es texto en **inglés** (convención fijada 2026-09-08 — toda respuesta de la API, éxito o error, va en inglés; el resto del código/documentación sigue en español) pensado para mostrarse tal cual, no para parsearse.
 
 | `code` | HTTP | Cuándo |
 |---|---|---|
 | `INVALID_JSON` | 400 | El body no es JSON válido |
 | `VALIDATION_ERROR` | 400 | El body no cumple el schema Zod del endpoint (primer error de validación) |
+| `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/lenders/me/borrowers` — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
 | `INVALID_TOKEN` | 400 o 401 | Refresh token / pending token / access token / token de reset: inválido, manipulado o expirado. `password/reset` usa 400 (es un dato del body); el resto usa 401 |
 | `UNAUTHENTICATED` | 401 | Falta el header `Authorization: Bearer` en un endpoint que lo exige |
 | `INVALID_CREDENTIALS` | 401 | Login: correo inexistente o contraseña incorrecta (mismo código para ambos). También: 2FA con sesión de verificación inválida, o `disable`/`recovery-codes` con password/código incorrectos |
 | `INVALID_2FA_CODE` | 401 | Código TOTP y recovery code, ambos inválidos, en `/login/2fa` o `/2fa/verify` |
-| `ACCOUNT_INACTIVE` | 403 | Login con contraseña correcta pero `User.isActive=false` |
-| `FORBIDDEN` | 403 | Sesión válida pero el rol no tiene permiso para el endpoint (p.ej. un BORROWER llamando a `/2fa/setup`, o un LENDER llamando a `/admin/users/:id/activate`) |
+| `ACCOUNT_INACTIVE` | 403 | Login con contraseña correcta pero `User.isActive=false`. También: un ADMIN/LENDER con `isActive=false` intenta una escritura de negocio con un access token todavía vigente (`withRole` lo revisa en vivo, `BE-036`) |
+| `FORBIDDEN` | 403 | Sesión válida pero el rol no tiene permiso para el endpoint (p.ej. un BORROWER llamando a `/2fa/setup`, o un LENDER llamando a `/admin/users/:id/activate`); también el caso de `requireContractAccess` para un rol sin modelo de acceso a contratos definido todavía |
+| `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `POST /api/lenders/me/borrowers`, `PATCH`/`DELETE /api/lenders/me/borrowers/:id`. No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
+| `PASSWORD_CHANGE_REQUIRED` | 403 | `PATCH /api/borrowers/me` con `mustChangePassword=true` (`D-P4-2`) — el Deudor todavía no cambió la contraseña temporal que se le generó al crearlo |
 | `USER_NOT_FOUND` | 404 | `:id` no corresponde a ningún usuario (o está borrado lógicamente) |
-| `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users` con un correo que ya existe |
+| `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, sin endpoint consumidor todavía): el contrato no existe, o existe pero no pertenece a la sesión. También `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
+| `LENDER_NOT_FOUND` | 404 | `:id` de `/api/admin/lenders*` no corresponde a ningún `LenderProfile` ni `User.id` de un Lender (o está borrado lógicamente, `D-P4-7`); o el `User` autenticado en `/api/lenders/me*` no tiene `LenderProfile` |
+| `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente) |
+| `BORROWER_NOT_FOUND` | 404 | El `User` autenticado en `/api/borrowers/me*` no tiene `BorrowerProfile` |
+| `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users`, `POST /api/lenders/me/borrowers` con un correo que ya existe |
+| `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies` o `POST /api/lenders/me/companies` con un `ein` que ya usa otra `LenderCompany` |
+| `LENDER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/admin/lenders/:id` (alguna de sus `LenderCompany` tiene un `Contract` `ACTIVE`/`DELINQUENT`) o `DELETE /api/admin/lenders/:id/companies/:companyId` (esa empresa puntual lo tiene) |
+| `NO_LENDER_COMPANY` | 409 | `POST /api/lenders/me/borrowers` — el Lender todavía no tiene ninguna `LenderCompany` |
+| `BORROWER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/lenders/me/borrowers/:id` — el deudor tiene un `Contract` `ACTIVE`/`DELINQUENT` con alguna de las empresas de las que se lo está desvinculando |
 | `TWO_FACTOR_ALREADY_ENABLED` | 409 | `/2fa/setup` o `/2fa/verify` cuando el usuario ya tiene 2FA activo |
 | `TWO_FACTOR_NOT_ENABLED` | 409 | `/2fa/disable` o `/2fa/recovery-codes` cuando el usuario no tiene 2FA activo |
 | `TWO_FACTOR_SETUP_REQUIRED` | 409 | `/2fa/verify` sin haber llamado antes a `/2fa/setup` |

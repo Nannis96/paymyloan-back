@@ -18,9 +18,11 @@ export type AuditAction =
   // Prestamistas / empresas
   | "LENDER_CREATED"
   | "LENDER_UPDATED"
+  | "LENDER_DELETED"
   | "LENDER_COMPANY_CREATED"
   | "LENDER_COMPANY_UPDATED"
   | "LENDER_COMPANY_SUSPENDED"
+  | "LENDER_COMPANY_DELETED"
   // Deudores
   | "BORROWER_CREATED"
   | "BORROWER_UPDATED"

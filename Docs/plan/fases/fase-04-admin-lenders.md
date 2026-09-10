@@ -4,7 +4,9 @@
 
 # Fase 4 — Users / Admin / Lenders
 
-## BE-040 — `POST /api/admin/lenders`
+> **`BE-040` rescopeado 2026-09-08 (`D-P4-5`)**: el texto original de abajo (crear `User`+`LenderProfile` de una) quedó reemplazado — la persona nace por auto-registro (`POST /api/auth/register`, `D-P2-1`), y `POST /api/admin/lenders` (nivel raíz) **se elimina**. Lo que sí queda de este ticket es la parte de la empresa, movida a `POST /api/admin/lenders/:id/companies` (Admin asocia una `LenderCompany` a un Lender que ya existe) y a `POST /api/lenders/me/companies` (`BE-101`, nuevo — el propio Lender se crea una empresa). Ver `D-P4-5` en [00](../00-contradicciones-y-decisiones.md#decisión-2026-09-08-rescopeo-post-fase-4-d-p4-5) para el detalle completo; contrato HTTP vigente en [API_REFERENCE.md](../../API_REFERENCE.md).
+
+## BE-040 — `POST /api/admin/lenders` (texto original, superado — ver nota arriba)
 - **Prioridad/Complejidad/Dependencias**: P0 / M / BE-036, BE-009, BE-006
 - **Implementación**: crea `User(role=LENDER, isTwoFactorEnabled=false)` + `LenderProfile` en una `$transaction`; genera contraseña temporal, la envía por correo (nunca la devuelve en la respuesta de la API).
 - **Validaciones**: `email` único, `companyName` obligatorio.

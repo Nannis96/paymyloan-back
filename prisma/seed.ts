@@ -32,7 +32,7 @@ async function main() {
     data: { name: "Lender One", email: "lender1@paymyloan.dev", password, role: "LENDER" },
   });
   const lender1Profile = await prisma.lenderProfile.create({
-    data: { userId: lender1User.id, createdByAdminId: admin.id, contactPhone: "512-555-0101" },
+    data: { userId: lender1User.id, createdByAdminId: admin.id },
   });
   const lender1CompanyA = await prisma.lenderCompany.create({
     data: {

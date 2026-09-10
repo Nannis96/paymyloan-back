@@ -34,7 +34,7 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
     }
     return { sub: payload.sub, role: payload.role as UserRole };
   } catch {
-    throw new AppError("Token de acceso inválido o expirado", 401, "INVALID_TOKEN");
+    throw new AppError("Invalid or expired access token", 401, "INVALID_TOKEN");
   }
 }
 
@@ -59,7 +59,7 @@ export async function verifyPendingToken(token: string): Promise<{ sub: string }
     }
     return { sub: payload.sub };
   } catch {
-    throw new AppError("Token temporal inválido o expirado", 401, "INVALID_TOKEN");
+    throw new AppError("Invalid or expired temporary token", 401, "INVALID_TOKEN");
   }
 }
 

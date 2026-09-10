@@ -17,6 +17,8 @@ export interface SafeUser {
   role: User["role"];
   isActive: boolean;
   isTwoFactorEnabled: boolean;
+  /** D-P4-2: true mientras siga siendo una contraseña generada por el sistema. */
+  mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -26,8 +28,8 @@ export interface SafeUser {
 // Exportada para que auth.service.ts/adminUsers.service.ts (Fase 2) reusen
 // el mismo mapeo en vez de duplicarlo.
 export function toSafeUser(user: User): SafeUser {
-  const { id, name, email, phone, role, isActive, isTwoFactorEnabled, createdAt, updatedAt, deletedAt } = user;
-  return { id, name, email, phone, role, isActive, isTwoFactorEnabled, createdAt, updatedAt, deletedAt };
+  const { id, name, email, phone, role, isActive, isTwoFactorEnabled, mustChangePassword, createdAt, updatedAt, deletedAt } = user;
+  return { id, name, email, phone, role, isActive, isTwoFactorEnabled, mustChangePassword, createdAt, updatedAt, deletedAt };
 }
 
 // D-P2-4 (CRUD de Fase 0 restringido a ADMIN): lista siempre a todos los
@@ -56,7 +58,7 @@ export interface CreateUserResult extends SafeUser {
 export async function createUser(input: CreateUserInput, actorUserId: string): Promise<CreateUserResult> {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
-    throw new AppError("Ya existe un usuario con ese correo", 409, "EMAIL_TAKEN");
+    throw new AppError("A user with that email already exists", 409, "EMAIL_TAKEN");
   }
 
   const placeholderPassword = await hashPassword(generateOpaqueToken());
@@ -82,7 +84,7 @@ export async function createUser(input: CreateUserInput, actorUserId: string): P
 async function findActiveUserOrThrow(id: string): Promise<User> {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || user.deletedAt) {
-    throw new AppError("Usuario no encontrado", 404, "USER_NOT_FOUND");
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
   return user;
 }
@@ -105,7 +107,7 @@ export async function updateUser(id: string, input: UpdateUserInput, actorUserId
   if (input.email) {
     const existing = await prisma.user.findUnique({ where: { email: input.email } });
     if (existing && existing.id !== id) {
-      throw new AppError("Ya existe un usuario con ese correo", 409, "EMAIL_TAKEN");
+      throw new AppError("A user with that email already exists", 409, "EMAIL_TAKEN");
     }
   }
 
@@ -122,16 +124,19 @@ export async function updateUser(id: string, input: UpdateUserInput, actorUserId
     }
   }
 
-  const data: { name?: string; email?: string; phone?: string; password?: string } = {};
+  const data: { name?: string; email?: string; phone?: string; password?: string; mustChangePassword?: boolean } = {};
   if (input.name !== undefined) data.name = input.name;
   if (input.email !== undefined) data.email = input.email;
   if (input.phone !== undefined) data.phone = input.phone;
   // Si esta misma llamada acaba de generar una contraseña temporal (primera
   // activación), un `password` explícito en el body se ignora — no la pisa
   // en silencio. Fuera de ese caso (sin transición, o reactivación sin
-  // contraseña nueva), `password` se aplica normalmente.
+  // contraseña nueva), `password` se aplica normalmente — y, al ser una
+  // contraseña que el Admin fijó a mano (no generada), ya no hace falta que
+  // el usuario la cambie.
   if (input.password !== undefined && temporaryPassword === undefined) {
     data.password = await bcrypt.hash(input.password, BCRYPT_COST);
+    data.mustChangePassword = false;
   }
 
   const user =

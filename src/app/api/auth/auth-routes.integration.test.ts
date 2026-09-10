@@ -2,9 +2,11 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as activateRoute } from "@/app/api/admin/users/[id]/activate/route";
 import { GET as meRoute, PATCH as updateMeRoute } from "@/app/api/auth/me/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
+import { POST as loginTwoFactorRoute } from "@/app/api/auth/login/2fa/route";
 import { POST as registerRoute } from "@/app/api/auth/register/route";
+import { generateCodeForTesting } from "@/auth/totp";
 import { prisma } from "@/db/prisma";
-import { createTestUserWithPassword, resetPhase1Tables } from "@/db/testFixtures";
+import { createTestUserWithPassword, createTestUserWithTwoFactor, resetPhase1Tables } from "@/db/testFixtures";
 import * as emailLib from "@/lib/email";
 import { resetRateLimitStore } from "@/middlewares/rateLimit";
 
@@ -99,16 +101,29 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
   });
 
   it("camino dorado: registro → activación por Admin → login con la contraseña emitida por correo → /me (D-P2-1)", async () => {
-    const admin = await createTestUserWithPassword("ADMIN", PLAIN_PASSWORD);
-    const adminLoginResponse = await loginRoute(
+    // D-P3-1: activar un usuario es una escritura de negocio ADMIN-only, así
+    // que este Admin necesita 2FA activo — login en dos pasos.
+    const { user: admin, secret: adminSecret } = await createTestUserWithTwoFactor("ADMIN", PLAIN_PASSWORD);
+    const adminLoginStep1 = await loginRoute(
       jsonRequest(
         "http://localhost/api/auth/login",
         { email: admin.email, password: PLAIN_PASSWORD },
         { "x-forwarded-for": "10.0.2.1" },
       ),
     );
-    expect(adminLoginResponse.status).toBe(200);
-    const adminLoginBody = await adminLoginResponse.json();
+    expect(adminLoginStep1.status).toBe(200);
+    const adminLoginStep1Body = await adminLoginStep1.json();
+    expect(adminLoginStep1Body.data.requiresTwoFactor).toBe(true);
+
+    const adminLoginStep2 = await loginTwoFactorRoute(
+      jsonRequest(
+        "http://localhost/api/auth/login/2fa",
+        { pendingToken: adminLoginStep1Body.data.pendingToken, code: generateCodeForTesting(adminSecret) },
+        { "x-forwarded-for": "10.0.2.1" },
+      ),
+    );
+    expect(adminLoginStep2.status).toBe(200);
+    const adminLoginBody = await adminLoginStep2.json();
     const adminAccessToken = adminLoginBody.data.accessToken as string;
 
     const lenderEmail = `http-golden-${Date.now()}@test.local`;

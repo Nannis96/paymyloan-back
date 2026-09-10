@@ -72,6 +72,12 @@ export const env = {
 
   // 2FA (Fase 2)
   totpIssuer: process.env.TOTP_ISSUER ?? "PayMyLoan",
+  // D-P4-4: interruptor temporal para probar el resto de la API sin tener
+  // que activar 2FA en cada usuario de prueba. Seguro por default —
+  // exigido (`true`) salvo que se ponga explícitamente en "false". Nunca se
+  // toca en producción; se saca del todo cuando se retome la Fase 6+ con
+  // 2FA obligatorio de verdad en el flujo de pruebas.
+  requireTwoFactorForWrites: process.env.REQUIRE_TWO_FACTOR !== "false",
 
   // Correo transaccional (BE-006) — proveedor concreto pendiente de
   // confirmar (sección 15 del plan), Resend como placeholder.

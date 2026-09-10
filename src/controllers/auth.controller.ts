@@ -1,6 +1,6 @@
-import { requireSession } from "@/auth/session";
 import { env } from "@/config/env";
 import type { RequestMeta } from "@/lib/requestMeta";
+import { withAuth } from "@/middlewares/withAuth";
 import { checkRateLimit } from "@/middlewares/rateLimit";
 import * as authService from "@/services/auth.service";
 import * as passwordResetService from "@/services/passwordReset.service";
@@ -44,20 +44,20 @@ export async function refresh(body: unknown, meta: RequestMeta) {
 }
 
 export async function logout(request: Request, body: unknown) {
-  await requireSession(request);
+  await withAuth(request);
   const input = parseOrThrow(logoutSchema, body);
   await authService.logout(input.refreshToken);
   return { loggedOut: true };
 }
 
 export async function logoutAll(request: Request) {
-  const session = await requireSession(request);
+  const session = await withAuth(request);
   await authService.logoutAll(session.userId);
   return { loggedOut: true };
 }
 
 export async function me(request: Request) {
-  const session = await requireSession(request);
+  const session = await withAuth(request);
   return authService.getMe(session.userId);
 }
 
@@ -65,7 +65,7 @@ export async function me(request: Request) {
 // (nombre, teléfono). Nunca email/password/role/isActive desde acá — esos
 // tienen flujos propios (D-P2-4).
 export async function updateMe(request: Request, body: unknown) {
-  const session = await requireSession(request);
+  const session = await withAuth(request);
   const input = parseOrThrow(updateMeSchema, body);
   const user = await usersService.updateOwnProfile(session.userId, input);
   return { user };

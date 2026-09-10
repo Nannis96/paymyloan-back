@@ -109,38 +109,67 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 ---
 
-## ⬜ Fase 3 — Authorization
+## ✅ Fase 3 — Authorization (completa, verificada — `BE-037` diferido)
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-035 | Middleware `withAuth` |
-| ⬜ BE-036 | Middleware `withRole` (incluye 2FA obligatorio) |
-| ⬜ BE-037 | Middleware `withTenantScope` |
-| ⬜ BE-038 | Helper `requireContractAccess` (+ M-2: `requireBorrowerAccess`) |
-| ⬜ BE-039 | Auditoría automática de accesos denegados |
+> **Implementada 2026-09-08** — reemplaza al helper provisorio de Fase 2 (`src/auth/session.ts`, ya borrado) por los middlewares definitivos en `src/middlewares/`. `BE-037` (`withTenantScope`) queda `⬜`, diferido a Fase 4 por decisión explícita (`D-P3-2`) — mismo patrón que `BE-022` en Fase 1: la fase se da por completa igual, con ese ítem puntual anotado y su motivo. Detalle de las dos decisiones de esta ronda (`D-P3-1`, `D-P3-2`) en [00 — Decisiones 2026-09-08](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-08-ronda-fase-3).
+>
+> **Actualización**: Fase 4/5 (abajo) ya resolvieron el acceso multi-empresa que necesitaban (`D-P4-1`) sin construir `withTenantScope` — sigue `⬜`, ahora diferido de verdad a Fase 6 (Contratos), el primer módulo con un flujo donde "operar como la Empresa A" persiste a lo largo de varias acciones seguidas.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-035 | `src/middlewares/withAuth.ts` | Reemplaza a `requireSession` (Fase 2) sin cambiar su lógica — verifica el access token, devuelve `{ userId, role }` |
+| ✅ BE-036 | `src/middlewares/withRole.ts` | Agrega lo que `requireRole` (Fase 2) todavía no tenía a propósito: 2FA obligatorio para ADMIN/LENDER (§7.4), default `true`, `{ requireTwoFactor: false }` en `/api/auth/2fa/*` y en `GET /api/users` (lectura). **Acotado explícitamente a escrituras de negocio, no autoservicio** (`D-P3-1`) — sin esto, `PATCH /api/auth/me` o `logout` quedarían bloqueados para un Lender sin 2FA. De paso, en la misma consulta a `isTwoFactorEnabled`, revisa `isActive`/`deletedAt` — una cuenta desactivada a mitad de sesión no puede escribir aunque el access token siga vigente |
+| ⬜ BE-037 | Middleware `withTenantScope` | **Diferido a Fase 4** (`D-P3-2`) — sin ningún endpoint bajo `/api/lenders/me/*`/`/api/contracts/*` construido todavía, no hay contra qué decidir el mecanismo (header, path, etc.). Ver riesgo #18 en [15](plan/15-riesgos-y-decisiones-pendientes.md), ahora acotado a "bloquea Fase 4" |
+| ✅ BE-038 | `src/middlewares/requireContractAccess.ts` | Resuelve acceso a un `Contract` para LENDER (dueño de la `LenderCompany`, comparado contra **todas** las empresas del `LenderProfile` — no depende de `withTenantScope`) y BORROWER (`ContractBorrower` activo). Sin consumidor todavía (Fase 6), probado directo contra las fixtures de Fase 1 (`createTestLenderCompany`/`createTestBorrower`/`createTestContract`) |
+| ✅ BE-039 | Auditoría de accesos denegados | `logAuditEvent(action="ACCESS_DENIED")` cableado en los dos rechazos por tenant mismatch de `requireContractAccess` (lender ajeno, borrower no asociado) — el único lugar que hoy tiene un caso real de tenant mismatch para auditar. El 403 `FORBIDDEN` de `withRole` (rol equivocado, no tenant) queda fuera de este ticket a propósito |
+
+**Cambios en archivos existentes**: los 4 controllers de Fase 2 (`users.controller.ts`, `auth.controller.ts`, `twoFactor.controller.ts`, `adminUsers.controller.ts`) migran de `@/auth/session` a `@/middlewares/withAuth`+`@/middlewares/withRole`. `src/db/testFixtures.ts` gana `issueAccessTokenFor()` (hace login, y el paso 2 de 2FA si aplica, contra `authService` directamente) — varios tests HTTP de Fase 2 que creaban un ADMIN sin 2FA para probar una escritura tuvieron que pasar a `createTestUserWithTwoFactor` + esta fixture, porque ahora esa escritura los bloquearía. Código nuevo: `TWO_FACTOR_REQUIRED` (403) y `NOT_FOUND` (404) en el catálogo de errores.
+
+**Verificado end-to-end**: `type-check`, `lint`, 35 tests unitarios (`src/middlewares/withAuth.test.ts` nuevo: sin header/token inválido/expirado → 401, token válido → sesión) + 87 de integración (contra Postgres real — `withRole.integration.test.ts`: rol equivocado → 403, ADMIN/LENDER sin 2FA → 403 `TWO_FACTOR_REQUIRED`, con 2FA → pasa, BORROWER nunca lo dispara, `requireTwoFactor:false` lo saltea, cuenta desactivada → 403 `ACCOUNT_INACTIVE`; `requireContractAccess.integration.test.ts`: los 4 casos del ticket — lender dueño, lender ajeno, borrower asociado, borrower no asociado — más la verificación de que los dos casos de rechazo quedan en `AuditLog`), y camino dorado por `curl` contra el contenedor `api` real con el seed cargado: `admin@paymyloan.dev` sin 2FA → `GET /api/users` funciona (lectura, exenta) pero `POST /api/users` responde `403 TWO_FACTOR_REQUIRED` → `2fa/setup`+`2fa/verify` (rutas exentas, funcionan igual sin 2FA activo todavía) → login en dos pasos → `POST /api/users` ahora sí responde `201`. Sin migraciones nuevas.
 
 ---
 
-## ⬜ Fase 4 — Admin / Lenders
+## ✅ Fase 4 — Admin / Lenders (completa, verificada)
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-040 | `POST /api/admin/lenders` |
-| ⬜ BE-041 | `GET /api/admin/lenders` (lista + búsqueda) |
-| ⬜ BE-042 | `GET /api/admin/lenders/:id` |
-| ⬜ BE-043 | `PATCH /api/admin/lenders/:id` |
-| ⬜ BE-044 | `DELETE /api/admin/lenders/:id` |
+> **Implementada 2026-09-08** contra el schema real (`D-P1-3`) — el ticket original solo mencionaba `LenderProfile`; `BE-040` originalmente creaba `User`+`LenderProfile`+`LenderCompany` en una transacción, porque `companyName`/`ein`/dirección son columnas `NOT NULL` de `LenderCompany`, no de `LenderProfile`. Se agrega además `BE-100` (`GET`/`PATCH /api/lenders/me`), ticket nuevo para un hueco del mapa de endpoints (`D-P4-3`). Detalle completo en [00 — Decisiones 2026-09-08 (ronda Fase 4/5)](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-08-ronda-fase-45).
+>
+> **`BE-040` rescopeado el mismo día (`D-P4-5`)**: Spencer señaló que ese diseño estaba mal — duplicaba el auto-registro (`D-P2-1`) y dejaba a todo Lender auto-registrado sin ninguna forma de crearse una empresa (ningún endpoint cubría "agregar una `LenderCompany` a un `LenderProfile` que ya existe"). Se separó: la persona nace por auto-registro (sin tocar), `POST /api/admin/lenders` (nivel raíz) **se eliminó**, y la parte de la empresa pasó a dos rutas nuevas sobre el mismo servicio (`lenders.service.ts#createLenderCompany`/`createOwnLenderCompany`), sin `name`/`email` en el body: `POST /api/admin/lenders/:id/companies` (Admin) y `POST /api/lenders/me/companies` (`BE-101`, nuevo — el propio Lender). Detalle completo en [00 — `D-P4-5`](plan/00-contradicciones-y-decisiones.md#decisión-2026-09-08-rescopeo-post-fase-4-d-p4-5).
+>
+> **`:id` acepta `User.id` (`D-P4-7`)** y **`LenderProfile.contactPhone` eliminado + PATCH/DELETE de empresa puntual (`D-P4-8`)**, el mismo día: dos correcciones más de Spencer sobre este mismo módulo, ya en pruebas manuales. `requireLenderProfile` resuelve por `LenderProfile.id` **o** `User.id` (el único que `GET /api/users` expone). `LenderProfile.contactPhone` — su único campo propio editable — resultó redundante con `User.phone` y se eliminó (migración `20260908234923_remove_lender_profile_contact_phone`); `PATCH /api/admin/lenders/:id` y `PATCH /api/lenders/me` **se eliminaron** con él (nada que editar), reemplazados por **`PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`** (edición/borrado de una `LenderCompany` puntual, del lado Admin). Detalle completo en [00 — `D-P4-7`](plan/00-contradicciones-y-decisiones.md#decisión-2026-09-08-id-de-apiadminlenders-acepta-también-userid-d-p4-7) y [`D-P4-8`](plan/00-contradicciones-y-decisiones.md#decisión-2026-09-08-lenderprofilecontactphone-eliminado--patchdelete-de-lendercompany-puntual-d-p4-8).
 
-## ⬜ Fase 5 — Borrowers
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-040 | `POST /api/admin/lenders/:id/companies` | Rescopeado (`D-P4-5`) — ya no crea la persona, solo asocia una `LenderCompany` nueva a un Lender que ya existe. `:id` acepta `LenderProfile.id` o `User.id` (`D-P4-7`). EIN duplicado → `409 EIN_TAKEN`; `:id` inexistente → `404 LENDER_NOT_FOUND` |
+| ✅ BE-041 | `GET /api/admin/lenders` (lista + búsqueda + paginación) | Primer endpoint de este backend con paginación real — `src/validations/pagination.ts` nuevo, compartido con `BE-046` |
+| ✅ BE-042 | `GET /api/admin/lenders/:id` | Incluye conteo de deudores y contratos `ACTIVE`/`DELINQUENT` de **todas** las `LenderCompany` del Lender (agregados, no depende de una empresa "activa") |
+| ⬜ ~~BE-043~~ | ~~`PATCH /api/admin/lenders/:id`~~ | **Eliminado (`D-P4-8`)** — era solo `LenderProfile.contactPhone`, redundante con `User.phone`. Reemplazado por `PATCH .../companies/:companyId`, abajo |
+| ✅ BE-044 | `DELETE /api/admin/lenders/:id` | Soft-delete de `User`+`LenderProfile`+todas sus `LenderCompany`; bloqueado (`409 LENDER_HAS_ACTIVE_CONTRACTS`) si alguna tiene un contrato `ACTIVE`/`DELINQUENT`. Acción de auditoría nueva: `LENDER_DELETED` |
+| ✅ BE-100 | `GET /api/lenders/me` | Nuevo (`D-P4-3`) — autoservicio del Lender. Sin `PATCH` (`D-P4-8`) — mismo motivo que `BE-043` |
+| ✅ BE-101 | `POST /api/lenders/me/companies` | Nuevo (`D-P4-5`) — el propio Lender se crea una empresa; cierra el hueco de un Lender auto-registrado sin ninguna `LenderCompany` |
+| ✅ BE-102 | `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` | Nuevo (`D-P4-8`) — Admin edita cualquier campo de una empresa puntual (incluido `status`/`isOpenToDeals`) o la borra (soft-delete de esa sola empresa, bloqueado con contratos activos). `404 LENDER_COMPANY_NOT_FOUND` nuevo si `:companyId` no es del Lender |
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-045 | `POST /api/lenders/me/borrowers` (+ M-3: invitar deudor ya existente en la plataforma) |
-| ⬜ BE-046 | `GET /api/lenders/me/borrowers` |
-| ⬜ BE-047 | `GET /api/lenders/me/borrowers/:id` |
-| ⬜ BE-048 | `PATCH /api/lenders/me/borrowers/:id` |
-| ⬜ BE-049 | `DELETE /api/lenders/me/borrowers/:id` (+ M-3: solo quita el vínculo, no el perfil) |
-| ⬜ BE-050 | `GET/PATCH /api/borrowers/me`, `POST /api/borrowers/me/password` |
+**Verificado end-to-end**: `type-check`/`lint` limpios, 124 tests de integración (`lenders.service.integration.test.ts`, `lenders-routes.integration.test.ts`, `lender-companies-routes.integration.test.ts`) y camino dorado por `curl`: un Lender auto-registrado y activado (0 empresas) se crea su primera `LenderCompany` por autoservicio; un Admin asocia una empresa adicional a un Lender existente usando el `User.id` que le da `GET /api/users`; el viejo `POST /api/admin/lenders` ya no existe (`405`); Admin edita companyName/contactPhone/isOpenToDeals/status de una empresa puntual y la borra sin afectar al Lender ni sus otras empresas.
+
+---
+
+## ✅ Fase 5 — Borrowers (completa, verificada)
+
+> **Implementada 2026-09-08** contra `D-P1-4`/`M-1` — el ticket original de `BE-045` decía `BorrowerProfile(lenderId=session.lenderId)`, que ya no existe: hoy crea `BorrowerProfile` (sin `lenderId`) + `LenderBorrower(lenderCompanyId, ...)`. `D-P4-1` resuelve cómo un Lender con N `LenderCompany` opera sobre sus deudores sin construir `withTenantScope`. `D-P4-2` agrega `User.mustChangePassword` (migración `20260908040520_add_must_change_password`), necesaria para que `BE-050` pueda bloquear de verdad hasta que se cambie la contraseña temporal.
+>
+> **Hueco conocido, no implementado**: el paréntesis "`+ M-3`: invitar deudor ya existente en la plataforma" de `BE-045`/`BE-049` originales — hoy `POST /api/lenders/me/borrowers` con el correo de un usuario que ya existe responde `409 EMAIL_TAKEN`, no lo vincula a la empresa del Lender. Vincular a alguien que ya tiene cuenta (sin recrearlo) implicaría algún tipo de invitación/consentimiento que ningún otro flujo de este backend modela todavía — se deja pendiente en vez de adivinar ese diseño sin pedirlo.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-045 | `POST /api/lenders/me/borrowers` | Crea `User(role=BORROWER)`+`BorrowerProfile`+`LenderBorrower`, activo con contraseña temporal (mismo patrón que `BE-097`/activación). Con una sola `LenderCompany` se resuelve sola; con más de una, exige `lenderCompanyId` en el body — un valor ajeno nunca se usa, responde `404` (§7.5) |
+| ✅ BE-046 | `GET /api/lenders/me/borrowers` (lista + búsqueda + paginación) | Ve deudores de **todas** las `LenderCompany` del Lender (`D-P4-1`) |
+| ✅ BE-047 | `GET /api/lenders/me/borrowers/:id` | `404`, no `403`, si el deudor existe pero no es del Lender — mismo criterio anti-enumeración de `requireContractAccess` (`BE-038`) |
+| ✅ BE-048 | `PATCH /api/lenders/me/borrowers/:id` | Campos de contacto del `BorrowerProfile` |
+| ✅ BE-049 | `DELETE /api/lenders/me/borrowers/:id` | Desvincula (`LenderBorrower.removedAt`, `M-3`) — nunca borra el `BorrowerProfile`. Bloqueado (`409 BORROWER_HAS_ACTIVE_CONTRACTS`) con un contrato `ACTIVE`/`DELINQUENT` con esa empresa |
+| ✅ BE-050 | `GET`/`PATCH /api/borrowers/me`, `POST /api/borrowers/me/password` | `PATCH` bloqueado (`403 PASSWORD_CHANGE_REQUIRED`) mientras `mustChangePassword=true` (`D-P4-2`) — `GET` y el propio cambio de contraseña quedan exentos, si no nadie podría cambiarla. El cambio de contraseña exige `currentPassword` y revoca todos los refresh tokens, igual que `password/reset` (`BE-032`) |
+
+**Cambios en archivos existentes**: `userActivation.service.ts` gana `issueTemporaryPassword()` (extraída de `activateUserAccount`, reusada por `BE-045`; `BE-040` ya no la usa desde el rescopeo `D-P4-5`, no genera contraseñas); `passwordReset.service.ts` apaga `mustChangePassword` al resetear; `withRole.ts` gana la opción `requirePasswordChanged`; `users.service.ts` expone `mustChangePassword` en `SafeUser` y lo apaga si un Admin fija un `password` explícito por `PATCH /api/users/:id`. Códigos de error nuevos: `EIN_TAKEN`, `LENDER_NOT_FOUND`, `LENDER_HAS_ACTIVE_CONTRACTS`, `LENDER_COMPANY_REQUIRED`, `BORROWER_NOT_FOUND`, `BORROWER_HAS_ACTIVE_CONTRACTS`, `NO_LENDER_COMPANY`, `PASSWORD_CHANGE_REQUIRED`.
+
+**Verificado end-to-end**: `type-check`/`lint` limpios, 145 tests en total (35 unit + 110 integración — 23 nuevos de esta ronda: `lenders.service`/`lenderBorrowers.service`/`borrowerProfile.service` + 2 suites HTTP), y camino dorado por `curl` de punta a punta: Admin (2FA) crea un Lender sin contraseña en la respuesta → el Lender loguea con la temporal (del log del contenedor) → intenta crear un Borrower sin 2FA → `403 TWO_FACTOR_REQUIRED` → activa 2FA → crea el Borrower → el Borrower loguea → `PATCH /api/borrowers/me` → `403 PASSWORD_CHANGE_REQUIRED` → cambia su contraseña → `PATCH` ahora funciona. Sin migraciones nuevas en Fase 4; Fase 5 agregó la de `mustChangePassword`.
 
 ## ⬜ Fase 6 — Contracts
 

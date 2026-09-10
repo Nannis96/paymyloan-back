@@ -65,6 +65,8 @@ POST /api/auth/2fa/verify { code }
 
 **Regla dura**: un `User` con `role ∈ {ADMIN, LENDER}` y `isTwoFactorEnabled=false` puede iniciar sesión (paso 1) pero el middleware de negocio (`withRole`) rechaza **cualquier** operación de escritura fuera de `/api/auth/2fa/*` con `403 TWO_FACTOR_REQUIRED` — no es solo una recomendación de UI, se aplica server-side. Esto reemplaza al enfoque de [PAYMYLOAN_DATABASE_DESIGN.md](../PAYMYLOAN_DATABASE_DESIGN.md) (que lo verificaba solo al aceptar un `LoanParty`) porque aquí no existe ese punto único de entrada — el Admin/Lender puede intentar cualquier endpoint desde el día uno.
 
+> **Acotado 2026-09-08 (`D-P3-1`, implementado en Fase 3)**: "cualquier operación de escritura" se refiere a **endpoints de negocio** — los que ya exigen `withRole(["ADMIN"|"LENDER"], ...)` para una acción administrativa (hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate|deactivate`). El autoservicio de cualquier rol (`POST /api/auth/logout`/`logout-all`, `GET`/`PATCH /api/auth/me`) **no** exige un rol específico, así que la regla nunca lo alcanza — y las propias rutas `/api/auth/2fa/*` la apagan explícitamente (`requireTwoFactor: false`), porque ahí es donde justamente se activa el 2FA que la regla exige en el resto. `GET /api/users` también queda exento por ser lectura, no escritura.
+
 Un Prestamista creado por un Admin (sección [6.2](06-api-endpoints.md#62-admin--lenders)) nace con `isTwoFactorEnabled=false` y una contraseña temporal — debe cambiar la contraseña **y** activar 2FA antes de poder usar el resto de la API (ver BE-050).
 
 ## 7.5 RBAC + aislamiento multi-tenant — cómo se evita que un Prestamista acceda a datos de otro
@@ -78,16 +80,17 @@ Este es el requisito de seguridad más importante del encargo. Mecanismo, en cap
 5. **Para `BORROWER`**: el aislamiento no es por `lenderId` propio (un deudor no "es" un tenant) sino por pertenencia vía `ContractBorrower`. Todo acceso a `/api/contracts/:id/*` para un `BORROWER` verifica `EXISTS(ContractBorrower WHERE contractId=:id AND borrowerProfileId=session.borrowerProfileId AND removedAt IS NULL)`.
 6. **Tests dedicados** (sección [11](11-testing.md)) prueban explícitamente el caso descrito en el encargo: Lender A autenticado, IDs de Lender B manipulados a mano en la URL/body → se espera `404` en cada endpoint tenant-scoped, en un test parametrizado que recorre todos los endpoints del módulo `contracts`/`borrowers`/`payment-methods`.
 
+> **`withTenantScope` diferido a Fase 4 (`D-P3-2`)**: no tiene todavía ningún endpoint consumidor real (`/api/lenders/me/*`, `/api/contracts/*` — Fase 4/5/6 no están construidos). Se decide su mecanismo (header, path, etc.) cuando exista el primero. Lo que sí se construyó en Fase 3, sin depender de eso: `requireContractAccess(session, contractId)` (`BE-038`) — resuelve acceso a un `Contract` puntual comparando `contract.lenderCompanyId` contra **todas** las `LenderCompany` del `LenderProfile` de la sesión (no contra una "empresa activa" todavía sin definir), y por `ContractBorrower` activo para `BORROWER`. Mismo criterio anti-enumeración: siempre `404`, nunca `403`, y cada rechazo por tenant mismatch queda en `AuditLog` (`action=ACCESS_DENIED`, `BE-039`).
+
 ## 7.6 Middlewares/guards
 
 | Middleware | Qué hace |
 |---|---|
-| `withAuth` | Verifica el access token (firma+expiración), adjunta `session = { userId, role, lenderId?, borrowerProfileId? }` |
-| `withRole(...roles)` | 403 si `session.role` no está en la lista; para ADMIN/LENDER, adicionalmente 403 `TWO_FACTOR_REQUIRED` si no tiene 2FA activo (salvo en rutas `/api/auth/2fa/*`) |
-| `withTenantScope` | Inyecta `session.lenderId` como único origen de verdad del tenant en el contexto de la request |
-| `rateLimit(bucket)` | Limita intentos en `login`, `login/2fa`, `password/forgot` — ver BE-006 |
-
-> **Fase 2 (implementado)** trae un helper provisorio, `src/auth/session.ts` (`requireSession`/`requireRole`), para los endpoints de esta misma fase que ya necesitan sesión (`/me`, `/logout`, `/2fa/*`, `/admin/users/:id/activate`). A propósito **no** aplica la regla de 2FA obligatorio de arriba — eso es explícitamente `BE-036`, de Fase 3, que reemplaza este helper por el `withAuth`/`withRole` definitivo de la tabla.
+| `withAuth` | **Implementado (`src/middlewares/withAuth.ts`, BE-035)**. Verifica el access token (firma+expiración), devuelve `session = { userId, role }` |
+| `withRole(session, roles, options?)` | **Implementado (`src/middlewares/withRole.ts`, BE-036)**. 403 `FORBIDDEN` si `session.role` no está en la lista; para ADMIN/LENDER, adicionalmente 403 `TWO_FACTOR_REQUIRED` si no tiene 2FA activo — default `true`, se apaga con `{ requireTwoFactor: false }` (ver acotación `D-P3-1` en §7.4) |
+| `requireContractAccess(session, contractId)` | **Implementado (`src/middlewares/requireContractAccess.ts`, BE-038)**, sin consumidor todavía — ver nota arriba |
+| `withTenantScope` | **Diferido a Fase 4 (`D-P3-2`)** — inyectará la empresa activa una vez que se decida el mecanismo |
+| `rateLimit(bucket)` | **Implementado desde Fase 0** (`src/middlewares/rateLimit.ts`, BE-005). Limita intentos en `login`, `login/2fa`, `password/forgot` |
 
 ## 7.7 Auto-registro y activación (`D-P2-1`, nuevo 2026-09-06)
 

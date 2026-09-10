@@ -42,13 +42,13 @@ export async function resetPassword(token: string, newPassword: string): Promise
   const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
 
   if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
-    throw new AppError("Token de restablecimiento inválido o expirado", 400, "INVALID_TOKEN");
+    throw new AppError("Invalid or expired reset token", 400, "INVALID_TOKEN");
   }
 
   const password = await hashPassword(newPassword);
 
   await prisma.$transaction([
-    prisma.user.update({ where: { id: resetToken.userId }, data: { password } }),
+    prisma.user.update({ where: { id: resetToken.userId }, data: { password, mustChangePassword: false } }),
     prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } }),
     prisma.refreshToken.updateMany({
       where: { userId: resetToken.userId, revokedAt: null },

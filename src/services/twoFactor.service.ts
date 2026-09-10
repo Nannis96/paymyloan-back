@@ -15,7 +15,7 @@ function generateRecoveryCodePlaintexts(): string[] {
 async function requireUser(userId: string): Promise<User> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.deletedAt) {
-    throw new AppError("Usuario no encontrado", 404, "USER_NOT_FOUND");
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
   return user;
 }
@@ -31,7 +31,7 @@ export interface TwoFactorSetupResult {
 export async function setup(userId: string): Promise<TwoFactorSetupResult> {
   const user = await requireUser(userId);
   if (user.isTwoFactorEnabled) {
-    throw new AppError("El 2FA ya está activo", 409, "TWO_FACTOR_ALREADY_ENABLED");
+    throw new AppError("Two-factor authentication is already enabled", 409, "TWO_FACTOR_ALREADY_ENABLED");
   }
 
   const secret = generateSecret();
@@ -45,13 +45,13 @@ export async function setup(userId: string): Promise<TwoFactorSetupResult> {
 export async function verify(userId: string, code: string): Promise<string[]> {
   const user = await requireUser(userId);
   if (user.isTwoFactorEnabled) {
-    throw new AppError("El 2FA ya está activo", 409, "TWO_FACTOR_ALREADY_ENABLED");
+    throw new AppError("Two-factor authentication is already enabled", 409, "TWO_FACTOR_ALREADY_ENABLED");
   }
   if (!user.twoFactorSecret) {
-    throw new AppError("Primero hay que llamar a /api/auth/2fa/setup", 409, "TWO_FACTOR_SETUP_REQUIRED");
+    throw new AppError("You must call /api/auth/2fa/setup first", 409, "TWO_FACTOR_SETUP_REQUIRED");
   }
   if (!verifyCode(user.twoFactorSecret, code)) {
-    throw new AppError("Código de verificación inválido", 401, "INVALID_2FA_CODE");
+    throw new AppError("Invalid verification code", 401, "INVALID_2FA_CODE");
   }
 
   const recoveryCodes = generateRecoveryCodePlaintexts();
@@ -73,13 +73,13 @@ export async function verify(userId: string, code: string): Promise<string[]> {
 async function requireStepUp(userId: string, password: string, code: string): Promise<void> {
   const user = await requireUser(userId);
   if (!user.isTwoFactorEnabled || !user.twoFactorSecret) {
-    throw new AppError("El 2FA no está activo", 409, "TWO_FACTOR_NOT_ENABLED");
+    throw new AppError("Two-factor authentication is not enabled", 409, "TWO_FACTOR_NOT_ENABLED");
   }
 
   const passwordOk = await verifyPassword(password, user.password);
   const codeOk = verifyCode(user.twoFactorSecret, code);
   if (!passwordOk || !codeOk) {
-    throw new AppError("Contraseña o código inválidos", 401, "INVALID_CREDENTIALS");
+    throw new AppError("Invalid password or code", 401, "INVALID_CREDENTIALS");
   }
 }
 

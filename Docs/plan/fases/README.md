@@ -21,7 +21,7 @@ bloqueada por la decisión de Stripe Connect.
 | 1 | [Database](fase-01-database.md) | BE-008 → BE-023 | Todo el schema, en migraciones por bloque lógico |
 | 2 | [Authentication](fase-02-authentication.md) | BE-024 → BE-034 | Completa — histórico, reemplazado por [17. Fase 2 — plan actualizado](../17-fase-2-actualizada.md) (agrega `PB-013` corregido + `BE-097`) |
 | 3 | [Authorization](fase-03-authorization.md) | BE-035 → BE-039 | RBAC + aislamiento multi-tenant |
-| 4 | [Users / Admin / Lenders](fase-04-admin-lenders.md) | BE-040 → BE-044 | El Admin da de alta tenants |
+| 4 | [Users / Admin / Lenders](fase-04-admin-lenders.md) | BE-040 → BE-044 | El Admin (o el propio Lender, `D-P4-5`) da de alta empresas (`LenderCompany`) |
 | 5 | [Borrowers](fase-05-borrowers.md) | BE-045 → BE-050 | CRUD de deudores + autoservicio |
 | 6 | [Contracts](fase-06-contracts.md) | BE-051 → BE-064 | Núcleo del producto: términos, aceptación, amortización |
 | 7 | [Payments](fase-07-payments.md) | BE-065 → BE-072 | BE-065/066/070 bloqueados por Stripe Connect |
@@ -80,10 +80,10 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-037](fase-03-authorization.md#be-037--middleware-withtenantscope) | Middleware `withTenantScope` | P0 | M |
 | [BE-038](fase-03-authorization.md#be-038--helper-requirecontractaccesssession-contractid) | Helper `requireContractAccess(session, contractId)` | P0 | M |
 | [BE-039](fase-03-authorization.md#be-039--auditoría-automática-de-accesos-denegados) | Auditoría automática de accesos denegados | P2 | S |
-| [BE-040](fase-04-admin-lenders.md#be-040--post-apiadminlenders) | `POST /api/admin/lenders` | P0 | M |
+| [BE-040](../00-contradicciones-y-decisiones.md#decisión-2026-09-08-rescopeo-post-fase-4-d-p4-5) | `POST /api/admin/lenders/:id/companies` (rescopeado, `D-P4-5` — ya no crea la persona) | P0 | M |
 | [BE-041](fase-04-admin-lenders.md#be-041--get-apiadminlenders-lista--búsqueda--paginación) | `GET /api/admin/lenders` (lista + búsqueda + paginación) | P0 | M |
 | [BE-042](fase-04-admin-lenders.md#be-042--get-apiadminlendersid) | `GET /api/admin/lenders/:id` | P0 | S |
-| [BE-043](fase-04-admin-lenders.md#be-043--patch-apiadminlendersid) | `PATCH /api/admin/lenders/:id` | P1 | S |
+| ~~[BE-043](fase-04-admin-lenders.md#be-043--patch-apiadminlendersid)~~ | ~~`PATCH /api/admin/lenders/:id`~~ — eliminado (`D-P4-8`), reemplazado por `PATCH /api/admin/lenders/:id/companies/:companyId` | P1 | S |
 | [BE-044](fase-04-admin-lenders.md#be-044--delete-apiadminlendersid) | `DELETE /api/admin/lenders/:id` | P1 | M |
 | [BE-045](fase-05-borrowers.md#be-045--post-apilendersmeborrowers) | `POST /api/lenders/me/borrowers` | P0 | M |
 | [BE-046](fase-05-borrowers.md#be-046--get-apilendersmeborrowers-lista--búsqueda--paginación) | `GET /api/lenders/me/borrowers` (lista + búsqueda + paginación) | P0 | M |
@@ -91,6 +91,9 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-048](fase-05-borrowers.md#be-048--patch-apilendersmeborrowersid) | `PATCH /api/lenders/me/borrowers/:id` | P1 | S |
 | [BE-049](fase-05-borrowers.md#be-049--delete-apilendersmeborrowersid) | `DELETE /api/lenders/me/borrowers/:id` | P1 | M |
 | [BE-050](fase-05-borrowers.md#be-050--get-apiborrowersme-patch-apiborrowersme-post-apiborrowersmepassword) | `GET /api/borrowers/me`, `PATCH /api/borrowers/me`, `POST /api/borrowers/me/password` | P0 | M |
+| [BE-100](../00-contradicciones-y-decisiones.md#decisiones-2026-09-08-ronda-fase-45) | `GET /api/lenders/me` (nuevo, `D-P4-3`) — sin `PATCH`, eliminado por `D-P4-8` | P1 | S |
+| [BE-101](../00-contradicciones-y-decisiones.md#decisión-2026-09-08-rescopeo-post-fase-4-d-p4-5) | `POST /api/lenders/me/companies` (nuevo, `D-P4-5`) — el propio Lender se crea una empresa | P0 | S |
+| [BE-102](../00-contradicciones-y-decisiones.md#decisión-2026-09-08-lenderprofilecontactphone-eliminado--patchdelete-de-lendercompany-puntual-d-p4-8) | `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` (nuevo, `D-P4-8`) — Admin edita/borra una empresa puntual | P1 | M |
 | [BE-051](fase-06-contracts.md#be-051--post-apicontracts) | `POST /api/contracts` | P0 | L |
 | [BE-052](fase-06-contracts.md#be-052--get-apicontracts-lista--filtros--paginación-por-rol) | `GET /api/contracts` (lista + filtros + paginación, por rol) | P0 | M |
 | [BE-053](fase-06-contracts.md#be-053--get-apicontractsid) | `GET /api/contracts/:id` | P0 | M |

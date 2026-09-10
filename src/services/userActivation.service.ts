@@ -1,9 +1,52 @@
-import type { User } from "@prisma/client";
+import type { Prisma, User } from "@prisma/client";
 import { generateTemporaryPassword, hashPassword } from "@/auth/password";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { sendEmail } from "@/lib/email";
+
+export interface IssueTemporaryPasswordResult {
+  temporaryPassword: string;
+  emailSent: boolean;
+}
+
+// Genera una contraseña temporal, la guarda hasheada, marca
+// `mustChangePassword=true` (D-P4-2 — distingue "sigue siendo la generada"
+// de "el usuario ya la cambió"; `lastLoginAt` no sirve para esto porque el
+// login que trae la sesión actual ya lo puso en no-nulo) e intenta enviarla
+// por correo (plantilla `account-activated`). Compartido por
+// `activateUserAccount` (primera activación, abajo) y por los flujos que
+// crean una cuenta ya activa desde el arranque (`lenders.service.ts#createLender`
+// BE-040, `lenderBorrowers.service.ts#createBorrower` BE-045) — nunca se
+// duplica esta secuencia. `extraData` deja fusionar otros campos en el
+// mismo `UPDATE` (p. ej. `activateUserAccount` también necesita `isActive:
+// true`, y así evita una segunda escritura).
+export async function issueTemporaryPassword(
+  user: Pick<User, "id" | "name" | "email">,
+  extraData: Prisma.UserUpdateInput = {},
+): Promise<IssueTemporaryPasswordResult> {
+  const temporaryPassword = generateTemporaryPassword();
+  const password = await hashPassword(temporaryPassword);
+  await prisma.user.update({ where: { id: user.id }, data: { ...extraData, password, mustChangePassword: true } });
+
+  let emailSent = false;
+  try {
+    await sendEmail({
+      to: user.email,
+      subject: "Tu cuenta de PayMyLoan ya está activa",
+      template: "account-activated",
+      data: { name: user.name, temporaryPassword },
+    });
+    emailSent = true;
+  } catch {
+    // La contraseña ya quedó fijada — solo falló el envío. El caller ve
+    // emailSent=false y de todos modos tiene temporaryPassword a mano
+    // (mientras no haya un proveedor de correo real, D-P2-4).
+    emailSent = false;
+  }
+
+  return { temporaryPassword, emailSent };
+}
 
 // Lógica compartida de activar/desactivar una cuenta (BE-097, D-P2-1) — la
 // usan tanto `adminUsers.service.ts` (los endpoints dedicados
@@ -23,7 +66,7 @@ export interface ActivationResult {
 async function requireExistingUser(id: string): Promise<User> {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || user.deletedAt) {
-    throw new AppError("Usuario no encontrado", 404, "USER_NOT_FOUND");
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
   return user;
 }
@@ -42,24 +85,9 @@ export async function activateUserAccount(id: string, actorUserId: string): Prom
   let temporaryPassword: string | undefined;
 
   if (isFirstActivation) {
-    temporaryPassword = generateTemporaryPassword();
-    const password = await hashPassword(temporaryPassword);
-    await prisma.user.update({ where: { id }, data: { isActive: true, password } });
-
-    try {
-      await sendEmail({
-        to: user.email,
-        subject: "Tu cuenta de PayMyLoan ya está activa",
-        template: "account-activated",
-        data: { name: user.name, temporaryPassword },
-      });
-      emailSent = true;
-    } catch {
-      // La activación ya se aplicó — solo falló el envío. El caller ve
-      // emailSent=false y de todos modos tiene temporaryPassword a mano
-      // (mientras no haya un proveedor de correo real, D-P2-4).
-      emailSent = false;
-    }
+    const issued = await issueTemporaryPassword(user, { isActive: true });
+    temporaryPassword = issued.temporaryPassword;
+    emailSent = issued.emailSent;
   } else {
     await prisma.user.update({ where: { id }, data: { isActive: true } });
   }

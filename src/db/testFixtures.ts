@@ -1,8 +1,9 @@
 import type { UserRole } from "@prisma/client";
 import { hashPassword } from "@/auth/password";
-import { generateSecret } from "@/auth/totp";
+import { generateCodeForTesting, generateSecret } from "@/auth/totp";
 import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
+import * as authService from "@/services/auth.service";
 
 // Fixtures compartidas por los tests de integración de Fase 1 (ver
 // Docs/plan/16-fase-1-actualizada.md). Construyen la cadena mínima
@@ -63,7 +64,26 @@ export async function createTestUserWithTwoFactor(role: UserRole, plainPassword:
   return { user, secret };
 }
 
-export async function createTestLenderCompany() {
+// Fase 3 (BE-036): hace el login real (y el paso 2 de 2FA si `secret` viene)
+// contra authService directamente, para que un test HTTP que necesita un
+// access token de un ADMIN/LENDER con 2FA activo no repita ese boilerplate.
+export async function issueAccessTokenFor(user: { email: string }, password: string, secret?: string): Promise<string> {
+  const step1 = await authService.login({ email: user.email, password });
+  if (!step1.requiresTwoFactor) {
+    return step1.accessToken;
+  }
+  if (!secret) {
+    throw new Error("issueAccessTokenFor: el usuario tiene 2FA activo, hace falta pasar `secret`");
+  }
+  const step2 = await authService.loginTwoFactor({ pendingToken: step1.pendingToken, code: generateCodeForTesting(secret) });
+  return step2.accessToken;
+}
+
+// D-P4-5: un Lender auto-registrado (D-P2-1) nace con LenderProfile pero sin
+// ninguna LenderCompany — hace falta esta fixture separada de
+// createTestLenderCompany (abajo) para probar justo ese caso ("primera
+// empresa").
+export async function createTestLenderWithoutCompany() {
   const adminUser = await createTestAdmin();
   const lenderUser = await createTestUser("LENDER");
 
@@ -71,10 +91,16 @@ export async function createTestLenderCompany() {
     data: { userId: lenderUser.id, createdByAdminId: adminUser.id },
   });
 
+  return { adminUser, lenderUser, lenderProfile };
+}
+
+export async function createTestLenderCompany(overrides: { companyName?: string } = {}) {
+  const { adminUser, lenderUser, lenderProfile } = await createTestLenderWithoutCompany();
+
   const lenderCompany = await prisma.lenderCompany.create({
     data: {
       lenderProfileId: lenderProfile.id,
-      companyName: `Test Lending Co ${unique("co")}`,
+      companyName: overrides.companyName ?? `Test Lending Co ${unique("co")}`,
       ein: unique("ein"),
       addressLine1: "123 Main St",
       city: "Austin",

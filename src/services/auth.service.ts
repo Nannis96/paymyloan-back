@@ -31,7 +31,7 @@ export interface LoginPendingResult {
 
 export type LoginResult = LoginSuccessResult | LoginPendingResult;
 
-const GENERIC_CREDENTIALS_ERROR = "Correo o contraseña incorrectos";
+const GENERIC_CREDENTIALS_ERROR = "Incorrect email or password";
 
 async function issueSession(user: User, meta: RequestMeta): Promise<AuthTokens> {
   const accessToken = await signAccessToken({ sub: user.id, role: user.role });
@@ -88,7 +88,7 @@ export async function login(input: LoginInput & RequestMeta): Promise<LoginResul
   // no sirve para enumerar cuentas (un 403 antes de verificar password sí
   // delataría que el correo existe).
   if (!user.isActive) {
-    throw new AppError("La cuenta no está activa", 403, "ACCOUNT_INACTIVE");
+    throw new AppError("The account is not active.", 403, "ACCOUNT_INACTIVE");
   }
 
   if (user.isTwoFactorEnabled) {
@@ -127,7 +127,7 @@ export async function loginTwoFactor(input: LoginTwoFactorInput & RequestMeta): 
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.deletedAt || !user.isActive || !user.isTwoFactorEnabled || !user.twoFactorSecret) {
-    throw new AppError("Sesión de verificación en dos pasos inválida", 401, "INVALID_CREDENTIALS");
+    throw new AppError("Invalid two-factor verification session", 401, "INVALID_CREDENTIALS");
   }
 
   const totpValid = verifyTotpCode(user.twoFactorSecret, input.code);
@@ -143,7 +143,7 @@ export async function loginTwoFactor(input: LoginTwoFactorInput & RequestMeta): 
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
     });
-    throw new AppError("Código de verificación inválido", 401, "INVALID_2FA_CODE");
+    throw new AppError("Invalid verification code", 401, "INVALID_2FA_CODE");
   }
 
   const tokens = await issueSession(user, input);
@@ -169,7 +169,7 @@ export async function refresh(input: { refreshToken: string } & RequestMeta): Pr
   const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
   if (!stored) {
-    throw new AppError("Refresh token inválido", 401, "INVALID_TOKEN");
+    throw new AppError("Invalid refresh token", 401, "INVALID_TOKEN");
   }
 
   if (stored.revokedAt) {
@@ -184,16 +184,16 @@ export async function refresh(input: { refreshToken: string } & RequestMeta): Pr
         data: { revokedAt: new Date() },
       });
     }
-    throw new AppError("Refresh token inválido", 401, "INVALID_TOKEN");
+    throw new AppError("Invalid refresh token", 401, "INVALID_TOKEN");
   }
 
   if (stored.expiresAt < new Date()) {
-    throw new AppError("Refresh token expirado", 401, "INVALID_TOKEN");
+    throw new AppError("Refresh token expired", 401, "INVALID_TOKEN");
   }
 
   const user = await prisma.user.findUnique({ where: { id: stored.userId } });
   if (!user || user.deletedAt || !user.isActive) {
-    throw new AppError("Refresh token inválido", 401, "INVALID_TOKEN");
+    throw new AppError("Invalid refresh token", 401, "INVALID_TOKEN");
   }
 
   const accessToken = await signAccessToken({ sub: user.id, role: user.role });
@@ -236,7 +236,6 @@ export interface MeResult {
   user: SafeUser;
   lenderProfile?: {
     id: string;
-    contactPhone: string | null;
     lenderCompanies: { id: string; companyName: string; status: string; isOpenToDeals: boolean }[];
   };
   borrowerProfile?: {
@@ -252,7 +251,7 @@ export interface MeResult {
 export async function getMe(userId: string): Promise<MeResult> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.deletedAt) {
-    throw new AppError("Usuario no encontrado", 404, "USER_NOT_FOUND");
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
 
   const result: MeResult = { user: toSafeUser(user) };
@@ -265,7 +264,6 @@ export async function getMe(userId: string): Promise<MeResult> {
     if (lenderProfile) {
       result.lenderProfile = {
         id: lenderProfile.id,
-        contactPhone: lenderProfile.contactPhone,
         lenderCompanies: lenderProfile.lenderCompanies.map((company) => ({
           id: company.id,
           companyName: company.companyName,

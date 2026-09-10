@@ -1,4 +1,5 @@
-import { requireRole, requireSession } from "@/auth/session";
+import { withAuth } from "@/middlewares/withAuth";
+import { withRole, type WithRoleOptions } from "@/middlewares/withRole";
 import * as usersService from "@/services/users.service";
 import { parseOrThrow } from "@/validations/parse";
 import {
@@ -8,19 +9,17 @@ import {
   type UpdateUserInput,
 } from "@/validations/users.validation";
 
-// D-P2-4: el CRUD genérico de Fase 0 queda restringido a ADMIN — hasta acá
-// llegaba sin ninguna verificación de sesión (aviso explícito en
-// Docs/API_REFERENCE.md, ya corregido). Reusa el mismo helper provisorio de
-// sesión que el resto de Fase 2 (`src/auth/session.ts`); Fase 3 lo
-// reemplaza por `withAuth`/`withRole`.
-async function requireAdminSession(request: Request) {
-  const session = await requireSession(request);
-  requireRole(session, "ADMIN");
+// D-P2-4: el CRUD genérico de Fase 0 queda restringido a ADMIN. D-P3-1: las
+// escrituras (POST/PATCH/DELETE) además exigen 2FA activo (default de
+// withRole); la lectura (GET) queda exenta, ver requireTwoFactor:false abajo.
+async function requireAdminSession(request: Request, options?: WithRoleOptions) {
+  const session = await withAuth(request);
+  await withRole(session, ["ADMIN"], options);
   return session;
 }
 
 export async function listUsers(request: Request) {
-  await requireAdminSession(request);
+  await requireAdminSession(request, { requireTwoFactor: false });
   return usersService.listUsers();
 }
 

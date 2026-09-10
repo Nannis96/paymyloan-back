@@ -1,13 +1,17 @@
-import { requireRole, requireSession } from "@/auth/session";
+import { withAuth } from "@/middlewares/withAuth";
+import { withRole } from "@/middlewares/withRole";
 import * as twoFactorService from "@/services/twoFactor.service";
 import { parseOrThrow } from "@/validations/parse";
 import { twoFactorStepUpSchema, twoFactorVerifySchema } from "@/validations/auth.validation";
 
 // §6.1: 2FA es autoservicio de ADMIN/LENDER (los roles con 2FA obligatorio,
 // §7.4) — un BORROWER no tiene endpoint propio para activarlo en esta fase.
+// requireTwoFactor:false porque estos SON las rutas /api/auth/2fa/* — la
+// regla dura de §7.4 las exime explícitamente (acá es donde se activa el
+// 2FA que la regla exige en el resto de endpoints de negocio, D-P3-1).
 async function requireAdminOrLenderSession(request: Request) {
-  const session = await requireSession(request);
-  requireRole(session, "ADMIN", "LENDER");
+  const session = await withAuth(request);
+  await withRole(session, ["ADMIN", "LENDER"], { requireTwoFactor: false });
   return session;
 }
 

@@ -97,7 +97,7 @@ Convención por tabla: para qué existe, de qué depende, y — cuando aplica �
 |---|---|---|---|
 | id | Uuid | Sí | PK |
 | userId | Uuid → User | Sí (único) | 1:1 con el `User` de rol `LENDER` |
-| contactPhone | String? | No | teléfono personal del Prestamista (persona) |
+| ~~contactPhone~~ | ~~String?~~ | — | **Eliminado 2026-09-08 (`D-P4-8`)** — quedó redundante con `User.phone` (agregado después, `D-P2-4`, como teléfono de cuenta genérico para todos los roles). Era el único campo propio editable de esta tabla; migración `20260908234923_remove_lender_profile_contact_phone` |
 | createdByAdminId | Uuid? → User | No | **nulo permitido** (`D-P1-10`) — nulo cuando el propio Prestamista se auto-registró; tiene valor cuando lo dio de alta un Admin (`BE-040`, que sigue existiendo en paralelo) |
 | notes | Text? | No | uso interno de Admin sobre la persona |
 | deletedAt | DateTime? | No | |

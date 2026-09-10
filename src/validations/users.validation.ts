@@ -3,16 +3,16 @@ import { z } from "zod";
 
 // bcrypt ignora silenciosamente todo lo que exceda 72 bytes: se topa acá
 // para que un password largo falle en validación y no en un hash truncado.
-const password = z.string().min(8, "La contraseña debe tener al menos 8 caracteres").max(72);
-const name = z.string().trim().min(1, "El nombre es obligatorio").max(120);
-const email = z.email("Correo inválido").trim().toLowerCase();
+const password = z.string().min(8, "Password must be at least 8 characters").max(72);
+const name = z.string().trim().min(1, "Name is required").max(120);
+const email = z.email("Invalid email").trim().toLowerCase();
 // D-P2-4: 10 dígitos exactos (formato local, sin `+`/espacios/guiones) —
-// distinto del `contactPhone` de LenderProfile o el `phone` de
+// distinto del `contactPhone` de LenderCompany o el `phone` de
 // BorrowerProfile, que son de la empresa/perfil, no de la cuenta.
 export const phone = z
   .string()
   .trim()
-  .regex(/^\d{10}$/, "El teléfono debe tener 10 dígitos")
+  .regex(/^\d{10}$/, "Phone must be 10 digits")
   .optional();
 // BE-008: el rol es obligatorio y explícito en cada alta, sin default — ver
 // Docs/plan/04-base-de-datos.md §4.3 (User). Los flujos de alta específicos
@@ -36,7 +36,7 @@ export const updateUserSchema = z
   .object({ name, email, phone, password, isActive })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
-    message: "Debe incluir al menos un campo para actualizar",
+    message: "Must include at least one field to update",
   });
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
@@ -48,6 +48,6 @@ export const updateMeSchema = z
   .object({ name, phone })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
-    message: "Debe incluir al menos un campo para actualizar",
+    message: "Must include at least one field to update",
   });
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;

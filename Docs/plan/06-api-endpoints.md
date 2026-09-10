@@ -27,34 +27,44 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 
 ## 6.2 Admin / Lenders
 
+> **Rescopeado 2026-09-08 (`D-P4-5`)**: `POST /api/admin/lenders` (creaba `User`+`LenderProfile`+`LenderCompany` de una) se elimina — la persona ya nace por auto-registro (`POST /api/auth/register`, `D-P2-1`); asociarle una empresa es ahora `POST .../:id/companies`, abajo. Ver `D-P4-5` en [00](00-contradicciones-y-decisiones.md#decisión-2026-09-08-rescopeo-post-fase-4-d-p4-5).
+>
+> **`:id` acepta `LenderProfile.id` o `User.id` (`D-P4-7`)**: `GET /api/users` — el único lugar donde un Admin ve el id de un Lender sin pasar por `GET /api/admin/lenders` — solo expone `User.id`; exigir `LenderProfile.id` ahí lo hacía inutilizable para las rutas de abajo con `:id`. Ver `D-P4-7` en [00](00-contradicciones-y-decisiones.md#decisión-2026-09-08-id-de-apiadminlenders-acepta-también-userid-d-p4-7).
+>
+> **Sin `PATCH /api/admin/lenders/:id` (`D-P4-8`)**: `LenderProfile.contactPhone` — su único campo propio editable — se eliminó por redundante con `User.phone` (`D-P2-4`). Editar los datos de una empresa puntual es ahora `PATCH .../:id/companies/:companyId`, abajo. Ver `D-P4-8` en [00](00-contradicciones-y-decisiones.md#decisión-2026-09-08-lenderprofilecontactphone-eliminado--patchdelete-de-lendercompany-puntual-d-p4-8).
+
 | Método | Ruta | Rol | Tenant |
 |---|---|---|---|
-| POST | `/api/admin/lenders` | ADMIN | N/A |
 | GET | `/api/admin/lenders` | ADMIN | N/A (ve todos) |
 | GET | `/api/admin/lenders/:id` | ADMIN | N/A |
-| PATCH | `/api/admin/lenders/:id` | ADMIN | N/A |
-| DELETE | `/api/admin/lenders/:id` | ADMIN | N/A — soft delete, bloqueado si tiene contratos `ACTIVE` |
+| POST | `/api/admin/lenders/:id/companies` | ADMIN | `D-P4-5`, nuevo — asocia una `LenderCompany` nueva a un Lender que ya existe (`:id`=`LenderProfile.id` o `User.id`, `D-P4-7`); solo campos de empresa, sin `name`/`email` |
+| PATCH | `/api/admin/lenders/:id/companies/:companyId` | ADMIN | `D-P4-8`, nuevo — edita cualquier campo de una empresa puntual (incluido `status`/`isOpenToDeals`); `:companyId` validado contra `:id` |
+| DELETE | `/api/admin/lenders/:id/companies/:companyId` | ADMIN | `D-P4-8`, nuevo — soft-delete de una sola empresa, bloqueado con contratos `ACTIVE`/`DELINQUENT` |
+| DELETE | `/api/admin/lenders/:id` | ADMIN | N/A — soft delete de `User`+`LenderProfile`+todas sus `LenderCompany`, bloqueado si alguna tiene contratos `ACTIVE`/`DELINQUENT` |
 | POST | `/api/admin/users/:id/activate` | ADMIN | `BE-097`, nuevo (`D-P2-1`) — primera activación genera y envía contraseña temporal; reactivación solo reabre acceso |
 | POST | `/api/admin/users/:id/deactivate` | ADMIN | `BE-097`, nuevo — además revoca los refresh tokens vigentes del usuario |
 
 ## 6.3 Lenders (perfil propio y borrowers)
 
+> **Corregido 2026-09-08 (`D-P4-1`)**: escrito antes de `D-P1-3`/`D-P1-4` — hablaba de `BorrowerProfile.lenderId` y "el tenant" como si fuera uno solo. Hoy el tenant es `LenderCompany` (N por `LenderProfile`) y el vínculo es `LenderBorrower` (N:M). La columna "Tenant" de abajo ya refleja cómo se resuelve de verdad — ver `D-P4-1` en [00](00-contradicciones-y-decisiones.md#decisiones-2026-09-08-ronda-fase-45) para el razonamiento completo.
+
 | Método | Ruta | Rol | Tenant |
 |---|---|---|---|
-| GET | `/api/lenders/me` | LENDER | propio |
-| PATCH | `/api/lenders/me` | LENDER | propio (campos no sensibles: teléfono, dirección de negocio) |
-| POST | `/api/lenders/me/borrowers` | LENDER | crea `User(role=BORROWER)` + `BorrowerProfile(lenderId=session)` |
-| GET | `/api/lenders/me/borrowers` | LENDER | `WHERE lenderId = session.lenderId` |
-| GET | `/api/lenders/me/borrowers/:id` | LENDER | verifica `borrower.lenderId === session.lenderId` |
+| GET | `/api/lenders/me` | LENDER | `BE-100`, nuevo — propio `LenderProfile` + todas sus `LenderCompany`. Sin `PATCH` (`D-P4-8`) — `LenderProfile` no tiene campo propio editable; `name`/`phone` de `User` van por `PATCH /api/auth/me`, `BE-099` |
+| POST | `/api/lenders/me/companies` | LENDER | `BE-101`, nuevo (`D-P4-5`) — el propio Lender se crea una empresa, mismo shape que `POST /api/admin/lenders/:id/companies`; cierra el hueco de un Lender auto-registrado sin ninguna `LenderCompany` |
+| POST | `/api/lenders/me/borrowers` | LENDER | crea `User(role=BORROWER)` + `BorrowerProfile` (sin `lenderId`) + `LenderBorrower(lenderCompanyId, ...)` — una sola empresa se resuelve sola, más de una exige `lenderCompanyId` en el body, validado contra las propias |
+| GET | `/api/lenders/me/borrowers` | LENDER | across **todas** las `LenderCompany` del Lender |
+| GET | `/api/lenders/me/borrowers/:id` | LENDER | `EXISTS(LenderBorrower WHERE borrowerProfileId=:id AND lenderCompanyId IN (mis empresas) AND status=ACTIVE)` |
 | PATCH | `/api/lenders/me/borrowers/:id` | LENDER | idem |
-| DELETE | `/api/lenders/me/borrowers/:id` | LENDER | idem, soft delete, bloqueado si tiene contratos activos |
+| DELETE | `/api/lenders/me/borrowers/:id` | LENDER | **desvincula** (`LenderBorrower.removedAt`, `M-3`) — nunca borra el `BorrowerProfile`, el deudor puede tener otros lenders; bloqueado si tiene contratos `ACTIVE`/`DELINQUENT` con esa empresa |
 
 ## 6.4 Borrowers (autoservicio)
 
 | Método | Ruta | Rol | Tenant |
 |---|---|---|---|
 | GET | `/api/borrowers/me` | BORROWER | propio |
-| PATCH | `/api/borrowers/me` | BORROWER | campos de contacto propios, nunca `lenderId` |
+| PATCH | `/api/borrowers/me` | BORROWER | campos de contacto propios, nunca `lenderId`. Bloqueado (`403 PASSWORD_CHANGE_REQUIRED`) mientras `mustChangePassword=true` (`D-P4-2`) |
+| POST | `/api/borrowers/me/password` | BORROWER | `BE-050` — cambia la contraseña temporal del primer login; exige `currentPassword`, revoca todos los refresh tokens, apaga `mustChangePassword` |
 | POST | `/api/borrowers/me/password` | BORROWER | cambia la contraseña temporal en primer login |
 
 ## 6.5 Contracts

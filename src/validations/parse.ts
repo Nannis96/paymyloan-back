@@ -7,7 +7,7 @@ import { AppError } from "@/errors/AppError";
 export function parseOrThrow<T>(schema: ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) {
-    const message = result.error.issues[0]?.message ?? "Datos inválidos";
+    const message = result.error.issues[0]?.message ?? "Invalid data";
     throw new AppError(message, 400, "VALIDATION_ERROR");
   }
   return result.data;

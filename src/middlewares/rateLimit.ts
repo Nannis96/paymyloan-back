@@ -29,7 +29,7 @@ export function checkRateLimit(key: string, options: RateLimitOptions): void {
 
   bucket.count += 1;
   if (bucket.count > options.max) {
-    throw new AppError("Demasiados intentos, intenta de nuevo más tarde", 429, "RATE_LIMITED");
+    throw new AppError("Too many attempts, please try again later", 429, "RATE_LIMITED");
   }
 }
 

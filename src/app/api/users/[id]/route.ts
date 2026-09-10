@@ -15,7 +15,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   try {
     body = await request.json();
   } catch {
-    return apiError("JSON inválido en el body", 400, "INVALID_JSON");
+    return apiError("Invalid JSON in request body", 400, "INVALID_JSON");
   }
 
   try {

@@ -175,6 +175,12 @@ model User {
   role     UserRole
   isActive Boolean  @default(true) // D-P1-2: activación reversible, distinta de deletedAt
 
+  // D-P4-2: true mientras la contraseña siga siendo la generada por el
+  // sistema (activación, BE-040, BE-045) — lastLoginAt no sirve para esto,
+  // ya queda en no-nulo con el mismo login que trae la sesión actual.
+  // Se apaga en password/reset y en POST /api/borrowers/me/password.
+  mustChangePassword Boolean @default(false)
+
   twoFactorSecret    String?
   isTwoFactorEnabled Boolean   @default(false)
   lastLoginAt        DateTime?
@@ -221,8 +227,6 @@ model LenderProfile {
 
   userId String @unique @db.Uuid
   user   User   @relation("UserLenderProfile", fields: [userId], references: [id])
-
-  contactPhone String?
 
   // Nulo cuando el propio Prestamista se auto-registró (D-P1-10) — solo
   // tiene valor cuando lo dio de alta un Admin (flujo BE-040, que sigue
