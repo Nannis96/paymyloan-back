@@ -4,6 +4,8 @@
 
 # Fase 6 — Contracts
 
+> **Ampliada 2026-09-10** (`D-S2-1`/`D-S2-2`/`D-S2-5`, ver [00](../00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec)): `BE-051` gana `originationSource`/`loanRequestId` (por defecto `DIRECT`/`null` — el flujo original de abajo no cambia si no viene de un match de Fase 13) y se agrega `PB-020` (estructura de fees de cierre, requerida por el Commitment Letter Spec para *cualquier* contrato, no solo los de marketplace).
+
 ## BE-051 — `POST /api/contracts`
 - **Prioridad/Complejidad/Dependencias**: P0 / L / BE-012, BE-037
 - **Implementación**: sección [8.2](../08-contratos.md#82-creación--edición--consulta--eliminación); genera `contractNumber`; opcionalmente asocia deudores iniciales en el mismo payload.
@@ -44,6 +46,7 @@
 
 ## BE-060 — `POST /api/contracts/:id/terms` (proponer nueva versión) + `submit`
 - **Prioridad/Complejidad/Dependencias**: P1 / M / BE-059
+- **Nota 2026-09-10**: si `Contract.originationSource=MARKETPLACE`, este endpoint debe insertar de nuevo `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en la versión recién creada, recalculado sobre el `principalAmount` de esa versión — ver `PB-020`, confirmado con Spencer (`D-S2-5`). Los demás `ContractFeeItem` (Lender) **no** se copian automáticamente de la versión anterior — el Prestamista los vuelve a cargar si siguen aplicando.
 
 ## BE-061 — `POST /api/contracts/:id/terms/:termsId/accept` y `/reject`
 - **Prioridad/Complejidad/Dependencias**: P0 / L / BE-013, BE-059, BE-006
@@ -59,6 +62,15 @@
 
 ## BE-064 — Job `assessLateFee`
 - **Prioridad/Complejidad/Dependencias**: P2 / M / BE-059, BE-063
+
+## PB-020 — `ContractFeeItem` — Closing Fee Summary Table (nuevo, `D-S2-2`)
+- **Objetivo**: modelar la tabla de fees que el Commitment Letter Spec exige mostrar antes de aceptar los términos — origination points, processing, underwriting, doc prep, custom, más el fee de plataforma cuando aplica (`PB-017`).
+- **Prioridad/Complejidad/Dependencias**: P0 / L / BE-012 (`ContractTerms`)
+- **Archivos afectados**: `prisma/schema.prisma` (tabla `ContractFeeItem`, enums `ContractFeeCategory`/`ContractFeeCode`/`FeeAmountType`), `src/services/contractFees.service.ts` (nuevo), `src/validations/contracts.validation.ts`, `src/app/api/contracts/[id]/terms/[termsId]/fees/route.ts`.
+- **Implementación**: ver [04 §4.7](../04-base-de-datos.md#47-modelo-extendido--marketplace-fees-vetting-notificaciones-ratings-revisión-2026-09-10). `computedAmount` se resuelve al crear la fila (`amountValue` flat, o `%` × `ContractTerms.principalAmount` en ese instante) y nunca se recalcula **para fees de Lender** — una versión nueva de términos exige filas nuevas (copiadas o reingresadas a mano por el Prestamista). `prePayPenaltyType`/`prePayPenaltyAmount` se agregan directo a `ContractTerms` (mismo patrón que `lateFeeType`/`lateFeeAmount`, ya existente), no como fila de esta tabla. **`MARKETPLACE_CONNECTION` es la excepción**: se genera automáticamente (no la crea el Prestamista a mano) y se recalcula en **cada** versión nueva sobre el `principalAmount` vigente — confirmado con Spencer, `D-S2-5` — el servicio de `BE-060` (proponer nueva versión) debe insertarla de nuevo si `Contract.originationSource=MARKETPLACE`, con el monto recalculado.
+- **Validaciones**: fees de Lender solo editables mientras `ContractTerms.status=DRAFT`; `amountValue > 0`; `label` obligatorio cuando `code=CUSTOM`; `MARKETPLACE_CONNECTION` no es editable manualmente por el Prestamista (la inserta el servicio, no el endpoint de §6.10).
+- **Tests**: un `Contract` con `originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION, computedAmount=MAX(principalAmount*0.01, 999))` en cada versión de `ContractTerms` que genera (v1 al hacer match, `PB-017`; y cada versión nueva de `BE-060`, con el monto recalculado si `principalAmount` cambió); `DIRECT`/`PRIVATE_INVITE` nunca lo tienen en ninguna versión; editar un fee de Lender tras `PENDING_ACCEPTANCE` → 409.
+- **Criterios de aceptación**: `GET /api/contracts/:id/terms/:termsId/fees` devuelve la misma tabla que se le muestra al Deudor antes de aceptar (§6.10).
 
 ---
 

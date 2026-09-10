@@ -18,7 +18,7 @@ Convención de cada ítem: **Objetivo**, **Archivos/componentes afectados**, **D
 >
 > **Dos correcciones más el mismo día, ya en pruebas manuales**: `D-P4-7` — `:id` de `/api/admin/lenders*` acepta también `User.id` (no solo `LenderProfile.id`), porque `GET /api/users` — el único lugar donde un Admin ve el id de un Lender sin pasar por `GET /api/admin/lenders` — solo expone `User.id`. `D-P4-8` — `LenderProfile.contactPhone` (su único campo propio editable) resultó redundante con `User.phone` y se eliminó (migración); `BE-043` (`PATCH /api/admin/lenders/:id`) y la mitad `PATCH` de `BE-100` se eliminan con él, reemplazados por `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` (edición/borrado de una `LenderCompany` puntual). Detalle en [00 — `D-P4-7`](00-contradicciones-y-decisiones.md#decisión-2026-09-08-id-de-apiadminlenders-acepta-también-userid-d-p4-7) y [`D-P4-8`](00-contradicciones-y-decisiones.md#decisión-2026-09-08-lenderprofilecontactphone-eliminado--patchdelete-de-lendercompany-puntual-d-p4-8).
 
-Los 85 ítems originales viven en un documento por fase, bajo [`fases/`](fases/) —
+Los ítems originales viven en un documento por fase, bajo [`fases/`](fases/) —
 [índice completo de tickets aquí](fases/README.md#índice-de-tickets):
 
 | Fase | Documento | Tickets |
@@ -29,11 +29,18 @@ Los 85 ítems originales viven en un documento por fase, bajo [`fases/`](fases/)
 | 3 | [Authorization](fases/fase-03-authorization.md) | BE-035 → BE-039 |
 | 4 | [Users / Admin / Lenders](fases/fase-04-admin-lenders.md) | BE-040 → BE-044 |
 | 5 | [Borrowers](fases/fase-05-borrowers.md) | BE-045 → BE-050 |
-| 6 | [Contracts](fases/fase-06-contracts.md) | BE-051 → BE-064 |
+| 6 | [Contracts](fases/fase-06-contracts.md) | BE-051 → BE-064, PB-020 |
 | 7 | [Payments](fases/fase-07-payments.md) | BE-065 → BE-072 |
 | 8 | [Testing](fases/fase-08-testing.md) | BE-073 → BE-079 |
 | 9 | [Docker / Deployment](fases/fase-09-docker-deployment.md) | BE-080 → BE-084 |
 | 10 | [Opcional / fuera del roadmap mínimo](fases/fase-10-opcional.md) | BE-085 |
+| 11 | [Documentos, Commitment Letter y Notificaciones](fases/fase-11-documentos-pdf.md) | PB-001 → PB-004, PB-021, PB-022, PB-025 |
+| 12 | [Payoff](fases/fase-12-payoff.md) | PB-005 → PB-008 |
+| 13 | [Marketplace / Loan Requests / Vetting](fases/fase-13-rating-loan-requests.md) | PB-011, PB-012, PB-016 → PB-019 |
+| 14 | [Dashboards y Ratings](fases/fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 |
+| 15 | [Exports contables](fases/fase-15-exports-reporting.md) | PB-015 |
+
+> **Fases 11–15 formalizadas 2026-09-10**: antes solo existían como una fila suelta en [IMPLEMENTATION_PROGRESS.md](../IMPLEMENTATION_PROGRESS.md) (tickets `PB-001`..`PB-015`), sin ningún documento de plan detrás — mismo defecto que ya se había corregido una vez para Fase 1 (decisiones `C-1`/`M-1` nunca integradas). Esta ronda las trae a `Docs/plan/` como fuente única, y las extiende con los requisitos de [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf)/[pml_commitment_letter_spec 1.1.pdf](../pml_commitment_letter_spec%201.1.pdf) — ver [00 — Decisiones 2026-09-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec). Fase 14 es nueva (el número estaba libre — `IMPLEMENTATION_PROGRESS.md` saltaba de 13 a 15).
 
 El orden de implementación no es el de numeración — ver [14. Roadmap recomendado](14-roadmap.md).
 

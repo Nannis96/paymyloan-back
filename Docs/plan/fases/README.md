@@ -27,7 +27,12 @@ bloqueada por la decisión de Stripe Connect.
 | 7 | [Payments](fase-07-payments.md) | BE-065 → BE-072 | BE-065/066/070 bloqueados por Stripe Connect |
 | 8 | [Testing](fase-08-testing.md) | BE-073 → BE-079 | Transversal, en paralelo a cada fase |
 | 9 | [Docker / Deployment](fase-09-docker-deployment.md) | BE-080 → BE-084 | Cierre |
-| 10 | [Opcional](fase-10-opcional.md) | BE-085 | Fuera del roadmap mínimo |
+| 10 | [Opcional](fase-10-opcional.md) | BE-085 | Fuera del roadmap mínimo — `Document`/S3, absorbida por Fase 11 |
+| 11 | [Documentos, Commitment Letter y Notificaciones](fase-11-documentos-pdf.md) | PB-001 → PB-004, PB-021, PB-022, PB-025 | Formalizada 2026-09-10, ver [00 §D-S2-9/12](../00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) |
+| 12 | [Payoff](fase-12-payoff.md) | PB-005 → PB-008 | Formalizada 2026-09-10 |
+| 13 | [Marketplace / Loan Requests / Vetting](fase-13-rating-loan-requests.md) | PB-011, PB-012, PB-016 → PB-019 | Formalizada y ampliada 2026-09-10 (marketplace, RentCast, vetting) |
+| 14 | [Dashboards y Ratings](fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 | Nueva 2026-09-10 |
+| 15 | [Exports contables](fase-15-exports-reporting.md) | PB-015 | Formalizada 2026-09-10 |
 
 ---
 
@@ -129,6 +134,29 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-083](fase-09-docker-deployment.md#be-083--documentar-variables-de-entorno-de-producción-y-secretos) | Documentar variables de entorno de producción y secretos | P1 | S |
 | [BE-084](fase-09-docker-deployment.md#be-084--definir-networking-de-producción-nginx-compartido-vs-subdominio-propio) | Definir networking de producción (nginx compartido vs subdominio propio) | P2 | M |
 | [BE-085](fase-10-opcional.md#be-085--módulo-de-documentos-s3-privado-urls-firmadas) | Módulo de Documentos (S3 privado, URLs firmadas) | P3 | L |
+| [PB-020](fase-06-contracts.md#pb-020--contractfeeitem--closing-fee-summary-table-nuevo-d-s2-2) | `ContractFeeItem` — Closing Fee Summary Table (nuevo, `D-S2-2`) | P0 | L |
+| [PB-001](fase-11-documentos-pdf.md#pb-001--motor-de-pdf) | Motor de PDF (`src/lib/pdf.ts`) | P1 | M |
+| [PB-002](fase-11-documentos-pdf.md#pb-002--tabla-document--storage-s3-privado--urls-firmadas) | Tabla `Document` + storage S3 privado + URLs firmadas | P0 | L |
+| [PB-003](fase-11-documentos-pdf.md#pb-003--commitment-letter--generación--distribución-automática) | Commitment Letter — generación + distribución automática | P0 | L |
+| [PB-004](fase-11-documentos-pdf.md#pb-004--envío-de-documentos-por-correo-a-las-partes) | Envío de documentos por correo a las partes | P1 | S |
+| [PB-021](fase-11-documentos-pdf.md#pb-021--ach-draft-mode-tras-la-commitment-letter) | ACH draft mode tras la Commitment Letter | P2 | M |
+| [PB-022](fase-11-documentos-pdf.md#pb-022--notification-in-app--disparadores) | `Notification` (in-app) + disparadores | P1 | M |
+| [PB-025](fase-11-documentos-pdf.md#pb-025--extra-disclosures-documentos-del-lender-para-firma-del-borrower) | Extra disclosures (documentos del Lender para firma del Borrower) | P2 | M |
+| [PB-005](fase-12-payoff.md#pb-005--tabla-payoffrequest) | Tabla `PayoffRequest` | P0 | M |
+| [PB-006](fase-12-payoff.md#pb-006--servicio-calculatepayoff) | Servicio `calculatePayoff` | P0 | M |
+| [PB-007](fase-12-payoff.md#pb-007--postget-apicontractsidpayoff-requests) | `POST`/`GET /api/contracts/:id/payoff-requests` | P0 | L |
+| [PB-008](fase-12-payoff.md#pb-008--aplicación-contractstatus--paid_off) | Aplicación: `Contract.status → PAID_OFF` | P0 | M |
+| [PB-011](fase-13-rating-loan-requests.md#pb-011--tabla-loanrequest--crud-propio-del-deudor) | Tabla `LoanRequest` + CRUD propio del Deudor | P0 | L |
+| [PB-012](fase-13-rating-loan-requests.md#pb-012--pitch-deck-en-pdf-desde-loanrequest) | Pitch deck en PDF desde `LoanRequest` | P2 | M |
+| [PB-016](fase-13-rating-loan-requests.md#pb-016--integración-rentcast-comps-de-renta-y-venta-sobre-property) | Integración RentCast (comps de renta y venta) sobre `Property` | P1 | M |
+| [PB-017](fase-13-rating-loan-requests.md#pb-017--matching-de-marketplace-públicoprivado--conversión-a-contract) | Matching de marketplace (público/privado) + conversión a `Contract` | P0 | L |
+| [PB-018](fase-13-rating-loan-requests.md#pb-018--borrowerapplication-vetting-99--endpoints) | `BorrowerApplication` (vetting, $99) + endpoints | P1 | L |
+| [PB-019](fase-13-rating-loan-requests.md#pb-019--borrowersubscription-9mes-trial-7-días--endpoints) | `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints | P2 | M |
+| [PB-009](fase-14-dashboards-ratings.md#pb-009--get-apiborrowersidrating) | `GET /api/borrowers/:id/rating` | P1 | M |
+| [PB-010](fase-14-dashboards-ratings.md#pb-010--get-apilendersidstats) | `GET /api/lenders/:id/stats` | P1 | M |
+| [PB-023](fase-14-dashboards-ratings.md#pb-023--lenderreview-el-deudor-califica-al-prestamista) | `LenderReview` (el Deudor califica al Prestamista) | P2 | M |
+| [PB-024](fase-14-dashboards-ratings.md#pb-024--dashboards-de-borrower-y-lender) | Dashboards de Borrower y Lender | P1 | L |
+| [PB-015](fase-15-exports-reporting.md#pb-015--export-csv--reporte-fiscal--envío-automático-a-cpabookkeepers) | Export CSV + reporte fiscal + envío automático a CPA/Bookkeepers | P2 | M |
 
 ---
 

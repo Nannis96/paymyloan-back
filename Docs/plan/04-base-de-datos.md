@@ -407,4 +407,207 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 
 ---
 
+## 4.7 Modelo extendido — Marketplace, fees, vetting, notificaciones, ratings (revisión 2026-09-10)
+
+> Incorpora los requisitos de [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf) y [pml_commitment_letter_spec 1.1.pdf](../pml_commitment_letter_spec%201.1.pdf). El razonamiento completo de cada tabla está en [00 — Decisiones 2026-09-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) bajo los IDs `D-S2-1` a `D-S2-17`; aquí solo se aplica el resultado. **No implementado** — sin migraciones aplicadas, afecta a partir de Fase 6. Las tablas de §4.3 (Fases 0–5, ya implementadas) no cambian salvo donde se indica explícitamente abajo.
+
+### Campos nuevos sobre tablas existentes
+
+| Tabla | Campo nuevo | Tipo | Decisión |
+|---|---|---|---|
+| `Contract` | `originationSource` | enum `ContractOriginationSource` (`DIRECT`/`MARKETPLACE`/`PRIVATE_INVITE`), default `DIRECT` | `D-S2-5` |
+| `Contract` | `loanRequestId` | Uuid? → `LoanRequest` | `D-S2-1` |
+| `Contract` | `closingAttorneyName` / `closingAttorneyEmail` / `closingAttorneyPhone` | String? | `D-S2-10` — snapshot editable, copiado de `BorrowerProfile` al crear, no una FK viva |
+| `ContractTerms` | `prePayPenaltyType` | enum `LateFeeType`? (reusa el enum existente) | `D-S2-2` |
+| `ContractTerms` | `prePayPenaltyAmount` | Decimal(14,2)? | `D-S2-2` |
+| `Transaction` | `platformFeeAmount` | Decimal(14,2)? | `D-S2-4` — resuelve el riesgo #2 |
+| `Document` | `contractId` pasa de obligatorio a **opcional** | Uuid? → Contract | `D-S2-8` |
+| `Document` | `loanRequestId` | Uuid? → `LoanRequest` | `D-S2-8` — exactamente uno de `contractId`/`loanRequestId`/`applicationId` presente (regla de servicio) |
+| `Document` | `applicationId` | Uuid? → `BorrowerApplication` | `D-S2-8` |
+| `Document` | `sentToTitleCompanyAt` / `sentToInsuranceCompanyAt` | DateTime? | `D-S2-9` — solo relevante para `type=COMMITMENT_LETTER` |
+| `BorrowerProfile` | `closingAttorneyName` / `closingAttorneyEmail` / `closingAttorneyPhone` | String? | `D-S2-10` |
+| `BorrowerProfile` | `defaultInsuranceCompanyId` | Uuid? → `InsuranceCompanyProfile` | `D-S2-10` |
+| `Property` | `valuationSource` | enum `PropertyValuationSource` (`MANUAL`/`RENTCAST`), default `MANUAL` | `D-S2-7` |
+| `Property` | `rentCastFetchedAt` | DateTime? | `D-S2-7` |
+| `Property` | `estimatedRentAmount` | Decimal(14,2)? | `D-S2-7` |
+| `Property` | `rentCompsSnapshot` / `saleCompsSnapshot` | Json? | `D-S2-7` — snapshot del payload de RentCast, no relacional |
+| `LenderCompany` | `ratePreferenceMinPercent` / `ratePreferenceMaxPercent` | Decimal(6,3)? | `D-S2-11` |
+| `LenderCompany` | `loanTypePreferences` | `LoanStructure[]`? | `D-S2-11` |
+| `LenderCompany` | `geographicAreaStates` | `String[]`? | `D-S2-11` — códigos de 2 letras |
+| `LenderCompany` | `availableCapital` | Decimal(14,2)? | `D-S2-11` — carga manual, como `Property.estimatedMarketValue` |
+| `LenderCompany` | `wireBankAccountLast4` / `wireVerificationPhone` | String? | `D-S2-18` — cuenta para recibir el wire de cierre (distinta de `stripeConnectedAccountId`), mostrada en Commitment Letter y Payoff Letter; nunca se guarda el número de cuenta completo |
+
+`LenderCompany.deployedCapital` y `LenderCompany.averageRating` **no son columnas** — se derivan en el momento de servir el dashboard (`D-S2-11`/`D-S2-13`), mismo criterio que `Contract.currentPrincipalBalance` (`D7`).
+
+### Tablas nuevas
+
+**`LoanRequest`** (`D-S2-1`) — publicación del Deudor en el marketplace.
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| borrowerProfileId | Uuid → BorrowerProfile | Sí | |
+| propertyId | Uuid → Property | Sí | |
+| projectType | enum `ProjectType` | Sí | `RENTAL`/`FIX_AND_FLIP`/`SLOW_FLIP`/`COMMERCIAL`/`NEW_CONSTRUCTION` — distinto de `Property.propertyType` (tipo físico); esto es el uso que el Deudor le va a dar |
+| purchasePrice / rehabAmount / totalLoanAmountRequested | Decimal(14,2) | Sí | |
+| requestedClosingDate | DateTime | Sí | |
+| requestedTimelineNotes | Text? | No | |
+| visibility | enum `LoanRequestVisibility` (`PUBLIC`/`PRIVATE`) | Sí | |
+| invitedLenderCompanyId | Uuid? → LenderCompany | No | solo si `visibility=PRIVATE` y se invita a un Prestamista ya en la plataforma (si no, ver `LoanRequestInvite`, `D-S2-14`) |
+| status | enum `LoanRequestStatus` (`DRAFT`/`PUBLISHED`/`MATCHED`/`WITHDRAWN`/`EXPIRED`/`CONVERTED`) | Sí | default `DRAFT` |
+| matchedLenderCompanyId | Uuid? → LenderCompany | No | quién lo enganchó |
+| matchedAt / withdrawnAt / expiresAt / convertedAt | DateTime? | No | |
+| createdAt / updatedAt | DateTime | Sí | |
+
+- En listados `PUBLIC`, el servicio oculta `borrowerProfileId`/dirección exacta de `propertyId` (solo ciudad/estado) y expone el `borrowingScore` (`PB-009`, ya planeado) — regla de servicio, no de esquema.
+- Al enganchar (`status → MATCHED` y luego `CONVERTED`), se crea `Contract(DRAFT, originationSource, loanRequestId)` vía el mismo servicio de `BE-051`, con `ContractTerms` v1 **pre-llenada** desde `totalLoanAmountRequested`/`requestedClosingDate` — punto de partida editable, confirmado con Spencer (`D-S2-1`).
+
+**`LoanRequestInvite`** (`D-S2-14`) — invitar a una contraparte (con o sin cuenta) a un `LoanRequest` puntual.
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| loanRequestId | Uuid → LoanRequest | Sí | |
+| invitedEmail | String | Sí | |
+| invitedByUserId | Uuid → User | Sí | |
+| token | String | Sí (único) | mismo patrón que `PasswordResetToken` |
+| expiresAt | DateTime | Sí | |
+| acceptedAt / acceptedByUserId | DateTime? / Uuid? → User | No | |
+
+**`ContractFeeItem`** (`D-S2-2`) — fees de cierre, por versión de términos.
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| contractTermsId | Uuid → ContractTerms | Sí | |
+| category | enum `ContractFeeCategory` (`LENDER`/`PLATFORM`) | Sí | |
+| code | enum `ContractFeeCode` (`ORIGINATION_POINTS`/`PROCESSING`/`UNDERWRITING`/`DOC_PREP`/`CUSTOM`/`MARKETPLACE_CONNECTION`) | Sí | |
+| label | String | Sí | nombre a mostrar; obligatorio en la práctica cuando `code=CUSTOM` (no forzado a nivel de constraint) |
+| amountType | enum `FeeAmountType` (`FLAT`/`PERCENTAGE`) | Sí | tipo nuevo, deliberadamente distinto de `LateFeeType` — ver `D-S2-2` |
+| amountValue | Decimal(14,2) | Sí | monto fijo o % según `amountType` |
+| computedAmount | Decimal(14,2) | Sí | snapshot resuelto en dólares al crear la fila — nunca se recalcula si `ContractTerms.principalAmount` cambia en una versión futura (eso genera una nueva fila) |
+| createdAt | DateTime | Sí | inmutable — sin `updatedAt`, igual que `TransactionAllocation` |
+
+- **Constraint**: ninguno de unicidad — un mismo `code` puede repetirse solo para `CUSTOM` (varios fees personalizados); para los demás códigos, la regla de "uno por versión" es de servicio, no de BD (un Prestamista podría en teoría querer dos `PROCESSING` — no se bloquea a nivel de esquema, se decide en Fase 6 si hace falta prevenirlo).
+- Late fee y pre-pay penalty **no** viven acá — siguen en `ContractTerms` directamente (ya existía `lateFeeType`/`lateFeeAmount`; se agrega `prePayPenaltyType`/`prePayPenaltyAmount`, ver tabla de arriba) porque no son montos fijos conocidos al momento de la firma.
+
+**`BorrowerSubscription`** (`D-S2-3`) — suscripción mensual del Deudor ($9/mes tras 7 días de prueba).
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| borrowerProfileId | Uuid → BorrowerProfile | Sí (único) | 1:1 |
+| status | enum `BorrowerSubscriptionStatus` (`TRIALING`/`ACTIVE`/`PAST_DUE`/`CANCELLED`) | Sí | default `TRIALING` |
+| trialEndsAt | DateTime | Sí | `createdAt + 7 días` |
+| currentPeriodEnd | DateTime? | No | |
+| stripeSubscriptionId | String? | No | reservado — cobro real bloqueado por `A-3`, igual que `Autopay` |
+| cancelledAt | DateTime? | No | |
+| createdAt / updatedAt | DateTime | Sí | |
+
+**`BorrowerApplication`** (`D-S2-6`) — vetting completo ($99).
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| borrowerProfileId | Uuid → BorrowerProfile | Sí | |
+| lenderCompanyId | Uuid → LenderCompany | Sí | quién la exige/revisa |
+| loanRequestId | Uuid? → LoanRequest | No | contexto, si aplica |
+| status | enum `BorrowerApplicationStatus` (`REQUESTED`/`SUBMITTED`/`UNDER_REVIEW`/`APPROVED`/`REJECTED`) | Sí | default `REQUESTED` |
+| feeAmount | Decimal(14,2) | Sí | default `99.00` |
+| feePaidAt | DateTime? | No | |
+| creditPullStatus | String? | No | libre, hasta confirmar proveedor (riesgo #22, [15](15-riesgos-y-decisiones-pendientes.md)) |
+| creditPullExternalRef | String? | No | referencia opaca del proveedor, nunca el reporte completo |
+| backgroundCheckStatus | String? | No | ídem |
+| backgroundCheckExternalRef | String? | No | ídem |
+| reviewedByUserId | Uuid? → User | No | |
+| reviewedAt | DateTime? | No | |
+| rejectionReason | Text? | No | |
+| createdAt / updatedAt | DateTime | Sí | |
+
+- Documentos (entity docs, bank statement, ID) se adjuntan vía `Document(type=BORROWER_APPLICATION_DOCUMENT, applicationId=...)` (`D-S2-8`), no como campos propios de esta tabla.
+
+**`Notification`** (`D-S2-12`) — in-app.
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| userId | Uuid → User | Sí | |
+| type | String | Sí | libre + union de TypeScript, mismo criterio que `AuditLog.action` |
+| title | String | Sí | |
+| body | Text | Sí | |
+| isRead | Boolean | Sí | default `false` |
+| readAt | DateTime? | No | |
+| relatedEntityType | String? | No | |
+| relatedEntityId | String? | No | |
+| createdAt | DateTime | Sí | sin `updatedAt` |
+
+**`LenderReview`** (`D-S2-13`) — reseña del Deudor sobre el Prestamista.
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| lenderCompanyId | Uuid → LenderCompany | Sí | |
+| borrowerProfileId | Uuid → BorrowerProfile | Sí | |
+| contractId | Uuid → Contract | Sí | contexto — de qué préstamo habla |
+| rating | Int | Sí | 1–5, validado en Zod |
+| comment | Text? | No | |
+| createdAt | DateTime | Sí | inmutable |
+
+- **Constraint**: `@@unique([contractId, borrowerProfileId])`.
+
+### Enums nuevos (§4.4, adición)
+
+```
+enum ContractOriginationSource { DIRECT MARKETPLACE PRIVATE_INVITE }
+enum LoanRequestVisibility { PUBLIC PRIVATE }
+enum LoanRequestStatus { DRAFT PUBLISHED MATCHED WITHDRAWN EXPIRED CONVERTED }
+enum ProjectType { RENTAL FIX_AND_FLIP SLOW_FLIP COMMERCIAL NEW_CONSTRUCTION }
+enum ContractFeeCategory { LENDER PLATFORM }
+enum ContractFeeCode { ORIGINATION_POINTS PROCESSING UNDERWRITING DOC_PREP CUSTOM MARKETPLACE_CONNECTION }
+enum FeeAmountType { FLAT PERCENTAGE }
+enum BorrowerSubscriptionStatus { TRIALING ACTIVE PAST_DUE CANCELLED }
+enum BorrowerApplicationStatus { REQUESTED SUBMITTED UNDER_REVIEW APPROVED REJECTED }
+enum PropertyValuationSource { MANUAL RENTCAST }
+```
+
+`DocumentType` (existente) gana 5 valores: `COMMITMENT_LETTER`, `PAYOFF_LETTER`, `LOAN_REQUEST_PHOTO`, `BORROWER_APPLICATION_DOCUMENT`, `EXTRA_DISCLOSURE`.
+
+### ERD — adición
+
+```mermaid
+erDiagram
+    BorrowerProfile ||--o{ LoanRequest : "publica"
+    Property ||--o{ LoanRequest : ""
+    LoanRequest ||--o{ LoanRequestInvite : ""
+    LoanRequest ||--o| Contract : "se convierte en"
+    LenderCompany ||--o{ LoanRequest : "engancha (opcional)"
+
+    ContractTerms ||--o{ ContractFeeItem : ""
+
+    BorrowerProfile ||--o| BorrowerSubscription : ""
+
+    BorrowerProfile ||--o{ BorrowerApplication : ""
+    LenderCompany ||--o{ BorrowerApplication : "exige/revisa"
+    LoanRequest ||--o{ BorrowerApplication : "contexto (opcional)"
+
+    User ||--o{ Notification : ""
+
+    LenderCompany ||--o{ LenderReview : ""
+    BorrowerProfile ||--o{ LenderReview : "escribe"
+    Contract ||--o{ LenderReview : "contexto"
+
+    LoanRequest ||--o{ Document : ""
+    BorrowerApplication ||--o{ Document : ""
+```
+
+### Reglas de negocio nuevas (extiende §4.6)
+
+15. `Document` exige exactamente uno de `contractId`/`loanRequestId`/`applicationId` — regla de servicio, no de constraint de BD (`D-S2-8`).
+16. `ContractFeeItem.computedAmount` nunca se recalcula tras crearse — un cambio de monto/tasa implica una nueva versión de `ContractTerms` con sus propios `ContractFeeItem` (mismo principio de inmutabilidad ya aplicado a `ContractTerms.status=ACCEPTED`, regla 3).
+17. `LoanRequest.visibility=PUBLIC` nunca expone `borrowerProfileId`/identidad del Deudor ni la dirección exacta de la propiedad en listados — solo tras un match.
+18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto del match original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión.
+19. `LenderReview` es de solo inserción, igual que `AuditLog`/`TransactionAllocation`.
+
+---
+
 [← Índice del plan](README.md)  ·  [Anterior: 3. Arquitectura del backend](03-arquitectura-backend.md)  ·  [Siguiente: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)

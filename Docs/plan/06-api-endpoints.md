@@ -115,4 +115,77 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 
 ---
 
+## 6.9 Loan Requests / Marketplace (nuevo, `D-S2-1`)
+
+> Ver [00 §D-S2-1](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) y [04 §4.7](04-base-de-datos.md#47-modelo-extendido--marketplace-fees-vetting-notificaciones-ratings-revisión-2026-09-10). Detalle de tickets en [fases/fase-13-rating-loan-requests.md](fases/fase-13-rating-loan-requests.md).
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| POST | `/api/borrowers/me/loan-requests` | BORROWER | crea `LoanRequest(DRAFT)`, requiere `propertyId` propio |
+| GET | `/api/borrowers/me/loan-requests` | BORROWER | propios, cualquier `status` |
+| GET | `/api/borrowers/me/loan-requests/:id` | BORROWER | propio |
+| PATCH | `/api/borrowers/me/loan-requests/:id` | BORROWER | solo mientras `status=DRAFT` |
+| POST | `/api/borrowers/me/loan-requests/:id/publish` | BORROWER | `DRAFT → PUBLISHED`, exige `visibility` |
+| POST | `/api/borrowers/me/loan-requests/:id/withdraw` | BORROWER | `PUBLISHED → WITHDRAWN` |
+| POST | `/api/borrowers/me/loan-requests/:id/invites` | BORROWER | `D-S2-14` — invita a un Prestamista por email (`LoanRequestInvite`) |
+| POST | `/api/borrowers/me/loan-requests/:id/photos` | BORROWER | sube `Document(type=LOAN_REQUEST_PHOTO)` |
+| GET | `/api/marketplace/loan-requests` | LENDER | listado público (`visibility=PUBLIC`, `status=PUBLISHED`) — identidad del Deudor y dirección exacta ocultas |
+| GET | `/api/marketplace/loan-requests/:id` | LENDER | detalle público (mismo enmascarado) |
+| POST | `/api/marketplace/loan-requests/:id/match` | LENDER | `PUBLISHED → MATCHED`, crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` |
+| POST | `/api/loan-requests/invites/:token/accept` | Público (con token) | acepta una invitación privada (`D-S2-14`); si el invitado no tiene cuenta, lo deriva al auto-registro (`D-P2-1`) con el `LoanRequest` pre-vinculado |
+| POST | `/api/properties/:id/rentcast-comps` | LENDER, BORROWER dueño | dispara `fetchRentCastComps(propertyId)` (`D-S2-7`), actualiza `Property.rentCompsSnapshot`/`saleCompsSnapshot` |
+
+## 6.10 Fees de contrato (nuevo, `D-S2-2`/`D-S2-5`)
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| GET | `/api/contracts/:id/terms/:termsId/fees` | LENDER, BORROWER asociado | lista `ContractFeeItem[]` de esa versión — la "Closing Fee Summary Table" |
+| POST | `/api/contracts/:id/terms/:termsId/fees` | LENDER | agrega un `ContractFeeItem` (incluye `CUSTOM`); solo mientras `ContractTerms.status=DRAFT` |
+| DELETE | `/api/contracts/:id/terms/:termsId/fees/:feeId` | LENDER | solo mientras `DRAFT` |
+
+`ContractFeeItem(code=MARKETPLACE_CONNECTION)` se inserta automáticamente por el servicio (no vía este endpoint) cuando `Contract.originationSource=MARKETPLACE` — ver `D-S2-5`.
+
+## 6.11 Borrower Application / Vetting (nuevo, `D-S2-6`)
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| POST | `/api/lenders/me/borrowers/:id/applications` | LENDER | exige la aplicación completa a un deudor vinculado |
+| GET | `/api/borrowers/me/applications` | BORROWER | propias, cualquier Prestamista |
+| GET | `/api/lenders/me/borrowers/:id/applications` | LENDER | de ese deudor, para su empresa |
+| POST | `/api/borrowers/me/applications/:id/submit` | BORROWER | adjunta `Document(type=BORROWER_APPLICATION_DOCUMENT)`, `SUBMITTED` |
+| POST | `/api/borrowers/me/applications/:id/pay` | BORROWER | marca `feePaidAt` (integración de cobro real bloqueada por `A-3`, ver [15](15-riesgos-y-decisiones-pendientes.md)) |
+| POST | `/api/lenders/me/borrowers/:id/applications/:appId/review` | LENDER | `APPROVED`/`REJECTED` + `rejectionReason` |
+
+## 6.12 Dashboards (nuevo)
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| GET | `/api/borrowers/me/dashboard` | BORROWER | agregados: loan requests activos, contratos por estado, próximos cierres, notificaciones sin leer |
+| GET | `/api/lenders/me/dashboard` | LENDER | agregados: Commitment Letters enviadas, `availableCapital`/`deployedCapital` derivado (`D-S2-11`), contratos activos + return rate, próximos cierres/payoffs, notificaciones sin leer |
+
+## 6.13 Notificaciones (nuevo, `D-S2-12`)
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| GET | `/api/notifications` | Autenticado | propias, paginado, filtro `isRead` |
+| POST | `/api/notifications/:id/read` | Autenticado | propia |
+| POST | `/api/notifications/read-all` | Autenticado | propias |
+
+## 6.14 Lender Reviews (nuevo, `D-S2-13`)
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| POST | `/api/contracts/:id/lender-review` | BORROWER asociado | crea `LenderReview`; `409` si ya existe una para ese `(contractId, borrowerProfileId)` |
+| GET | `/api/lenders/:id/reviews` | Público o Autenticado (a definir con frontend) | reseñas de un `LenderCompany`, paginado |
+
+## 6.15 Commitment Letter (nuevo, `D-S2-9`)
+
+No agrega rutas propias — reutiliza el flujo ya existente de `ContractTerms` (§6.5): `POST /api/contracts/:id/terms/:termsId/accept` (último borrower que completa el quórum) dispara, en la misma operación que `generateAmortizationSchedule` (`BE-059`): generación del PDF (`Document(type=COMMITMENT_LETTER)`) y el envío automático a `Contract.closingAttorneyEmail` + `Contract.insuranceCompanyId` (si está asignado). Endpoint de solo lectura:
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| GET | `/api/contracts/:id/commitment-letter` | LENDER, BORROWER asociado | URL firmada de corta vida al `Document(type=COMMITMENT_LETTER)` vigente |
+
+---
+
 [← Índice del plan](README.md)  ·  [Anterior: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)  ·  [Siguiente: 7. Autenticación y autorización](07-autenticacion-y-autorizacion.md)
