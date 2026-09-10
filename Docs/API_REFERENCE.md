@@ -57,7 +57,7 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 { "success": true, "data": { "items": [ /* ... */ ], "page": 1, "pageSize": 20, "total": 3, "totalPages": 1 } }
 ```
 
-**Acceso multi-empresa sin selector de tenant** (`D-P4-1`): un `LENDER` puede tener más de una `LenderCompany`. Como todavía no existe un mecanismo para indicar "con cuál empresa estoy operando" (`withTenantScope`, diferido a Fase 6), las lecturas de `/api/lenders/me/borrowers*` devuelven resultados de **todas** las empresas del Lender, y la creación (`POST .../borrowers`) resuelve la empresa destino sola si hay una sola, o exige `lenderCompanyId` explícito si hay más de una.
+**Acceso multi-empresa sin selector de tenant** (`D-P4-1`, confirmado definitivo por `D-P6-1`): un `LENDER` puede tener más de una `LenderCompany`. No existe (ni se va a construir — `withTenantScope` quedó descartado, no solo diferido) ningún mecanismo para indicar "con cuál empresa estoy operando" que persista entre requests: las lecturas de `/api/lenders/me/borrowers*` devuelven resultados de **todas** las empresas del Lender, y la creación (`POST .../borrowers`) resuelve la empresa destino sola si hay una sola, o exige `lenderCompanyId` explícito si hay más de una. Mismo patrón que usan `POST /api/contracts` (Fase 6) y el matching de marketplace (Fase 13) una vez implementados.
 
 ---
 

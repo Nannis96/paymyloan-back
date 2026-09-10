@@ -63,7 +63,7 @@ src/
   middlewares/
     withAuth.ts
     withRole.ts
-    withTenantScope.ts
+    (withTenantScope.ts descartado, D-P6-1 — ver 00)
     rateLimit.ts
   controllers/
     <módulo>.controller.ts     (uno por dominio, igual que hoy users.controller.ts)
@@ -108,7 +108,7 @@ docker-compose.dev.yml
 
 ## 3.2 Capas y flujo de una request (sin cambios de fondo respecto a hoy)
 
-`route.ts` → middlewares (`withAuth` → `withRole` → `withTenantScope`, según el endpoint) → `controller` (Zod) → `service`/`repository` (Prisma, reglas de negocio) → `apiSuccess`/`apiError`, con `errorHandler.ts` capturando cualquier excepción no controlada. Se mantiene el patrón `SafeX`/`toSafeX()` de `users.service.ts` para cada entidad con campos sensibles (`User` ya lo tiene; se replica para `LenderProfile`, `BorrowerProfile`, `PaymentMethod`).
+`route.ts` → middlewares (`withAuth` → `withRole`, según el endpoint — sin `withTenantScope`, descartado en `D-P6-1`: la resolución de tenant vive en el `controller`/`service` vía `requireContractAccess` o `lenderCompanyId` explícito, no en un middleware genérico) → `controller` (Zod) → `service`/`repository` (Prisma, reglas de negocio) → `apiSuccess`/`apiError`, con `errorHandler.ts` capturando cualquier excepción no controlada. Se mantiene el patrón `SafeX`/`toSafeX()` de `users.service.ts` para cada entidad con campos sensibles (`User` ya lo tiene; se replica para `LenderProfile`, `BorrowerProfile`, `PaymentMethod`).
 
 ## 3.3 Separación por módulos
 

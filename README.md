@@ -1,9 +1,15 @@
 # paymyloan-back — Backend/API de PayMyLoan.ai
 
 Backend base para [paymyloan.ai](https://paymyloan.ai), proyecto **independiente**
-del frontend (`../paymyloan`). Todavía sin autenticación ni conexión con el
-frontend; el primer endpoint de negocio real es alta/edición/eliminado
-lógico de usuario (ver `../paymyloan-alcance.html` §3/§7).
+del frontend (`../paymyloan`). Fases 0–5 del [plan de implementación](Docs/plan/)
+están completas y en producción: autenticación propia (JWT + 2FA TOTP),
+autorización/multi-tenant, y CRUD completo de Admin/Prestamistas/Deudores —
+ver [Docs/IMPLEMENTATION_PROGRESS.md](Docs/IMPLEMENTATION_PROGRESS.md) para
+el detalle de avance y [Docs/API_REFERENCE.md](Docs/API_REFERENCE.md) para
+el contrato HTTP completo de cada endpoint. Próximo en el roadmap: Fase 6
+(Contratos) — ver [Docs/plan/14-roadmap.md](Docs/plan/14-roadmap.md).
+`Docs/plan/` es la única fuente de verdad del diseño; este README describe
+el estado del código, no el plan.
 
 ## Stack
 
@@ -20,9 +26,9 @@ portable entre repos.
 | vitest | 4.x (unit + integración) |
 
 Sin Tailwind, sin `lucide-react`: no hay UI, es un backend puro. Sin
-NextAuth todavía: no hay sesión ni login, solo el modelo de usuario y sus
-endpoints CRUD (la [Fase 2](Docs/plan/fases/fase-02-authentication.md) del
-plan de backend agrega JWT propio + 2FA).
+NextAuth: sesión propia con JWT (access + refresh) + 2FA TOTP, implementada
+en [Fase 2](Docs/plan/17-fase-2-actualizada.md)/[Fase 3](Docs/plan/fases/fase-03-authorization.md)
+del plan de backend — ver `src/auth/` y `src/middlewares/`.
 
 ## Por qué Next.js como backend
 
@@ -131,41 +137,59 @@ un placeholder inseguro si se dejan vacías, para no bloquear el flujo local.
 
 ## Estructura
 
+> Actualizado 2026-09-10 — refleja Fases 0–5 implementadas. Detalle campo por
+> campo del modelo de datos en [Docs/plan/04-base-de-datos.md](Docs/plan/04-base-de-datos.md);
+> contrato HTTP completo de cada ruta en [Docs/API_REFERENCE.md](Docs/API_REFERENCE.md).
+
 ```
 prisma/
-  schema.prisma            datasource + modelo User (id UUIDv7)
+  schema.prisma            User, LenderProfile/LenderCompany, BorrowerProfile,
+                            Bookkeeper/InsuranceCompany, Property, Contract/
+                            ContractTerms/ScheduledPayment/Transaction/Autopay
+                            (schema completo de Fase 1 — Contract en adelante
+                            migrado pero sin API todavía, ver Fase 6+)
   migrations/               historial de migraciones SQL
 src/
   app/
     api/
-      health/route.ts       GET /api/health — sonda de infraestructura
-      users/route.ts         POST /api/users — alta de usuario
-      users/[id]/route.ts     PATCH (edición) y DELETE (eliminado lógico)
+      health/route.ts                          GET — sonda de infraestructura
+      users/[route.ts, [id]/route.ts]           CRUD, solo ADMIN
+      auth/                                     register, login(+2fa), refresh,
+                                                 logout(-all), me, password/
+                                                 forgot|reset, 2fa/*
+      admin/
+        users/[id]/{activate,deactivate}/       alta/baja de cualquier usuario
+        lenders/[id]/[companies/[companyId]]    Admin CRUD de LenderCompany
+      lenders/me/[companies, borrowers/[id]]    autoservicio del Prestamista
+      borrowers/me/[password]                   autoservicio del Deudor
   proxy.ts                  CORS + requestId, corre antes de toda ruta /api/*
   config/
     env.ts                  punto único de lectura de variables de entorno (fail-fast)
-  controllers/
-    health.controller.ts    orquesta la respuesta del endpoint de salud
-    users.controller.ts     valida input (Zod) y llama a users.service
-  services/
-    users.service.ts        lógica de negocio: alta, edición, eliminado lógico
-  validations/
-    users.validation.ts     esquemas Zod de entrada para /api/users
-  middlewares/
-    cors.ts                 decide qué origen se permite (CORS_ORIGIN)
-    rateLimit.ts            contador en memoria por key (login, 2FA, reset)
-  auth/                     vacío — Fase 2 (jwt.ts, password.ts, totp.ts)
-  repositories/             vacío — Fase 6 (queries complejas de contracts/payments)
-  jobs/                     vacío — Fase 6 (mora, late fees, expiración de tokens)
+  controllers/               un archivo por dominio (auth, users, adminUsers,
+                              lenders, lenderBorrowers, borrowerProfile,
+                              twoFactor, health)
+  services/                  lógica de negocio, con *.integration.test.ts al lado
+                              (contra Postgres real, no mocks)
+  validations/                esquemas Zod (auth, users, lenders, borrowers,
+                              pagination, parse compartido)
+  auth/                      jwt.ts, password.ts, totp.ts — primitivas de Fase 2
+  middlewares/                withAuth, withRole, requireContractAccess (BE-038,
+                              sin consumidor todavía), rateLimit, cors — ver
+                              src/middlewares/README.md (sin withTenantScope:
+                              descartado, D-P6-1)
+  repositories/               vacío — Fase 6 (queries complejas de contracts/payments)
+  jobs/                       vacío — Fase 6 (mora, late fees, expiración de tokens)
   db/
     prisma.ts                cliente Prisma (instancia única, reusada en dev)
+    testFixtures.ts          fixtures compartidas por los tests de integración
   errors/
     AppError.ts              error tipado con statusCode/code
     errorHandler.ts          convierte cualquier error en respuesta HTTP, logueado con requestId
   lib/
     apiResponse.ts           helpers apiSuccess()/apiError() (forma JSON única)
     logger.ts                logger JSON estructurado + getRequestId()
-    email.ts                 sendEmail() agnóstico de proveedor (Resend hoy)
+    email.ts                 sendEmail() agnóstico de proveedor (modo dev sin EMAIL_API_KEY)
+    audit.ts                 logAuditEvent() — AuditLog de solo inserción
   types/
     api.ts                   tipos compartidos de la forma de respuesta
 public/                     estáticos servidos tal cual (vacío hoy)

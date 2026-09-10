@@ -415,15 +415,15 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 
 | Tabla | Campo nuevo | Tipo | Decisión |
 |---|---|---|---|
-| `Contract` | `originationSource` | enum `ContractOriginationSource` (`DIRECT`/`MARKETPLACE`/`PRIVATE_INVITE`), default `DIRECT` | `D-S2-5` |
-| `Contract` | `loanRequestId` | Uuid? → `LoanRequest` | `D-S2-1` |
-| `Contract` | `closingAttorneyName` / `closingAttorneyEmail` / `closingAttorneyPhone` | String? | `D-S2-10` — snapshot editable, copiado de `BorrowerProfile` al crear, no una FK viva |
+| `Contract` | `originationSource` | enum `ContractOriginationSource` (`DIRECT`/`MARKETPLACE`/`PRIVATE_INVITE`), default `DIRECT` | `D-S2-5` — ⚠️ **migración de Fase 13 (`PB-017`), no de Fase 6** (`D-S2-19`): Fase 6 construye `Contract` sin esta columna, todo contrato de esa fase es implícitamente `DIRECT` |
+| `Contract` | `loanRequestId` | Uuid? → `LoanRequest` | `D-S2-1` — ⚠️ **migración de Fase 13** (`D-S2-19`): es una FK a `LoanRequest`, que no existe hasta esa fase; no puede crearse en la migración de Fase 6 |
+| `Contract` | `closingAttorneyName` / `closingAttorneyEmail` / `closingAttorneyPhone` | String? | `D-S2-10` — snapshot editable, copiado de `BorrowerProfile` al crear, no una FK viva. Sin dependencia de Fase 13, puede entrar en la migración de Fase 6 si se prefiere, o junto con Fase 11 (Commitment Letter, que es quien realmente la usa) — no bloqueante |
 | `ContractTerms` | `prePayPenaltyType` | enum `LateFeeType`? (reusa el enum existente) | `D-S2-2` |
 | `ContractTerms` | `prePayPenaltyAmount` | Decimal(14,2)? | `D-S2-2` |
 | `Transaction` | `platformFeeAmount` | Decimal(14,2)? | `D-S2-4` — resuelve el riesgo #2 |
 | `Document` | `contractId` pasa de obligatorio a **opcional** | Uuid? → Contract | `D-S2-8` |
-| `Document` | `loanRequestId` | Uuid? → `LoanRequest` | `D-S2-8` — exactamente uno de `contractId`/`loanRequestId`/`applicationId` presente (regla de servicio) |
-| `Document` | `applicationId` | Uuid? → `BorrowerApplication` | `D-S2-8` |
+| `Document` | `loanRequestId` | Uuid? → `LoanRequest` | `D-S2-8` — exactamente uno de `contractId`/`loanRequestId`/`applicationId` presente (regla de servicio). Mismo problema de secuencia que `Contract.loanRequestId` (`D-S2-19`), pero ya resuelto por el roadmap: `Document` es Fase 11, que va **después** de Fase 13 — `LoanRequest`/`BorrowerApplication` ya existen cuando se migra `Document` |
+| `Document` | `applicationId` | Uuid? → `BorrowerApplication` | `D-S2-8` — ídem, depende de que Fase 13 (`BorrowerApplication`) se implemente antes que Fase 11 |
 | `Document` | `sentToTitleCompanyAt` / `sentToInsuranceCompanyAt` | DateTime? | `D-S2-9` — solo relevante para `type=COMMITMENT_LETTER` |
 | `BorrowerProfile` | `closingAttorneyName` / `closingAttorneyEmail` / `closingAttorneyPhone` | String? | `D-S2-10` |
 | `BorrowerProfile` | `defaultInsuranceCompanyId` | Uuid? → `InsuranceCompanyProfile` | `D-S2-10` |
@@ -605,7 +605,8 @@ erDiagram
 15. `Document` exige exactamente uno de `contractId`/`loanRequestId`/`applicationId` — regla de servicio, no de constraint de BD (`D-S2-8`).
 16. `ContractFeeItem.computedAmount` nunca se recalcula tras crearse — un cambio de monto/tasa implica una nueva versión de `ContractTerms` con sus propios `ContractFeeItem` (mismo principio de inmutabilidad ya aplicado a `ContractTerms.status=ACCEPTED`, regla 3).
 17. `LoanRequest.visibility=PUBLIC` nunca expone `borrowerProfileId`/identidad del Deudor ni la dirección exacta de la propiedad en listados — solo tras un match.
-18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto del match original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión.
+18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto del match original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión. Esta regla solo es evaluable desde Fase 13 en adelante — `originationSource` no existe durante Fase 6 (`D-S2-19`).
+19. `POST /api/marketplace/loan-requests/:id/match` resuelve la `LenderCompany` destino con la misma regla que `BE-045`: `lenderCompanyId` opcional si el Lender tiene una sola, obligatorio si tiene más de una (`D-S2-20`).
 19. `LenderReview` es de solo inserción, igual que `AuditLog`/`TransactionAllocation`.
 
 ---

@@ -82,7 +82,7 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-099](../13-backlog.md#be-099--patch-apiauthme-autoservicio-de-perfil-propio) | `PATCH /api/auth/me` — autoservicio de perfil propio (nuevo, `D-P2-4`) | P1 | S |
 | [BE-035](fase-03-authorization.md#be-035--middleware-withauth) | Middleware `withAuth` | P0 | M |
 | [BE-036](fase-03-authorization.md#be-036--middleware-withrole) | Middleware `withRole` | P0 | M |
-| [BE-037](fase-03-authorization.md#be-037--middleware-withtenantscope) | Middleware `withTenantScope` | P0 | M |
+| ~~[BE-037](fase-03-authorization.md#be-037--middleware-withtenantscope-texto-original-descartado--ver-nota-abajo)~~ | ~~Middleware `withTenantScope`~~ — descartado (`D-P6-1`, 2026-09-10), reemplazado por `lenderCompanyId` explícito en el body de cada creación tenant-ambigua | P0 | M |
 | [BE-038](fase-03-authorization.md#be-038--helper-requirecontractaccesssession-contractid) | Helper `requireContractAccess(session, contractId)` | P0 | M |
 | [BE-039](fase-03-authorization.md#be-039--auditoría-automática-de-accesos-denegados) | Auditoría automática de accesos denegados | P2 | S |
 | [BE-040](../00-contradicciones-y-decisiones.md#decisión-2026-09-08-rescopeo-post-fase-4-d-p4-5) | `POST /api/admin/lenders/:id/companies` (rescopeado, `D-P4-5` — ya no crea la persona) | P0 | M |

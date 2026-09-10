@@ -31,7 +31,7 @@
 - **Prioridad/Complejidad/Dependencias**: P1 / M / BE-068
 
 ## BE-072 — `GET /api/audit-logs`
-- **Prioridad/Complejidad/Dependencias**: P2 / M / BE-020, BE-037
+- **Prioridad/Complejidad/Dependencias**: P2 / M / BE-020 (~~BE-037~~ descartado, `D-P6-1` — el filtro por Lender es `WHERE lenderCompanyId IN (mis empresas)`, igual que cualquier otro listado tenant-scoped)
 
 > **Nota 2026-09-10**: `Transaction.platformFeeAmount` (`D-S2-4`, ver [00](../00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) y [04 §4.7](../04-base-de-datos.md#47-modelo-extendido--marketplace-fees-vetting-notificaciones-ratings-revisión-2026-09-10)) se calcula dentro de `applyTransaction` (`BE-068`) — resuelve el riesgo #2 de [15](../15-riesgos-y-decisiones-pendientes.md) con un número concreto (ACH cost + $9, tope $99/mes/contrato). No agrega un ticket nuevo a esta fase — es un campo más que `BE-068` debe poblar.
 

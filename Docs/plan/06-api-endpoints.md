@@ -131,7 +131,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | POST | `/api/borrowers/me/loan-requests/:id/photos` | BORROWER | sube `Document(type=LOAN_REQUEST_PHOTO)` |
 | GET | `/api/marketplace/loan-requests` | LENDER | listado público (`visibility=PUBLIC`, `status=PUBLISHED`) — identidad del Deudor y dirección exacta ocultas |
 | GET | `/api/marketplace/loan-requests/:id` | LENDER | detalle público (mismo enmascarado) |
-| POST | `/api/marketplace/loan-requests/:id/match` | LENDER | `PUBLISHED → MATCHED`, crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` |
+| POST | `/api/marketplace/loan-requests/:id/match` | LENDER | `PUBLISHED → MATCHED`, crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)`; `lenderCompanyId` obligatorio en el body si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`, `D-S2-20`) |
 | POST | `/api/loan-requests/invites/:token/accept` | Público (con token) | acepta una invitación privada (`D-S2-14`); si el invitado no tiene cuenta, lo deriva al auto-registro (`D-P2-1`) con el `LoanRequest` pre-vinculado |
 | POST | `/api/properties/:id/rentcast-comps` | LENDER, BORROWER dueño | dispara `fetchRentCastComps(propertyId)` (`D-S2-7`), actualiza `Property.rentCompsSnapshot`/`saleCompsSnapshot` |
 

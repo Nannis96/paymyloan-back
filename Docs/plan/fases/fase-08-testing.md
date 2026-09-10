@@ -21,7 +21,7 @@
 - **Prioridad/Complejidad/Dependencias**: P0 / L / BE-027–BE-034, BE-073
 
 ## BE-078 — Suite multi-tenancy parametrizada
-- **Prioridad/Complejidad/Dependencias**: P0 / L / BE-037, BE-051, BE-045, BE-073
+- **Prioridad/Complejidad/Dependencias**: P0 / L / BE-051, BE-045, BE-073 (~~BE-037~~ descartado, `D-P6-1` — la suite prueba la regla `lenderCompanyId` explícito + `requireContractAccess`, no un middleware)
 - **Nota**: es la suite más importante de todo el backlog de testing — ver sección [11](../11-testing.md).
 
 ## BE-079 — Suite de seguridad negativa (rate limit, JWT manipulado, tokens reusados)

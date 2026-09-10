@@ -7,8 +7,9 @@ import { AppError } from "@/errors/AppError";
 // BE-025. Payload mínimo `{ sub, role }` — **sin** `lenderId` (a diferencia
 // del §7.1 original): desde D-P1-3 el tenant es LenderCompany y un
 // LenderProfile puede tener N, así que un único lenderId por sesión ya no
-// alcanza. Ese rediseño es Fase 3 (riesgo #18, withTenantScope); GET
-// /api/auth/me expone la lista de empresas en su lugar. Ver D-P2-2.
+// alcanza. GET /api/auth/me expone la lista de empresas; cuál usar en cada
+// request se resuelve con lenderCompanyId explícito en el body cuando hace
+// falta (D-P6-1) — no hay middleware de tenant activo. Ver D-P2-2.
 const textEncoder = new TextEncoder();
 const accessSigningKey = textEncoder.encode(env.jwtAccessSecret);
 
