@@ -1,13 +1,18 @@
 # paymyloan-back — Backend/API de PayMyLoan.ai
 
 Backend base para [paymyloan.ai](https://paymyloan.ai), proyecto **independiente**
-del frontend (`../paymyloan`). Fases 0–5 del [plan de implementación](Docs/plan/)
+del frontend (`../paymyloan`). Fases 0–6 del [plan de implementación](Docs/plan/)
 están completas y en producción: autenticación propia (JWT + 2FA TOTP),
-autorización/multi-tenant, y CRUD completo de Admin/Prestamistas/Deudores —
-ver [Docs/IMPLEMENTATION_PROGRESS.md](Docs/IMPLEMENTATION_PROGRESS.md) para
-el detalle de avance y [Docs/API_REFERENCE.md](Docs/API_REFERENCE.md) para
-el contrato HTTP completo de cada endpoint. Próximo en el roadmap: Fase 6
-(Contratos) — ver [Docs/plan/14-roadmap.md](Docs/plan/14-roadmap.md).
+autorización/multi-tenant, CRUD completo de Admin/Prestamistas/Deudores, y el
+ciclo de vida completo de `Contract` (creación, versionado de términos,
+aceptación bilateral, amortización, cancelación). Fase 13 está **parcial**:
+el núcleo de cotizaciones de marketplace (`LoanRequest`, cotizaciones de
+varios Prestamistas elegidos, selección → `Contract`) ya corre; RentCast,
+vetting del Deudor, suscripción y documentos siguen pendientes — ver
+[Docs/IMPLEMENTATION_PROGRESS.md](Docs/IMPLEMENTATION_PROGRESS.md) para el
+detalle de avance y [Docs/API_REFERENCE.md](Docs/API_REFERENCE.md) para el
+contrato HTTP completo de cada endpoint. Próximo en el roadmap: Fase 7
+(Pagos) — ver [Docs/plan/14-roadmap.md](Docs/plan/14-roadmap.md).
 `Docs/plan/` es la única fuente de verdad del diseño; este README describe
 el estado del código, no el plan.
 
@@ -137,17 +142,18 @@ un placeholder inseguro si se dejan vacías, para no bloquear el flujo local.
 
 ## Estructura
 
-> Actualizado 2026-09-10 — refleja Fases 0–5 implementadas. Detalle campo por
-> campo del modelo de datos en [Docs/plan/04-base-de-datos.md](Docs/plan/04-base-de-datos.md);
-> contrato HTTP completo de cada ruta en [Docs/API_REFERENCE.md](Docs/API_REFERENCE.md).
+> Actualizado 2026-09-11 — refleja Fases 0–6 implementadas + Fase 13 parcial
+> (`PB-011`/`PB-026`/`PB-017`). Detalle campo por campo del modelo de datos en
+> [Docs/plan/04-base-de-datos.md](Docs/plan/04-base-de-datos.md); contrato
+> HTTP completo de cada ruta en [Docs/API_REFERENCE.md](Docs/API_REFERENCE.md).
 
 ```
 prisma/
   schema.prisma            User, LenderProfile/LenderCompany, BorrowerProfile,
                             Bookkeeper/InsuranceCompany, Property, Contract/
-                            ContractTerms/ScheduledPayment/Transaction/Autopay
-                            (schema completo de Fase 1 — Contract en adelante
-                            migrado pero sin API todavía, ver Fase 6+)
+                            ContractTerms/ContractFeeItem/ScheduledPayment/
+                            Transaction/Autopay (Fases 0–6), LoanRequest/
+                            LoanRequestLenderTarget/LoanQuote (Fase 13 parcial)
   migrations/               historial de migraciones SQL
 src/
   app/
@@ -161,24 +167,38 @@ src/
         users/[id]/{activate,deactivate}/       alta/baja de cualquier usuario
         lenders/[id]/[companies/[companyId]]    Admin CRUD de LenderCompany
       lenders/me/[companies, borrowers/[id]]    autoservicio del Prestamista
-      borrowers/me/[password]                   autoservicio del Deudor
+      borrowers/me/
+        [password]                              autoservicio del Deudor
+        loan-requests/[id]/                      CRUD propio + publish/withdraw/
+                                                   targets/quotes(+select) (Fase 13)
+      contracts/[id]/                           CRUD + cancel/borrowers/terms
+                                                 (+submit/accept/reject/fees)/
+                                                 schedule/balance (Fase 6)
+      marketplace/loan-requests/[id]/quotes     browse (LENDER) + cotizar (Fase 13)
   proxy.ts                  CORS + requestId, corre antes de toda ruta /api/*
   config/
     env.ts                  punto único de lectura de variables de entorno (fail-fast)
   controllers/               un archivo por dominio (auth, users, adminUsers,
                               lenders, lenderBorrowers, borrowerProfile,
-                              twoFactor, health)
+                              twoFactor, health, contracts, loanRequests,
+                              loanQuotes)
   services/                  lógica de negocio, con *.integration.test.ts al lado
-                              (contra Postgres real, no mocks)
+                              (contra Postgres real, no mocks) — incluye
+                              amortization.service.ts (funciones puras, con
+                              *.test.ts unitario aparte, sin DB)
   validations/                esquemas Zod (auth, users, lenders, borrowers,
-                              pagination, parse compartido)
+                              contracts, loanRequests, loanQuotes, pagination,
+                              parse compartido)
   auth/                      jwt.ts, password.ts, totp.ts — primitivas de Fase 2
   middlewares/                withAuth, withRole, requireContractAccess (BE-038,
-                              sin consumidor todavía), rateLimit, cors — ver
+                              consumido por Fase 6/13), rateLimit, cors — ver
                               src/middlewares/README.md (sin withTenantScope:
                               descartado, D-P6-1)
-  repositories/               vacío — Fase 6 (queries complejas de contracts/payments)
-  jobs/                       vacío — Fase 6 (mora, late fees, expiración de tokens)
+  repositories/               vacío — contracts.service.ts no lo terminó
+                              necesitando, ver src/repositories/README.md
+  jobs/                       recomputeContractDelinquency.ts (BE-063),
+                              assessLateFees.ts (BE-064) — funciones invocables,
+                              sin cron cableado todavía (ver src/jobs/README.md)
   db/
     prisma.ts                cliente Prisma (instancia única, reusada en dev)
     testFixtures.ts          fixtures compartidas por los tests de integración
@@ -212,22 +232,10 @@ request (`lib/logger.ts`). `GET /api/health` sigue siendo el ejemplo mínimo
 sin negocio ni DB; `/api/users` es el primero que implementa la cadena
 completa contra Postgres.
 
-### API de usuarios
-
-Identidad, contraseña y estado de 2FA — sin rol de negocio: el rol
-(Lender / Borrower / Viewer) vive en la relación préstamo↔persona, todavía
-sin modelar (ver alcance §3/§7). Todas las respuestas usan la forma
-`{ success, data }` / `{ success: false, error }` de `lib/apiResponse.ts`.
-
-| Método | Ruta | Qué hace |
-|---|---|---|
-| `GET` | `/api/users` | Lista los usuarios activos (excluye eliminados lógicamente) |
-| `POST` | `/api/users` | Crea un usuario (`name`, `email`, `password`) |
-| `PATCH` | `/api/users/:id` | Edita `name`/`email`/`password` (parcial) |
-| `DELETE` | `/api/users/:id` | Eliminado lógico: apaga `deletedAt`, no borra la fila |
-
-`password` nunca se devuelve ni se acepta un usuario ya eliminado como
-destino de edición/borrado (responde `404 USER_NOT_FOUND`).
+Todas las respuestas usan la forma `{ success, data }` / `{ success: false,
+error }` de `lib/apiResponse.ts`, sin excepción — ver el contrato completo de
+cada endpoint (request/response/errores) en
+[Docs/API_REFERENCE.md](Docs/API_REFERENCE.md), no duplicado acá.
 
 ## Decisiones de arquitectura
 
@@ -265,10 +273,12 @@ destino de edición/borrado (responde `404 USER_NOT_FOUND`).
 - **`node:22-slim`, no `node:22-alpine`.** Prisma necesita un motor nativo
   con OpenSSL; alpine (musl) lo complica innecesariamente — mismo criterio
   que ya usa el proyecto Owner con el mismo stack.
-- **`User` sin campo de rol.** A diferencia del `User` de Owner (que trae
-  `role` y perfiles Seller/Buyer/etc.), acá el rol de negocio vive en la
-  relación préstamo↔persona (`LoanParty`, todavía sin modelar), no en la
-  persona — ver alcance §3.
+- **`User.role` fijo por persona** (`ADMIN`/`LENDER`/`BORROWER`/`BOOKKEEPER`/
+  `INSURANCE_COMPANY`), no un modelo simétrico tipo `LoanParty` por préstamo
+  — modelo jerárquico multi-tenant confirmado explícitamente con Spencer
+  (`D0-1`): el Prestamista crea el `Contract`, el Deudor acepta sus términos.
+  El tenant real es `LenderCompany` (un `LenderProfile` puede tener N),
+  nunca la sesión sola — ver [Docs/plan/07](Docs/plan/07-autenticacion-y-autorizacion.md).
 - **Eliminado lógico, no físico.** `DELETE /api/users/:id` apaga
   `deletedAt` en vez de borrar la fila: un usuario puede quedar referenciado
   desde préstamos, documentos o la bitácora de auditoría más adelante.
@@ -282,19 +292,22 @@ destino de edición/borrado (responde `404 USER_NOT_FOUND`).
 
 ## Qué queda pendiente
 
-Ver [`Docs/plan/`](Docs/plan/) para el plan completo y
-[`Docs/plan/fases/`](Docs/plan/fases/) para el backlog
-(BE-001..BE-085 + PB-001..PB-015). Lo inmediato después de esta etapa
-(Fase 0 — Foundation, completa):
+Ver [`Docs/IMPLEMENTATION_PROGRESS.md`](Docs/IMPLEMENTATION_PROGRESS.md)
+para el detalle ticket por ticket de qué está hecho, y
+[`Docs/plan/14-roadmap.md`](Docs/plan/14-roadmap.md) para el orden
+recomendado del resto. Resumen:
 
+- **Fase 7 (Pagos)** — próxima en el roadmap: registro manual de pagos,
+  waterfall mora→interés→capital, historial de transacciones. Stripe
+  (`BE-065`/`066`/`070`) sigue bloqueado por la decisión Connect vs cuenta
+  única (`A-3`).
+- **Fase 13, resto** — `LoanRequestInvite` (invitar por correo a alguien
+  sin cuenta), integración RentCast, `BorrowerApplication` (vetting),
+  `BorrowerSubscription`.
+- **Fase 11 (Documentos)** — motor de PDF, storage S3, Commitment Letter.
+- **Fase 12 (Payoff)**, **Fase 14 (Dashboards/Ratings)**, **Fase 15
+  (Exports)** — sin empezar.
 - Conectar el frontend a este backend (hoy `paymyloan` no le apunta a
-  nada; sigue funcionando standalone vía `NEXT_PUBLIC_REGISTRO_ENDPOINT`
-  vacío).
-- Fase 1 (Database): `role` en `User`, `LenderProfile`, `BorrowerProfile`
-  + `LenderBorrower`, `Contract`/`ContractTerms` y el resto del modelo de
-  negocio — `User` sigue siendo la única tabla real.
-- Autenticación real (JWT access+refresh, 2FA por TOTP — `User` ya tiene
-  los campos, falta el flujo completo de Fase 2).
+  nada).
 - Decidir infraestructura de despliegue (reverse proxy/TLS, mismo servidor
-  que el frontend o separado, y si Postgres corre en el mismo Docker host
-  o en un servicio administrado).
+  que el frontend o separado).

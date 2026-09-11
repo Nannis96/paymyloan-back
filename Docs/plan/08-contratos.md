@@ -23,7 +23,7 @@ Contract.status:
 
 ## 8.2 Creación / edición / consulta / eliminación
 
-- **Crear** (`POST /api/contracts`): transacción atómica que crea `Contract(DRAFT)` + `ContractTerms(v1, DRAFT)` en un solo `$transaction`, genera `contractNumber` (formato `PML-{año}-{secuencial de 6 dígitos}`), asocia deudor(es) iniciales vía `ContractBorrower` si se envían en el mismo payload.
+- **Crear** (`POST /api/contracts`): transacción atómica que crea `Property` + `Contract(DRAFT)` + `ContractTerms(v1, DRAFT)` en un solo `$transaction` (`D-P6-2`, 2026-09-11 — ningún documento de este plan define un endpoint propio de `Property`, así que su dirección/valuación viaja embebida en el mismo body, igual que el resto de campos financieros), genera `contractNumber` (formato `PML-{año}-{secuencial de 6 dígitos}`), asocia deudor(es) iniciales vía `ContractBorrower` si se envían en el mismo payload.
 - **Editar** (`PATCH /api/contracts/:id`): mientras `ContractTerms` vigente está `DRAFT`, edición directa de los campos financieros y de dirección. Una vez `PENDING_ACCEPTANCE`/`ACCEPTED`, cualquier cambio financiero pasa por `POST /api/contracts/:id/terms` (nueva versión) — la dirección y metadatos no financieros sí se pueden editar directo en cualquier estado (no requieren reaceptación).
 - **Consultar**: `GET /api/contracts/:id` devuelve contrato + términos vigentes + deudores asociados + resumen de saldo; el detalle de calendario/transacciones vive en sub-rutas para no sobrecargar la respuesta principal (paginación en frontend).
 - **Eliminar**: ver [8.1](08-contratos.md#81-ciclo-de-vida-y-estados).

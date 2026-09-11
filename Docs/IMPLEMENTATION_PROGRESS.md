@@ -120,7 +120,7 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 | ✅ BE-035 | `src/middlewares/withAuth.ts` | Reemplaza a `requireSession` (Fase 2) sin cambiar su lógica — verifica el access token, devuelve `{ userId, role }` |
 | ✅ BE-036 | `src/middlewares/withRole.ts` | Agrega lo que `requireRole` (Fase 2) todavía no tenía a propósito: 2FA obligatorio para ADMIN/LENDER (§7.4), default `true`, `{ requireTwoFactor: false }` en `/api/auth/2fa/*` y en `GET /api/users` (lectura). **Acotado explícitamente a escrituras de negocio, no autoservicio** (`D-P3-1`) — sin esto, `PATCH /api/auth/me` o `logout` quedarían bloqueados para un Lender sin 2FA. De paso, en la misma consulta a `isTwoFactorEnabled`, revisa `isActive`/`deletedAt` — una cuenta desactivada a mitad de sesión no puede escribir aunque el access token siga vigente |
 | ❌ BE-037 | Middleware `withTenantScope` | **Descartado** (`D-P6-1`, 2026-09-10) — diferido Fase 3 → 4 → 6 sin que ningún módulo lo terminara necesitando. Ver riesgo #18 (resuelto) en [15](plan/15-riesgos-y-decisiones-pendientes.md) |
-| ✅ BE-038 | `src/middlewares/requireContractAccess.ts` | Resuelve acceso a un `Contract` para LENDER (dueño de la `LenderCompany`, comparado contra **todas** las empresas del `LenderProfile` — no depende de `withTenantScope`) y BORROWER (`ContractBorrower` activo). Sin consumidor todavía (Fase 6), probado directo contra las fixtures de Fase 1 (`createTestLenderCompany`/`createTestBorrower`/`createTestContract`) |
+| ✅ BE-038 | `src/middlewares/requireContractAccess.ts` | Resuelve acceso a un `Contract` para LENDER (dueño de la `LenderCompany`, comparado contra **todas** las empresas del `LenderProfile` — no depende de `withTenantScope`) y BORROWER (`ContractBorrower` activo). Consumido por todo `contracts.service.ts`/`contractFees.service.ts` desde Fase 6 |
 | ✅ BE-039 | Auditoría de accesos denegados | `logAuditEvent(action="ACCESS_DENIED")` cableado en los dos rechazos por tenant mismatch de `requireContractAccess` (lender ajeno, borrower no asociado) — el único lugar que hoy tiene un caso real de tenant mismatch para auditar. El 403 `FORBIDDEN` de `withRole` (rol equivocado, no tenant) queda fuera de este ticket a propósito |
 
 **Cambios en archivos existentes**: los 4 controllers de Fase 2 (`users.controller.ts`, `auth.controller.ts`, `twoFactor.controller.ts`, `adminUsers.controller.ts`) migran de `@/auth/session` a `@/middlewares/withAuth`+`@/middlewares/withRole`. `src/db/testFixtures.ts` gana `issueAccessTokenFor()` (hace login, y el paso 2 de 2FA si aplica, contra `authService` directamente) — varios tests HTTP de Fase 2 que creaban un ADMIN sin 2FA para probar una escritura tuvieron que pasar a `createTestUserWithTwoFactor` + esta fixture, porque ahora esa escritura los bloquearía. Código nuevo: `TWO_FACTOR_REQUIRED` (403) y `NOT_FOUND` (404) en el catálogo de errores.
@@ -171,24 +171,33 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 **Verificado end-to-end**: `type-check`/`lint` limpios, 145 tests en total (35 unit + 110 integración — 23 nuevos de esta ronda: `lenders.service`/`lenderBorrowers.service`/`borrowerProfile.service` + 2 suites HTTP), y camino dorado por `curl` de punta a punta: Admin (2FA) crea un Lender sin contraseña en la respuesta → el Lender loguea con la temporal (del log del contenedor) → intenta crear un Borrower sin 2FA → `403 TWO_FACTOR_REQUIRED` → activa 2FA → crea el Borrower → el Borrower loguea → `PATCH /api/borrowers/me` → `403 PASSWORD_CHANGE_REQUIRED` → cambia su contraseña → `PATCH` ahora funciona. Sin migraciones nuevas en Fase 4; Fase 5 agregó la de `mustChangePassword`.
 
-## ⬜ Fase 6 — Contracts
+## ✅ Fase 6 — Contracts (completa, verificada)
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-051 | `POST /api/contracts` |
-| ⬜ BE-052 | `GET /api/contracts` (lista + filtros) |
-| ⬜ BE-053 | `GET /api/contracts/:id` |
-| ⬜ BE-054 | `PATCH /api/contracts/:id` |
-| ⬜ BE-055 | `DELETE /api/contracts/:id` |
-| ⬜ BE-056 | `POST /api/contracts/:id/cancel` |
-| ⬜ BE-057 | `POST/DELETE /api/contracts/:id/borrowers` |
-| ⬜ BE-058 | Servicio de amortización (PMT, interest-only, balloon, interés devengado) |
-| ⬜ BE-059 | Servicio `generateAmortizationSchedule` + activación automática |
-| ⬜ BE-060 | `POST /api/contracts/:id/terms` (proponer + submit) |
-| ⬜ BE-061 | `POST /api/contracts/:id/terms/:termsId/accept` y `/reject` |
-| ⬜ BE-062 | `GET /api/contracts/:id/schedule` y `/balance` |
-| ⬜ BE-063 | Job `recomputeContractDelinquencyStatus` |
-| ⬜ BE-064 | Job `assessLateFee` |
+> **Implementada 2026-09-11**, `BE-051` ya no depende de `BE-037` (descartado, `D-P6-1`) — resuelve multi-empresa con el mismo patrón que `BE-045`/`PB-017`. Sin endpoint de `Property` en ningún documento del plan: `POST /api/contracts` crea `Property`+`Contract(DRAFT)`+`ContractTerms(v1, DRAFT)` en una sola `$transaction` (`D-P6-2`, nuevo — ver [00](plan/00-contradicciones-y-decisiones.md#decisión-2026-09-11-arranque-de-implementación-de-fase-6-d-p6-2-property-se-crea-embebida-en-post-apicontracts)). `PB-020` (`ContractFeeItem`, ampliada 2026-09-10 por `D-S2-2`) se implementó junto con el resto de la fase — migración `20260911180840_phase6_contract_fee_items` (tabla `contract_fee_items` + enums `ContractFeeCategory`/`ContractFeeCode`/`FeeAmountType` + `ContractTerms.prePayPenaltyType`/`Amount`). `Contract.originationSource`/`loanRequestId` **no** están en esta migración — quedan para Fase 13 (`D-S2-19`).
+>
+> **Máquina de estados de `ContractTerms.currentTermsId`, no especificada en el plan a nivel de implementación** (decisión de ingeniería tomada al construir, no una decisión de producto): `Contract.currentTermsId` siempre apunta a la versión más reciente ("lo que está sobre la mesa"), se actualice o no `Contract.status` — no necesariamente a la versión que gobierna el calendario activo. La versión que sí gobierna pagos/saldo se resuelve por separado (`ContractTerms.status=ACCEPTED`, a lo sumo una a la vez). Al proponer una versión nueva (`BE-060`), la anterior pasa a `SUPERSEDED` de inmediato. Esto permite renegociar un contrato ya `ACTIVE` sin interrumpir el calendario vigente hasta que la nueva versión complete su propio quórum (`regenerateScheduleAfterTermsChange`).
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-051 | `POST /api/contracts` | Crea `Property`+`Contract(DRAFT)`+`ContractTerms(v1, DRAFT)` en una transacción (`D-P6-2`); `contractNumber` formato `PML-{año}-{6 dígitos}`; asocia deudores iniciales si vienen en el mismo body (validados contra `LenderBorrower` ACTIVE). Multi-empresa: mismo patrón que `BE-045` |
+| ✅ BE-052 | `GET /api/contracts` (lista + filtros + paginación) | LENDER ve todas sus `LenderCompany`; BORROWER ve donde es `ContractBorrower` activo |
+| ✅ BE-053 | `GET /api/contracts/:id` | Vía `requireContractAccess` (`BE-038`) |
+| ✅ BE-054 | `PATCH /api/contracts/:id` | `property`/`insuranceCompanyId` editables en cualquier estado; `terms` solo si la vigente está `DRAFT` (`409 TERMS_NOT_EDITABLE`) |
+| ✅ BE-055 | `DELETE /api/contracts/:id` | Solo `DRAFT` sin `Transaction` (`409 CONTRACT_NOT_DELETABLE`/`CONTRACT_HAS_TRANSACTIONS`) |
+| ✅ BE-056 | `POST /api/contracts/:id/cancel` | `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT`, `reason` obligatorio y auditado |
+| ✅ BE-057 | `POST`/`DELETE /api/contracts/:id/borrowers/:borrowerId` | Valida `LenderBorrower` ACTIVE contra la `LenderCompany` del contrato (§7.5 punto 4, ya no compara un `lenderId` inexistente) |
+| ✅ BE-058 | `src/services/amortization.service.ts` | Funciones puras: `calculateAmortizedPayment`/`calculateInterestOnlyPayment`/`calculateBalloonPayment`/`calculateAccruedInterest` (30/360 y actual/365), con `Prisma.Decimal` de punta a punta — nunca `number` de JS en el cálculo |
+| ✅ BE-059 | `generateAmortizationSchedule`/`regenerateScheduleAfterTermsChange` | Corre dentro de la misma `$transaction` que activa el contrato o regenera el calendario tras una renegociación; última fila cierra el saldo en `$0.00` exacto; `409 SCHEDULE_ALREADY_GENERATED` si se intenta dos veces para la misma versión |
+| ✅ BE-060 | `POST /api/contracts/:id/terms` + `.../:termsId/submit` | Propone nueva versión (solo si la vigente no está `DRAFT`) y la envía a los deudores (`terms-updated`). `MARKETPLACE_CONNECTION` queda para Fase 13 (`D-S2-19`) |
+| ✅ BE-061 | `.../:termsId/accept` y `/reject` | `accept` activa (primera vez) o regenera el calendario (renegociación) al completar el quórum; `reject` regresa el contrato a `DRAFT` (si nunca se activó) y notifica al Lender (`terms-rejected`) — un solo rechazo termina la versión, no espera al resto de co-deudores |
+| ✅ BE-062 | `.../:id/schedule` y `/balance` | `balance` usa `calculateAccruedInterest` desde `activatedAt` — sin `Transaction` real todavía (Fase 7), es el mejor ancla disponible |
+| ✅ BE-063 | `src/jobs/recomputeContractDelinquency.ts` | `ACTIVE↔DELINQUENT` según mora vencida más allá de `gracePeriodDays` de la versión `ACCEPTED`. Sin cron real cableado (decisión de implementación pendiente, ver `src/jobs/README.md`) |
+| ✅ BE-064 | `src/jobs/assessLateFees.ts` | Cobra mora una sola vez por fila (`lateFeeAssessedAt` como guard de idempotencia) |
+| ✅ PB-020 | `ContractFeeItem` — Closing Fee Summary Table | `GET`/`POST /api/contracts/:id/terms/:termsId/fees`, `DELETE .../fees/:feeId` — solo editable mientras `DRAFT`; `computedAmount` se resuelve al crear (nunca se recalcula); `MARKETPLACE_CONNECTION` manual rechazada (`400 RESERVED_FEE_CODE`, reservada para Fase 13) |
+
+**Archivos nuevos**: `src/services/amortization.service.ts` (+ test unitario), `src/services/contracts.service.ts`, `src/services/contractFees.service.ts`, `src/controllers/contracts.controller.ts`, `src/validations/contracts.validation.ts`, `src/jobs/recomputeContractDelinquency.ts`, `src/jobs/assessLateFees.ts`, 13 rutas bajo `src/app/api/contracts/**`. Códigos de error nuevos: `LENDER_COMPANY_REQUIRED`/`NOT_FOUND` (reutilizados), `CONTRACT_NOT_DELETABLE`, `CONTRACT_HAS_TRANSACTIONS`, `CONTRACT_NOT_CANCELLABLE`, `ALREADY_ASSOCIATED`, `NO_CURRENT_TERMS`, `TERMS_NOT_EDITABLE`, `TERMS_STILL_DRAFT`, `TERMS_NOT_DRAFT`, `TERMS_NOT_PENDING`, `ALREADY_DECIDED`, `NO_BORROWERS`, `SCHEDULE_ALREADY_GENERATED`, `RESERVED_FEE_CODE`.
+
+**Verificado end-to-end**: `type-check`/`lint` limpios, 182 tests en total (44 unit — 7 nuevos de `amortization.service.test.ts`, con casos contra referencia externa de amortización estándar — + 138 de integración, 14 nuevos de esta ronda: `contracts.service`, `contractFees.service`, los dos jobs, y la primera suite HTTP de este módulo), `next build` compila los 41 endpoints (28 previos + 13 nuevos de Fase 6) sin errores.
 
 ## ⬜ Fase 7 — Pagos manuales
 
@@ -221,15 +230,22 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 | ⬜ PB-007 | `POST/GET /api/contracts/:id/payoff-requests` (incluye envío a titulación) |
 | ⬜ PB-008 | Aplicación: `Contract.status → PAID_OFF` |
 
-## ⬜ Fase 13 — Rating PML y solicitud de préstamo
+## 🟡 Fase 13 — Marketplace / Loan Requests / Vetting (parcial — `PB-011`/`PB-026`/`PB-017`)
 
-| # | Ítem |
-|---|---|
-| ⬜ PB-009 | `GET /api/borrowers/:id/rating` |
-| ⬜ PB-010 | `GET /api/lenders/:id/stats` (sin `avg response time`, ver plan) |
-| ⬜ PB-011 | Tabla `LoanRequest` + CRUD propio del deudor |
-| ⬜ PB-012 | Pitch deck en PDF desde `LoanRequest` |
-| ⬜ PB-013 | *(ver Fase 2)* |
+> **Implementado 2026-09-11**: solo el núcleo de cotizaciones (`LoanRequest` con `Property` embebida, `LoanRequestLenderTarget`, `LoanQuote`, selección → `Contract`), reescrito de su diseño original antes de implementarlo (`D-S2-21`/`D-S2-22`, ver [00](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar)) porque el flujo real (Deudor pide cotización a varios Prestamistas elegidos, compara, selecciona) no era lo que `PB-017` originalmente describía ("el primero que hace match gana"). `Property.lenderCompanyId` pasó a opcional para poder crear la `Property` desde el lado del Deudor sin `LenderCompany` todavía (`D-S2-25`) — migración `20260911190000_phase13_loan_requests_and_quotes`. `Contract.originationSource`/`loanRequestId` (pendientes desde Fase 6, `D-S2-19`) entran en esta misma migración. `LoanRequestInvite` (`D-S2-14`, invitar por correo a alguien sin cuenta), `PB-016` (RentCast), `PB-018` (`BorrowerApplication`), `PB-019` (`BorrowerSubscription`) y `PB-012` (pitch deck PDF) **no** se implementaron — dependen de infraestructura no construida (Fase 11) o son features independientes no pedidas en esta ronda.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ PB-011 | `POST`/`GET`/`PATCH /api/borrowers/me/loan-requests*`, `.../publish`, `.../withdraw`, `.../targets[/:lenderCompanyId]` | Crea `Property` embebida (`lenderCompanyId=null`) + `LoanRequest(DRAFT)`; `visibility` se fija en la creación (simplificación sobre el diseño original, no en `publish`); editable solo mientras `DRAFT`; `LoanRequestLenderTarget` reemplaza al viejo `invitedLenderCompanyId` (`D-S2-22`) |
+| ✅ PB-026 | `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes`, `GET /api/borrowers/me/loan-requests/:id/quotes` | Cada Lender interesado propone su propia `LoanQuote` (`structure`/`principalAmount`/`interestRate`/`amortizationTermMonths`/`message`); una fila por `(loanRequestId, lenderCompanyId)`, se reemplaza mientras `SUBMITTED`; visibilidad: `PUBLIC` o `LoanRequestLenderTarget` activo |
+| ✅ PB-017 | `GET /api/marketplace/loan-requests*`, `POST /api/borrowers/me/loan-requests/:id/quotes/:quoteId/select` | Reescrito (`D-S2-21`): el Deudor selecciona una cotización → declina el resto en la misma transacción, backfillea `Property.lenderCompanyId`, `LoanRequest.status→MATCHED`, crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` reutilizando `BE-051` con `ContractTerms` v1 pre-llenada desde la cotización elegida (no desde el pedido original). `MARKETPLACE_CONNECTION` se inserta automáticamente (1pt, mín. $999) y se recalcula en cada versión nueva vía `BE-060` (`D-S2-5`, ampliado) |
+| ⬜ PB-009/010 | *(ver Fase 14 — se movieron ahí en la formalización del plan, 2026-09-10)* |
+| ⬜ PB-012/016/018/019 | Pitch deck PDF, RentCast, `BorrowerApplication`, `BorrowerSubscription` — no implementados esta ronda |
+| ⬜ `LoanRequestInvite` | Invitar por correo a alguien sin cuenta (`D-S2-14`) — no implementado esta ronda |
+
+**Archivos nuevos**: `src/services/loanRequests.service.ts`, `src/services/loanQuotes.service.ts`, `src/controllers/loanRequests.controller.ts`, `src/controllers/loanQuotes.controller.ts`, `src/validations/loanRequests.validation.ts`, `src/validations/loanQuotes.validation.ts`, 11 rutas bajo `src/app/api/borrowers/me/loan-requests/**` y `src/app/api/marketplace/loan-requests/**`. `contracts.service.ts` gana `createContractFromLoanQuote` (reutiliza el núcleo de `BE-051`) y `proposeContractTerms` (`BE-060`) ahora recalcula `MARKETPLACE_CONNECTION` cuando `originationSource=MARKETPLACE`. Códigos de error nuevos: `LOAN_REQUEST_NOT_EDITABLE`, `LOAN_REQUEST_NOT_DRAFT`, `LOAN_REQUEST_NOT_PUBLISHED`, `LOAN_REQUEST_NOT_TARGETABLE`, `ALREADY_TARGETED`, `LOAN_REQUEST_ALREADY_MATCHED`, `QUOTE_NOT_SUBMITTED`.
+
+**Verificado end-to-end**: `type-check`/`lint` limpios, 158 tests en total (44 unit + 148 integración — 10 nuevos de esta ronda: `loanRequests.service`, `loanQuotes.service`, suite HTTP de marketplace), `next build` compila los 52 endpoints (41 previos + 11 nuevos) sin errores.
 
 ## ⬜ Fase 15 — Exports contables
 

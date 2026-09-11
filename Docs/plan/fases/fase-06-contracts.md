@@ -9,6 +9,8 @@
 > **`BE-051` NO gana `originationSource`/`loanRequestId` en esta fase** — corregido 2026-09-10 (`D-S2-19`, autorrevisión post-commit): esos dos campos son una FK a `LoanRequest`, tabla que recién existe en Fase 13 — agregarlos aquí hubiera dejado una FK contra una tabla inexistente. Fase 6 es completamente autónoma: todo lo de abajo se implementa y se da por cerrado sin que Fase 13 exista, cubriendo el flujo directo Lender→Contract. Fase 13 (`PB-017`) agrega esas dos columnas después, vía su propia migración, sobre el `Contract` que esta fase ya dejó listo.
 >
 > **`BE-051` tampoco depende de `BE-037`** (`withTenantScope`, descartado 2026-09-10, `D-P6-1` — ver [00](../00-contradicciones-y-decisiones.md#decisión-2026-09-10-ronda-fase-6--arranque-d-p6-1-withtenantscope-descartado)): la dependencia original quedó reemplazada por la misma regla de `lenderCompanyId` explícito ya usada en `BE-045`/`PB-017`.
+>
+> **`BE-051` también crea la `Property`** (`D-P6-2`, 2026-09-11, encontrado al implementar): ningún documento de este plan define un endpoint propio de `POST /api/properties` — `Property` es una FK obligatoria de `Contract` desde `D-P1-5`, así que su dirección/valuación viaja embebida en el mismo body de creación del contrato. Ver [00 — `D-P6-2`](../00-contradicciones-y-decisiones.md#decisión-2026-09-11-arranque-de-implementación-de-fase-6-d-p6-2-property-se-crea-embebida-en-post-apicontracts).
 
 ## BE-051 — `POST /api/contracts`
 - **Prioridad/Complejidad/Dependencias**: P0 / L / BE-012 (`ContractTerms`)

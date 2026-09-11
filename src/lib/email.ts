@@ -1,7 +1,7 @@
 import { env } from "@/config/env";
 import { logger } from "@/lib/logger";
 
-export type EmailTemplate = "welcome-borrower" | "password-reset" | "terms-updated" | "account-activated";
+export type EmailTemplate = "welcome-borrower" | "password-reset" | "terms-updated" | "account-activated" | "terms-rejected";
 
 export interface SendEmailInput {
   to: string;
@@ -23,6 +23,12 @@ const TEMPLATES: Record<EmailTemplate, (data: Record<string, string>) => string>
   "terms-updated": (data) =>
     `<p>El prestamista propuso una nueva versión de los términos del contrato ${data.contractNumber}. ` +
     `Ingresa a PayMyLoan para revisarla y aceptarla o rechazarla.</p>`,
+  // BE-061. Un Deudor rechazó la versión vigente — el contrato vuelve a
+  // DRAFT para que el Prestamista la revise y reenvíe (08-contratos.md §8.1).
+  "terms-rejected": (data) =>
+    `<p>El deudor ${data.borrowerName} rechazó los términos propuestos del contrato ${data.contractNumber}` +
+    `${data.comment ? `, con el comentario: "${data.comment}"` : ""}. ` +
+    `Ingresa a PayMyLoan para revisarlos y proponer una nueva versión.</p>`,
   // D-P2-1: el auto-registrado no elige contraseña — nace inactivo y esta
   // es la plantilla que recibe al activarlo un Admin, con la contraseña
   // temporal generada en ese momento (adminUsers.service.ts).

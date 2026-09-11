@@ -147,6 +147,41 @@ enum AutopayAmountType {
   FIXED_AMOUNT
 }
 
+// PB-020 (Fase 6, D-S2-2). MARKETPLACE_CONNECTION entra completo desde ya
+// aunque ningún contrato de Fase 6 lo use todavía — D-S2-19: lo que no
+// puede entrar antes de Fase 13 es la FK Contract.loanRequestId, no el
+// enum.
+enum ContractFeeCategory {
+  LENDER
+  PLATFORM
+}
+
+enum ContractFeeCode {
+  ORIGINATION_POINTS
+  PROCESSING
+  UNDERWRITING
+  DOC_PREP
+  CUSTOM
+  MARKETPLACE_CONNECTION
+}
+
+// Deliberadamente distinto de LateFeeType (mismos valores) — D-S2-2: son
+// conceptos independientes que podrían divergir (p.ej. un tercer tipo de
+// fee que no aplique a mora).
+enum FeeAmountType {
+  FLAT
+  PERCENTAGE
+}
+
+// Fase 13 (D-S2-1/D-S2-21/D-S2-22). ContractOriginationSource vive acá (no
+// tiene FK propia) — LoanRequestVisibility/Status/ProjectType/LoanQuoteStatus
+// se agrupan junto a los modelos que los usan, más abajo.
+enum ContractOriginationSource {
+  DIRECT
+  MARKETPLACE
+  PRIVATE_INVITE
+}
+
 enum WebhookProvider {
   STRIPE
 }
@@ -211,6 +246,9 @@ model User {
   contractBorrowersAdded ContractBorrower[] @relation("ContractBorrowerAddedBy")
   transactionsInitiated  Transaction[]      @relation("TransactionInitiatedBy")
   autopaysCancelled      Autopay[]          @relation("AutopayCancelledBy")
+
+  loanRequestLenderTargetsInvited LoanRequestLenderTarget[] @relation("LoanRequestLenderTargetInvitedBy")
+  loanQuotesSubmitted             LoanQuote[]               @relation("LoanQuoteSubmittedBy")
 
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
@@ -283,6 +321,10 @@ model LenderCompany {
   contracts   Contract[]
   auditLogs   AuditLog[]
 
+  loanRequestTargets  LoanRequestLenderTarget[]
+  loanQuotes          LoanQuote[]
+  matchedLoanRequests LoanRequest[]             @relation("LoanRequestMatchedLender")
+
   @@index([lenderProfileId])
   @@index([status])
   @@map("lender_companies")
@@ -313,6 +355,7 @@ model BorrowerProfile {
   contracts           ContractBorrower[]
   contractAcceptances ContractTermsAcceptance[]
   autopays            Autopay[]
+  loanRequests        LoanRequest[]
 
   @@map("borrower_profiles")
 }
@@ -451,14 +494,21 @@ model Property {
   createdByUserId String @db.Uuid
   createdByUser   User   @relation("PropertyCreatedBy", fields: [createdByUserId], references: [id])
 
-  lenderCompanyId String        @db.Uuid
-  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Restrict)
+  // Opcional desde D-S2-25 (2026-09-11): una Property puede nacer de un
+  // Deudor publicando un LoanRequest (D-S2-1), antes de que exista ningún
+  // LenderCompany asociado — no solo de un Lender creando un Contract
+  // directo (D-P6-2, que sí la deja fijada desde el vamos). Se backfillea
+  // con la LenderCompany ganadora recién cuando/si se selecciona una
+  // LoanQuote (PB-017) — hasta entonces queda nula.
+  lenderCompanyId String?        @db.Uuid
+  lenderCompany   LenderCompany? @relation(fields: [lenderCompanyId], references: [id], onDelete: Restrict)
 
   deletedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  contracts Contract[]
+  contracts    Contract[]
+  loanRequests LoanRequest[]
 
   @@index([lenderCompanyId])
   @@index([createdByUserId])
@@ -482,6 +532,12 @@ model Contract {
 
   insuranceCompanyId String?                  @db.Uuid
   insuranceCompany   InsuranceCompanyProfile? @relation(fields: [insuranceCompanyId], references: [id], onDelete: SetNull)
+
+  // D-S2-19/D-S2-21 (Fase 13, PB-017) — migración propia de esta fase, no de
+  // Fase 6: LoanRequest no existía todavía cuando se migró Contract.
+  originationSource ContractOriginationSource @default(DIRECT)
+  loanRequestId     String?                   @unique @db.Uuid
+  loanRequest       LoanRequest?              @relation(fields: [loanRequestId], references: [id])
 
   contractNumber String         @unique
   status         ContractStatus @default(DRAFT)
@@ -539,6 +595,12 @@ model ContractTerms {
   gracePeriodDays          Int                @default(10)
   calculatedMonthlyPayment Decimal?           @db.Decimal(14, 2)
 
+  // D-S2-2 (Fase 6, PB-020). Igual patrón que lateFeeType/lateFeeAmount —
+  // no vive en ContractFeeItem porque no es un monto fijo conocido al
+  // momento de la firma.
+  prePayPenaltyType   LateFeeType?
+  prePayPenaltyAmount Decimal?     @db.Decimal(14, 2)
+
   status ContractTermsStatus @default(DRAFT)
 
   createdByUserId String @db.Uuid
@@ -556,10 +618,39 @@ model ContractTerms {
   currentForContract Contract?                 @relation("ContractCurrentTerms")
   acceptances        ContractTermsAcceptance[]
   scheduledPayments  ScheduledPayment[]
+  feeItems           ContractFeeItem[]
 
   @@unique([contractId, versionNumber])
   @@index([contractId, status])
   @@map("contract_terms")
+}
+
+// PB-020 (Fase 6, D-S2-2). Closing Fee Summary Table — de solo inserción:
+// computedAmount se resuelve al crear la fila y nunca se recalcula (regla
+// 16 de 04-base-de-datos.md §4.7); un cambio implica filas nuevas en una
+// ContractTerms nueva, no un update de esta.
+model ContractFeeItem {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractTermsId String        @db.Uuid
+  contractTerms   ContractTerms @relation(fields: [contractTermsId], references: [id], onDelete: Cascade)
+
+  category ContractFeeCategory
+  code     ContractFeeCode
+  label    String
+
+  amountType  FeeAmountType
+  amountValue Decimal       @db.Decimal(14, 2)
+
+  // Snapshot en dólares resuelto al crear la fila (amountValue si FLAT, o
+  // amountValue% x ContractTerms.principalAmount en ese instante si
+  // PERCENTAGE) — inmutable, ver regla 16 de 04-base-de-datos.md §4.7.
+  computedAmount Decimal @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+
+  @@index([contractTermsId])
+  @@map("contract_fee_items")
 }
 
 // BE-013. Inmutable por regla de aplicación — nunca se actualiza una fila.
@@ -604,6 +695,138 @@ model ContractBorrower {
   @@id([contractId, borrowerProfileId])
   @@index([borrowerProfileId])
   @@map("contract_borrowers")
+}
+
+// -----------------------------------------------------------------------------
+// Marketplace (Fase 13) — D-S2-1, cotizaciones corregidas D-S2-21/D-S2-22.
+// Docs/plan/fases/fase-13-rating-loan-requests.md (PB-011/PB-026/PB-017).
+// -----------------------------------------------------------------------------
+
+enum LoanRequestVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum LoanRequestStatus {
+  DRAFT
+  PUBLISHED
+  MATCHED
+  WITHDRAWN
+  EXPIRED
+  CONVERTED
+}
+
+enum ProjectType {
+  RENTAL
+  FIX_AND_FLIP
+  SLOW_FLIP
+  COMMERCIAL
+  NEW_CONSTRUCTION
+}
+
+enum LoanQuoteStatus {
+  SUBMITTED
+  WITHDRAWN
+  DECLINED
+  SELECTED
+  EXPIRED
+}
+
+// PB-011. Publicación del Deudor en el marketplace — D-S2-1. Sin
+// invitedLenderCompanyId (eliminado, D-S2-22): ver LoanRequestLenderTarget.
+model LoanRequest {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id])
+
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  projectType ProjectType
+
+  purchasePrice            Decimal @db.Decimal(14, 2)
+  rehabAmount              Decimal @db.Decimal(14, 2)
+  totalLoanAmountRequested Decimal @db.Decimal(14, 2)
+
+  requestedClosingDate   DateTime
+  requestedTimelineNotes String?
+
+  visibility LoanRequestVisibility
+  status     LoanRequestStatus     @default(DRAFT)
+
+  matchedLenderCompanyId String?        @db.Uuid
+  matchedLenderCompany   LenderCompany? @relation("LoanRequestMatchedLender", fields: [matchedLenderCompanyId], references: [id])
+
+  matchedAt   DateTime?
+  withdrawnAt DateTime?
+  expiresAt   DateTime?
+  convertedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  targets  LoanRequestLenderTarget[]
+  quotes   LoanQuote[]
+  contract Contract?
+
+  @@index([borrowerProfileId])
+  @@index([visibility, status])
+  @@map("loan_requests")
+}
+
+// D-S2-22 (nueva). Lista de LenderCompany ya registradas a quienes el
+// Deudor eligió puntualmente para pedirles cotización — reemplaza al viejo
+// LoanRequest.invitedLenderCompanyId (un solo FK, insuficiente).
+model LoanRequestLenderTarget {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  loanRequestId String      @db.Uuid
+  loanRequest   LoanRequest @relation(fields: [loanRequestId], references: [id], onDelete: Cascade)
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Cascade)
+
+  invitedByUserId String @db.Uuid
+  invitedByUser   User   @relation("LoanRequestLenderTargetInvitedBy", fields: [invitedByUserId], references: [id])
+
+  createdAt DateTime  @default(now())
+  removedAt DateTime?
+
+  @@unique([loanRequestId, lenderCompanyId])
+  @@map("loan_request_lender_targets")
+}
+
+// PB-026 (nueva, D-S2-21). La cotización que cada Prestamista interesado le
+// propone al Deudor — el Deudor las compara y selecciona una (PB-017), lo
+// que recién ahí crea el Contract.
+model LoanQuote {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  loanRequestId String      @db.Uuid
+  loanRequest   LoanRequest @relation(fields: [loanRequestId], references: [id], onDelete: Cascade)
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Cascade)
+
+  structure                   LoanStructure
+  principalAmount             Decimal       @db.Decimal(14, 2)
+  interestRate                Decimal       @db.Decimal(6, 3)
+  amortizationTermMonths      Int
+  estimatedClosingCostsAmount Decimal?      @db.Decimal(14, 2)
+  message                     String?
+
+  status    LoanQuoteStatus @default(SUBMITTED)
+  expiresAt DateTime?
+
+  submittedByUserId String @db.Uuid
+  submittedByUser   User   @relation("LoanQuoteSubmittedBy", fields: [submittedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([loanRequestId, lenderCompanyId])
+  @@map("loan_quotes")
 }
 
 // -----------------------------------------------------------------------------

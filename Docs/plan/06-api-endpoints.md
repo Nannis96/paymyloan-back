@@ -115,9 +115,11 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 
 ---
 
-## 6.9 Loan Requests / Marketplace (nuevo, `D-S2-1`)
+## 6.9 Loan Requests / Marketplace (nuevo, `D-S2-1`, cotizaciones corregidas `D-S2-21`/`D-S2-22`)
 
-> Ver [00 §D-S2-1](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) y [04 §4.7](04-base-de-datos.md#47-modelo-extendido--marketplace-fees-vetting-notificaciones-ratings-revisión-2026-09-10). Detalle de tickets en [fases/fase-13-rating-loan-requests.md](fases/fase-13-rating-loan-requests.md).
+> Ver [00 §D-S2-1](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec), [00 §Decisiones 2026-09-11](00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar) y [04 §4.7](04-base-de-datos.md#47-modelo-extendido--marketplace-fees-vetting-notificaciones-ratings-revisión-2026-09-10). Detalle de tickets en [fases/fase-13-rating-loan-requests.md](fases/fase-13-rating-loan-requests.md).
+>
+> **Corregido 2026-09-11**: el flujo ya no es "el primer Prestamista que hace match se queda el deal" — pasa por cotización (`LoanQuote`) y selección explícita del Deudor. `POST .../match` se elimina; `POST .../invites` (email, sin cuenta) convive con el nuevo `POST .../targets` (Prestamistas ya registrados, varios).
 
 | Método | Ruta | Rol | Notas |
 |---|---|---|---|
@@ -127,11 +129,16 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | PATCH | `/api/borrowers/me/loan-requests/:id` | BORROWER | solo mientras `status=DRAFT` |
 | POST | `/api/borrowers/me/loan-requests/:id/publish` | BORROWER | `DRAFT → PUBLISHED`, exige `visibility` |
 | POST | `/api/borrowers/me/loan-requests/:id/withdraw` | BORROWER | `PUBLISHED → WITHDRAWN` |
-| POST | `/api/borrowers/me/loan-requests/:id/invites` | BORROWER | `D-S2-14` — invita a un Prestamista por email (`LoanRequestInvite`) |
+| POST | `/api/borrowers/me/loan-requests/:id/targets` | BORROWER | `D-S2-22`, nuevo — agrega una o más `LenderCompany` (ya en la plataforma) elegidas para pedirles cotización (`LoanRequestLenderTarget`), sin importar `visibility` |
+| DELETE | `/api/borrowers/me/loan-requests/:id/targets/:lenderCompanyId` | BORROWER | `D-S2-22` — quita un Prestamista de la lista (mientras no haya cotizado) |
+| POST | `/api/borrowers/me/loan-requests/:id/invites` | BORROWER | `D-S2-14` — invita por email a alguien que puede no tener cuenta todavía (`LoanRequestInvite`) — distinto de `targets`, arriba |
 | POST | `/api/borrowers/me/loan-requests/:id/photos` | BORROWER | sube `Document(type=LOAN_REQUEST_PHOTO)` |
-| GET | `/api/marketplace/loan-requests` | LENDER | listado público (`visibility=PUBLIC`, `status=PUBLISHED`) — identidad del Deudor y dirección exacta ocultas |
-| GET | `/api/marketplace/loan-requests/:id` | LENDER | detalle público (mismo enmascarado) |
-| POST | `/api/marketplace/loan-requests/:id/match` | LENDER | `PUBLISHED → MATCHED`, crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)`; `lenderCompanyId` obligatorio en el body si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`, `D-S2-20`) |
+| GET | `/api/borrowers/me/loan-requests/:id/quotes` | BORROWER | `D-S2-21`, nuevo — lista las `LoanQuote` recibidas, para comparar |
+| POST | `/api/borrowers/me/loan-requests/:id/quotes/:quoteId/select` | BORROWER | `D-S2-21`, nuevo — elige una cotización: crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` pre-llenado desde ella (`BE-051`); el resto de cotizaciones `SUBMITTED` → `DECLINED`; `LoanRequest.status → MATCHED` |
+| GET | `/api/marketplace/loan-requests` | LENDER | listado de `LoanRequest(PUBLISHED)` visibles para el Lender — `PUBLIC` (identidad/dirección exacta ocultas) más los `PRIVATE` donde está en `LoanRequestLenderTarget` |
+| GET | `/api/marketplace/loan-requests/:id` | LENDER | detalle (mismo enmascarado si `PUBLIC`) |
+| POST | `/api/marketplace/loan-requests/:id/quotes` | LENDER | `D-S2-21`, reemplaza a `POST .../match` — crea o reemplaza (mientras siga `SUBMITTED`) la `LoanQuote` propia; **no** crea el `Contract`. `lenderCompanyId` obligatorio en el body si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`, `D-S2-20`) |
+| DELETE | `/api/marketplace/loan-requests/:id/quotes` | LENDER | retira la cotización propia (`status → WITHDRAWN`) mientras el Deudor no haya seleccionado ninguna |
 | POST | `/api/loan-requests/invites/:token/accept` | Público (con token) | acepta una invitación privada (`D-S2-14`); si el invitado no tiene cuenta, lo deriva al auto-registro (`D-P2-1`) con el `LoanRequest` pre-vinculado |
 | POST | `/api/properties/:id/rentcast-comps` | LENDER, BORROWER dueño | dispara `fetchRentCastComps(propertyId)` (`D-S2-7`), actualiza `Property.rentCompsSnapshot`/`saleCompsSnapshot` |
 

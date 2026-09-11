@@ -135,6 +135,13 @@ export function createTestProperty(lenderCompanyId: string, createdByUserId: str
   });
 }
 
+// Fase 6: contracts.service valida borrowerProfileIds contra LenderBorrower
+// ACTIVE (07-autenticacion-y-autorizacion.md §7.5 punto 4) — hace falta este
+// vínculo antes de poder asociar un deudor a un contrato en los tests.
+export function linkBorrowerToLenderCompany(lenderCompanyId: string, borrowerProfileId: string, invitedByUserId: string) {
+  return prisma.lenderBorrower.create({ data: { lenderCompanyId, borrowerProfileId, invitedByUserId } });
+}
+
 export function createTestContract(params: { lenderCompanyId: string; propertyId: string; createdByUserId: string }) {
   return prisma.contract.create({
     data: {

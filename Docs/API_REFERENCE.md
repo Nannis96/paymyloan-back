@@ -23,6 +23,8 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Administración de usuarios](#administración-de-usuarios-srcappapiadminusersid)
 - [Prestamistas — Admin](#prestamistas--admin-srcappapiadminlenders)
 - [Prestamistas y Deudores — autoservicio](#prestamistas-y-deudores--autoservicio)
+- [Contratos](#contratos-srcappapicontracts)
+- [Marketplace / Loan Requests](#marketplace--loan-requests-srcappapiborrowersmeloan-requests-srcappapimarketplaceloan-requests)
 - [Catálogo de códigos de error](#catálogo-de-códigos-de-error)
 
 ---
@@ -57,7 +59,7 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 { "success": true, "data": { "items": [ /* ... */ ], "page": 1, "pageSize": 20, "total": 3, "totalPages": 1 } }
 ```
 
-**Acceso multi-empresa sin selector de tenant** (`D-P4-1`, confirmado definitivo por `D-P6-1`): un `LENDER` puede tener más de una `LenderCompany`. No existe (ni se va a construir — `withTenantScope` quedó descartado, no solo diferido) ningún mecanismo para indicar "con cuál empresa estoy operando" que persista entre requests: las lecturas de `/api/lenders/me/borrowers*` devuelven resultados de **todas** las empresas del Lender, y la creación (`POST .../borrowers`) resuelve la empresa destino sola si hay una sola, o exige `lenderCompanyId` explícito si hay más de una. Mismo patrón que usan `POST /api/contracts` (Fase 6) y el matching de marketplace (Fase 13) una vez implementados.
+**Acceso multi-empresa sin selector de tenant** (`D-P4-1`, confirmado definitivo por `D-P6-1`): un `LENDER` puede tener más de una `LenderCompany`. No existe (ni se va a construir — `withTenantScope` quedó descartado, no solo diferido) ningún mecanismo para indicar "con cuál empresa estoy operando" que persista entre requests: las lecturas de `/api/lenders/me/borrowers*` devuelven resultados de **todas** las empresas del Lender, y la creación (`POST .../borrowers`, `POST /api/contracts`) resuelve la empresa destino sola si hay una sola, o exige `lenderCompanyId` explícito si hay más de una. Mismo patrón que usará el matching de marketplace (Fase 13) una vez implementado.
 
 ---
 
@@ -648,6 +650,196 @@ Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/
 
 ---
 
+## Contratos (`src/app/api/contracts/`)
+
+Fase 6 (`BE-051..064`, `PB-020`). Sin endpoint propio de `Property` en el plan (`D-P6-2`): `POST /api/contracts` recibe la dirección/valuación embebida en el mismo body y crea `Property`+`Contract(DRAFT)`+`ContractTerms(v1, DRAFT)` en una sola transacción. Todo endpoint de este módulo pasa por [`requireContractAccess`](plan/07-autenticacion-y-autorizacion.md#75-rbac--aislamiento-multi-tenant--cómo-se-evita-que-un-prestamista-acceda-a-datos-de-otro) (`BE-038`) — `LENDER` dueño de la `LenderCompany` (contra **todas** sus empresas) o `BORROWER` asociado vía `ContractBorrower` activo; un contrato ajeno responde `404`, nunca `403`.
+
+### `POST /api/contracts`
+
+Crea el contrato en un solo paso.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
+- **Request body**:
+
+  | Campo | Tipo | Notas |
+  |---|---|---|
+  | `lenderCompanyId` | string | Obligatorio solo si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`) |
+  | `property` | object | `addressLine1`/`city`/`state`/`postalCode`/`propertyType` obligatorios; resto de campos de valuación (`bedrooms`, `estimatedMarketValue`, `afterRepairValue`, etc.) opcionales, carga manual |
+  | `terms` | object | `structure` (`INTEREST_ONLY`/`AMORTIZED`/`BALLOON`), `principalAmount`, `interestRate`, `amortizationTermMonths`, `firstPaymentDate`, `paymentDueDay` (1–31), `maturityDate` (> `firstPaymentDate`, es la fecha del **último** pago, inclusive), `lateFeeType`/`lateFeeAmount`, `gracePeriodDays` (default 10), `prePayPenaltyType`/`prePayPenaltyAmount` (opcionales, juntos o ninguno) |
+  | `insuranceCompanyId` | string | Opcional |
+  | `borrowerProfileIds` | string[] | Opcional — cada uno debe tener un `LenderBorrower` `ACTIVE` con la `LenderCompany` resuelta |
+
+- **Response `201`**: `Contract` completo (ver forma abajo), `status: "DRAFT"`, `currentTerms` con `versionNumber: 1` y `status: "DRAFT"`.
+- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId`/`insuranceCompanyId`/algún `borrowerProfileId` ajeno o no vinculado) · `409 NO_LENDER_COMPANY`.
+
+### `GET /api/contracts`
+
+Lista + filtro `status` + paginación. `LENDER` ve todas sus `LenderCompany`; `BORROWER` ve donde es `ContractBorrower` activo.
+
+- **Auth**: Autenticado, rol `LENDER` o `BORROWER` (lectura, exenta de 2FA).
+- **Response `200`**: `data` = [resultado paginado](#convenciones) de `Contract`.
+
+### `GET /api/contracts/:id`
+
+- **Auth**: Autenticado, rol `LENDER` o `BORROWER` asociado.
+- **Errores**: `401`/`403` · `404 NOT_FOUND`.
+
+### `PATCH /api/contracts/:id`
+
+`property`/`insuranceCompanyId` editables en cualquier estado del contrato; `terms` solo si la `ContractTerms` vigente está `DRAFT` — para cambiar términos financieros de un contrato ya enviado/activo, usar `POST .../terms` (nueva versión).
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_EDITABLE` · `409 NO_CURRENT_TERMS`.
+
+### `DELETE /api/contracts/:id`
+
+Solo `status=DRAFT` y sin ninguna `Transaction` (08-contratos.md §8.1).
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo.
+- **Response `200`**: `{ "success": true, "data": { "deleted": true } }`.
+- **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 CONTRACT_NOT_DELETABLE` · `409 CONTRACT_HAS_TRANSACTIONS`.
+
+### `POST /api/contracts/:id/cancel`
+
+Permitido en `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT`; nunca borra `ScheduledPayment`/`Transaction`.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo.
+- **Request body**: `{ "reason": string }` (obligatorio, auditado).
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 CONTRACT_NOT_CANCELLABLE`.
+
+### `POST /api/contracts/:id/borrowers` / `DELETE /api/contracts/:id/borrowers/:borrowerId`
+
+Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower ACTIVE` de la `LenderCompany` del contrato (07 §7.5 punto 4), nunca contra un `lenderId` directo (no existe desde `D-P1-4`).
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo.
+- **Request body (`POST`)**: `{ "borrowerProfileId": string, "isPrimary"?: boolean }`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (deudor no vinculado, o ya no asociado en el `DELETE`) · `409 ALREADY_ASSOCIATED`.
+
+### `GET /api/contracts/:id/terms` / `POST /api/contracts/:id/terms`
+
+`GET`: historial completo de versiones, más reciente primero. `POST`: propone una nueva versión — solo si la vigente **no** está `DRAFT` (si lo está, usar `PATCH /api/contracts/:id`); mismo shape de `terms` que la creación, sin copiar los `ContractFeeItem` de la versión anterior. La versión anterior pasa a `SUPERSEDED` de inmediato.
+
+- **Auth**: `GET` — `LENDER`/`BORROWER` asociado, lectura. `POST` — `LENDER` + 2FA.
+- **Errores (`POST`)**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 NO_CURRENT_TERMS` · `409 TERMS_STILL_DRAFT`.
+
+### `POST /api/contracts/:id/terms/:termsId/submit`
+
+`DRAFT → PENDING_ACCEPTANCE`, notifica por correo a todos los `ContractBorrower` activos (`terms-updated`). Si el contrato nunca se activó, también mueve `Contract.status → PENDING_ACCEPTANCE`.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo.
+- **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_DRAFT` · `409 NO_BORROWERS`.
+
+### `POST /api/contracts/:id/terms/:termsId/accept` / `.../reject`
+
+`accept`: registra `ContractTermsAcceptance(ACCEPTED)`; al completar el quórum (todos los `ContractBorrower` activos), `ContractTerms.status → ACCEPTED` y, en la misma transacción: si el contrato nunca se activó, genera el calendario completo y `Contract.status → ACTIVE`; si ya estaba `ACTIVE` (renegociación), anula las filas futuras `PENDING`/`PARTIALLY_PAID` de la versión anterior y genera el calendario de la nueva. `reject`: registra `ContractTermsAcceptance(REJECTED)` — un solo rechazo termina la versión (`ContractTerms.status → REJECTED`) sin esperar al resto de co-deudores; si el contrato nunca se activó, `Contract.status → DRAFT`; notifica al Lender por correo (`terms-rejected`).
+
+- **Auth**: Autenticado, rol `BORROWER` asociado (nunca exige 2FA).
+- **Request body (`reject`)**: `{ "comment"?: string }`.
+- **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 TERMS_NOT_PENDING` · `409 ALREADY_DECIDED`.
+
+### `GET /api/contracts/:id/schedule` / `.../balance`
+
+`schedule`: `ScheduledPayment[]` completo (incluye filas `VOIDED` de versiones superadas). `balance`: `{ principalBalance, accruedInterestNotYetBilled, nextPaymentDueDate, asOf }` — el interés devengado se calcula desde `activatedAt` con `calculateAccruedInterest`; sin un `Transaction` real todavía (Fase 7), es el mejor ancla disponible.
+
+- **Auth**: Autenticado, rol `LENDER`/`BORROWER` asociado (lectura).
+- **Errores**: `401`/`403` · `404 NOT_FOUND`.
+
+### `GET`/`POST /api/contracts/:id/terms/:termsId/fees` · `DELETE .../fees/:feeId`
+
+`PB-020` — Closing Fee Summary Table. Solo editable (`POST`/`DELETE`) mientras `ContractTerms.status=DRAFT`. `computedAmount` se resuelve al crear la fila (`amountValue` si `FLAT`, o `amountValue`% × `principalAmount` de esa versión si `PERCENTAGE`) y nunca se recalcula. `code=MARKETPLACE_CONNECTION` está reservado — lo inserta automáticamente el propio servicio desde Fase 13 (`D-S2-5`), nunca este endpoint.
+
+- **Auth**: `GET` — `LENDER`/`BORROWER` asociado. `POST`/`DELETE` — `LENDER` + 2FA.
+- **Request body (`POST`)**: `{ "category": "LENDER"|"PLATFORM", "code": "ORIGINATION_POINTS"|"PROCESSING"|"UNDERWRITING"|"DOC_PREP"|"CUSTOM"|"MARKETPLACE_CONNECTION", "label"?: string (obligatorio si code=CUSTOM), "amountType": "FLAT"|"PERCENTAGE", "amountValue": number }`.
+- **Errores**: `400 VALIDATION_ERROR` · `400 RESERVED_FEE_CODE` (`code=MARKETPLACE_CONNECTION`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_EDITABLE`.
+
+### Forma de `Contract`
+
+```jsonc
+{
+  "id": "...", "contractNumber": "PML-2026-000001", "status": "DRAFT",
+  "lenderCompanyId": "...", "insuranceCompanyId": null,
+  "property": { "id": "...", "addressLine1": "...", "propertyType": "SINGLE_FAMILY", /* ... */ },
+  "currentTerms": {
+    "id": "...", "versionNumber": 1, "status": "DRAFT", "structure": "AMORTIZED",
+    "principalAmount": "200000", "interestRate": "6", "calculatedMonthlyPayment": null,
+    "feeItems": [ /* ContractFeeItem[] */ ]
+  },
+  "borrowers": [ { "borrowerProfileId": "...", "isPrimary": true, "addedAt": "..." } ],
+  "currentPrincipalBalance": null, "nextPaymentDueDate": null,
+  "activatedAt": null, "paidOffAt": null, "cancelledAt": null, "createdAt": "..."
+}
+```
+
+Los montos (`Decimal` de Prisma) serializan como string en el JSON de respuesta.
+
+---
+
+## Marketplace / Loan Requests (`src/app/api/borrowers/me/loan-requests`, `src/app/api/marketplace/loan-requests`)
+
+Fase 13 parcial (`PB-011`/`PB-026`/`PB-017`, reescrito 2026-09-11 — `D-S2-21`/`D-S2-22`, ver [00](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar)). El Deudor publica un `LoanRequest` (con su `Property` embebida, sin endpoint propio — mismo criterio que `POST /api/contracts`, `D-P6-2`/`D-S2-25`), elige a qué Prestamistas pedirles cotización (o lo publica abierto), cada Prestamista interesado responde con su propia `LoanQuote`, y el Deudor selecciona una — esa selección es la que crea el `Contract`. **No implementado en esta ronda**: `LoanRequestInvite` (invitar por correo a alguien sin cuenta todavía), fotos, RentCast, `BorrowerApplication`, `BorrowerSubscription`, pitch deck PDF.
+
+### `POST /api/borrowers/me/loan-requests`
+
+- **Auth**: Autenticado, rol `BORROWER` (nunca exige 2FA).
+- **Request body**: `property` (mismo shape que `POST /api/contracts`, ver [arriba](#post-apicontracts)), `projectType` (`RENTAL`/`FIX_AND_FLIP`/`SLOW_FLIP`/`COMMERCIAL`/`NEW_CONSTRUCTION`), `purchasePrice`/`rehabAmount`/`totalLoanAmountRequested`, `requestedClosingDate`, `requestedTimelineNotes`?, `visibility` (`PUBLIC`/`PRIVATE` — se fija acá, no en `publish`).
+- **Response `201`**: `LoanRequest` completo, `status: "DRAFT"`, `property.lenderCompanyId: null`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 BORROWER_NOT_FOUND`.
+
+### `GET`/`PATCH /api/borrowers/me/loan-requests/:id`
+
+Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_EDITABLE` (`PATCH` fuera de `DRAFT`).
+
+### `POST /api/borrowers/me/loan-requests/:id/publish` / `.../withdraw`
+
+`publish`: `DRAFT → PUBLISHED`. `withdraw`: `PUBLISHED → WITHDRAWN`, declina (`DECLINED`) cualquier `LoanQuote` `SUBMITTED` recibida.
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_DRAFT` (`publish`) · `409 LOAN_REQUEST_NOT_PUBLISHED` (`withdraw`).
+
+### `POST /api/borrowers/me/loan-requests/:id/targets` / `DELETE .../targets/:lenderCompanyId`
+
+`D-S2-22`. Elige (o quita) `LenderCompany` ya registradas a quienes pedirles cotización puntualmente — reemplaza al viejo `invitedLenderCompanyId` singular. Independiente de la visibilidad (`PUBLIC` también puede targetear).
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Request body (`POST`)**: `{ "lenderCompanyId": string }`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 NOT_FOUND` (loan request ajeno, o `lenderCompanyId` inexistente) · `409 LOAN_REQUEST_NOT_TARGETABLE` · `409 ALREADY_TARGETED`.
+
+### `GET /api/marketplace/loan-requests` / `GET /api/marketplace/loan-requests/:id`
+
+Para `LENDER`: `PUBLIC` visibles a todos + `PRIVATE` donde su `LenderCompany` está en `LoanRequestLenderTarget`. `PUBLIC` enmascara `borrowerProfileId` y la dirección exacta (`addressLine1`/`addressLine2`/`county`/`parcelNumber` vacíos) — regla 17 de [04 §4.7](plan/04-base-de-datos.md#reglas-de-negocio-nuevas-extiende-46); `PRIVATE` targeteado se ve completo (el Deudor ya eligió compartirlo con ese Lender puntual).
+
+- **Auth**: Autenticado, rol `LENDER` (lectura, exenta de 2FA).
+- **Errores**: `401`/`403`/`404 LENDER_NOT_FOUND` · `404 NOT_FOUND` (`:id` inexistente, no `PUBLISHED`, o `PRIVATE` sin target).
+
+### `POST /api/marketplace/loan-requests/:id/quotes` / `DELETE .../quotes`
+
+`PB-026`. Crea o reemplaza (mientras `status=SUBMITTED`) la `LoanQuote` propia — una fila por `(loanRequestId, lenderCompanyId)`. `DELETE` la retira (`status → WITHDRAWN`).
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
+- **Request body (`POST`)**: `{ "lenderCompanyId"?: string, "structure": "INTEREST_ONLY"|"AMORTIZED"|"BALLOON", "principalAmount": number, "interestRate": number, "amortizationTermMonths": number, "estimatedClosingCostsAmount"?: number, "message"?: string, "expiresAt"?: string }`. `lenderCompanyId` obligatorio solo si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`).
+- **Response `201`**: `LoanQuote`.
+- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (loan request no visible para este Lender) · `409 LOAN_REQUEST_ALREADY_MATCHED`.
+
+### `GET /api/borrowers/me/loan-requests/:id/quotes`
+
+Todas las cotizaciones recibidas (cualquier `status`), para comparar.
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Errores**: `401`/`403` · `404 NOT_FOUND`.
+
+### `POST /api/borrowers/me/loan-requests/:id/quotes/:quoteId/select`
+
+`PB-017`. El Deudor elige una cotización: en una sola transacción, declina el resto `SUBMITTED` de ese `LoanRequest`, backfillea `Property.lenderCompanyId` con la `LenderCompany` ganadora (`D-S2-25`), mueve `LoanRequest.status → MATCHED`, y crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` (mismo servicio que `BE-051`) con `ContractTerms` v1 pre-llenada desde la cotización — `structure`/`principalAmount`/`interestRate`/`amortizationTermMonths` vienen de la `LoanQuote`; `firstPaymentDate` se deriva como un mes después de `requestedClosingDate`, `maturityDate` a partir de ahí + `amortizationTermMonths`, mora `FLAT $50`/10 días de gracia por default — todo editable por el Lender después (`PATCH /api/contracts/:id`, mientras `ContractTerms` siga `DRAFT`). Inserta automáticamente `ContractFeeItem(MARKETPLACE_CONNECTION)` (1pt del `principalAmount`, mínimo $999, `D-S2-5`).
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Response `201`**: `{ "success": true, "data": { "contractId": "..." } }`.
+- **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_PUBLISHED` · `409 QUOTE_NOT_SUBMITTED` (ya `SELECTED`/`DECLINED`/`WITHDRAWN`/`EXPIRED`, o perdió la carrera contra otra selección).
+
+---
+
 ## Catálogo de códigos de error
 
 `code` es estable entre versiones; `message` es texto en **inglés** (convención fijada 2026-09-08 — toda respuesta de la API, éxito o error, va en inglés; el resto del código/documentación sigue en español) pensado para mostrarse tal cual, no para parsearse.
@@ -663,10 +855,10 @@ Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/
 | `INVALID_2FA_CODE` | 401 | Código TOTP y recovery code, ambos inválidos, en `/login/2fa` o `/2fa/verify` |
 | `ACCOUNT_INACTIVE` | 403 | Login con contraseña correcta pero `User.isActive=false`. También: un ADMIN/LENDER con `isActive=false` intenta una escritura de negocio con un access token todavía vigente (`withRole` lo revisa en vivo, `BE-036`) |
 | `FORBIDDEN` | 403 | Sesión válida pero el rol no tiene permiso para el endpoint (p.ej. un BORROWER llamando a `/2fa/setup`, o un LENDER llamando a `/admin/users/:id/activate`); también el caso de `requireContractAccess` para un rol sin modelo de acceso a contratos definido todavía |
-| `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `POST /api/lenders/me/borrowers`, `PATCH`/`DELETE /api/lenders/me/borrowers/:id`. No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
+| `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `POST /api/lenders/me/borrowers`, `PATCH`/`DELETE /api/lenders/me/borrowers/:id`, todo endpoint de escritura de `LENDER` bajo `/api/contracts/**` (crear/editar/borrar/cancelar contrato, borrowers, terms, fees — nunca `accept`/`reject`, esos son `BORROWER`), y `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes` (Fase 13). No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | `PATCH /api/borrowers/me` con `mustChangePassword=true` (`D-P4-2`) — el Deudor todavía no cambió la contraseña temporal que se le generó al crearlo |
 | `USER_NOT_FOUND` | 404 | `:id` no corresponde a ningún usuario (o está borrado lógicamente) |
-| `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, sin endpoint consumidor todavía): el contrato no existe, o existe pero no pertenece a la sesión. También `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
+| `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, usado por todo el módulo de Contratos): el contrato no existe, o existe pero no pertenece a la sesión. También `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender, `POST /api/contracts` con un `insuranceCompanyId`/`borrowerProfileId` ajeno, `POST /api/contracts/:id/borrowers` con un deudor no vinculado, `.../terms/:termsId*` con un `termsId` que no es de ese contrato, `.../fees/:feeId` con un fee que no es de esa versión. También en el módulo de marketplace (Fase 13): un `LoanRequest` ajeno o inexistente, un `lenderCompanyId` inexistente en `.../targets`, un `LoanRequest` `PRIVATE` que el Lender no puede ver (sin `target`/no `PUBLISHED`), una `LoanQuote` que no es de ese `LoanRequest`. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
 | `LENDER_NOT_FOUND` | 404 | `:id` de `/api/admin/lenders*` no corresponde a ningún `LenderProfile` ni `User.id` de un Lender (o está borrado lógicamente, `D-P4-7`); o el `User` autenticado en `/api/lenders/me*` no tiene `LenderProfile` |
 | `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente) |
 | `BORROWER_NOT_FOUND` | 404 | El `User` autenticado en `/api/borrowers/me*` no tiene `BorrowerProfile` |
@@ -678,6 +870,26 @@ Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/
 | `TWO_FACTOR_ALREADY_ENABLED` | 409 | `/2fa/setup` o `/2fa/verify` cuando el usuario ya tiene 2FA activo |
 | `TWO_FACTOR_NOT_ENABLED` | 409 | `/2fa/disable` o `/2fa/recovery-codes` cuando el usuario no tiene 2FA activo |
 | `TWO_FACTOR_SETUP_REQUIRED` | 409 | `/2fa/verify` sin haber llamado antes a `/2fa/setup` |
+| `CONTRACT_NOT_DELETABLE` | 409 | `DELETE /api/contracts/:id` con `status` distinto de `DRAFT` |
+| `CONTRACT_HAS_TRANSACTIONS` | 409 | `DELETE /api/contracts/:id` — el contrato (aunque `DRAFT`) ya tiene alguna `Transaction` |
+| `CONTRACT_NOT_CANCELLABLE` | 409 | `POST /api/contracts/:id/cancel` con `status` fuera de `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT` |
+| `ALREADY_ASSOCIATED` | 409 | `POST /api/contracts/:id/borrowers` — ese `borrowerProfileId` ya está asociado (activo) a ese contrato |
+| `NO_CURRENT_TERMS` | 409 | `PATCH /api/contracts/:id` o `POST .../terms` sobre un contrato sin `currentTermsId` (no debería ocurrir en la práctica — `POST /api/contracts` siempre deja uno) |
+| `TERMS_NOT_EDITABLE` | 409 | `PATCH /api/contracts/:id` (campo `terms`) o `POST`/`DELETE .../fees*` cuando la `ContractTerms` vigente no está `DRAFT` |
+| `TERMS_STILL_DRAFT` | 409 | `POST /api/contracts/:id/terms` cuando la vigente todavía está `DRAFT` — usar `PATCH /api/contracts/:id` en su lugar |
+| `TERMS_NOT_DRAFT` | 409 | `POST .../terms/:termsId/submit` sobre una versión que no está `DRAFT` |
+| `TERMS_NOT_PENDING` | 409 | `POST .../terms/:termsId/accept\|reject` sobre una versión que no está `PENDING_ACCEPTANCE` |
+| `ALREADY_DECIDED` | 409 | `POST .../terms/:termsId/accept\|reject` — ese `BorrowerProfile` ya registró una decisión (`ContractTermsAcceptance`) sobre esa versión |
+| `NO_BORROWERS` | 409 | `POST .../terms/:termsId/submit` — el contrato no tiene ningún `ContractBorrower` activo a quién notificar |
+| `SCHEDULE_ALREADY_GENERATED` | 409 | Intento de generar el calendario (`generateAmortizationSchedule`) dos veces para la misma `ContractTerms` |
+| `RESERVED_FEE_CODE` | 400 | `POST .../fees` con `code=MARKETPLACE_CONNECTION` — reservada para inserción automática (Fase 13) |
+| `LOAN_REQUEST_NOT_EDITABLE` | 409 | `PATCH /api/borrowers/me/loan-requests/:id` con `status` distinto de `DRAFT` |
+| `LOAN_REQUEST_NOT_DRAFT` | 409 | `POST .../publish` con `status` distinto de `DRAFT` |
+| `LOAN_REQUEST_NOT_PUBLISHED` | 409 | `POST .../withdraw` o `.../quotes/:quoteId/select` con `status` distinto de `PUBLISHED` |
+| `LOAN_REQUEST_NOT_TARGETABLE` | 409 | `POST .../targets` sobre un `LoanRequest` que ya no es `DRAFT`/`PUBLISHED` |
+| `ALREADY_TARGETED` | 409 | `POST .../targets` — esa `LenderCompany` ya está en la lista |
+| `LOAN_REQUEST_ALREADY_MATCHED` | 409 | `POST /api/marketplace/loan-requests/:id/quotes` sobre un `LoanRequest` ya `MATCHED`/`WITHDRAWN`/`EXPIRED` |
+| `QUOTE_NOT_SUBMITTED` | 409 | `POST .../quotes/:quoteId/select` sobre una cotización que ya no está `SUBMITTED` (incluye la carrera de dos selecciones casi simultáneas) |
 | `RATE_LIMITED` | 429 | Se superó `RATE_LIMIT_LOGIN_MAX` intentos en la ventana, para el bucket+IP correspondiente |
 | `INTERNAL_ERROR` | 500 | Cualquier excepción no prevista — se loguea con `requestId` para rastrearla en los logs del servidor |
 

@@ -146,10 +146,11 @@ esta tabla dice en qué documento vive cada uno.
 | [PB-006](fase-12-payoff.md#pb-006--servicio-calculatepayoff) | Servicio `calculatePayoff` | P0 | M |
 | [PB-007](fase-12-payoff.md#pb-007--postget-apicontractsidpayoff-requests) | `POST`/`GET /api/contracts/:id/payoff-requests` | P0 | L |
 | [PB-008](fase-12-payoff.md#pb-008--aplicación-contractstatus--paid_off) | Aplicación: `Contract.status → PAID_OFF` | P0 | M |
-| [PB-011](fase-13-rating-loan-requests.md#pb-011--tabla-loanrequest--crud-propio-del-deudor) | Tabla `LoanRequest` + CRUD propio del Deudor | P0 | L |
+| [PB-011](fase-13-rating-loan-requests.md#pb-011--tabla-loanrequest--crud-propio-del-deudor--loanrequestlendertarget) | Tabla `LoanRequest` + CRUD propio del Deudor + `LoanRequestLenderTarget` | P0 | L |
 | [PB-012](fase-13-rating-loan-requests.md#pb-012--pitch-deck-en-pdf-desde-loanrequest) | Pitch deck en PDF desde `LoanRequest` | P2 | M |
 | [PB-016](fase-13-rating-loan-requests.md#pb-016--integración-rentcast-comps-de-renta-y-venta-sobre-property) | Integración RentCast (comps de renta y venta) sobre `Property` | P1 | M |
-| [PB-017](fase-13-rating-loan-requests.md#pb-017--matching-de-marketplace-públicoprivado--conversión-a-contract) | Matching de marketplace (público/privado) + conversión a `Contract` | P0 | L |
+| [PB-026](fase-13-rating-loan-requests.md#pb-026--tabla-loanquote-y-endpoints-de-cotización-nuevo-d-s2-21) | Tabla `LoanQuote` y endpoints de cotización (nuevo, `D-S2-21`) | P0 | M |
+| [PB-017](fase-13-rating-loan-requests.md#pb-017--selección-de-cotización-y-conversión-a-contract-reescrito-2026-09-11-d-s2-21) | Selección de cotización y conversión a `Contract` (reescrito 2026-09-11, `D-S2-21`) | P0 | L |
 | [PB-018](fase-13-rating-loan-requests.md#pb-018--borrowerapplication-vetting-99--endpoints) | `BorrowerApplication` (vetting, $99) + endpoints | P1 | L |
 | [PB-019](fase-13-rating-loan-requests.md#pb-019--borrowersubscription-9mes-trial-7-días--endpoints) | `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints | P2 | M |
 | [PB-009](fase-14-dashboards-ratings.md#pb-009--get-apiborrowersidrating) | `GET /api/borrowers/:id/rating` | P1 | M |

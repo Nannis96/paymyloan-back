@@ -247,7 +247,7 @@ Revierte la decisión `A-4` del plan anterior (dirección embebida en `Contract`
 | annualPropertyTax | Decimal(14,2)? | No | equivalente a `annualTaxes` en `Owner` |
 | annualInsuranceEstimate | Decimal(14,2)? | No | estimado, no la póliza real — equivalente a `insuranceAnnual` en `Owner` |
 | createdByUserId | Uuid → User | Sí | |
-| lenderCompanyId | Uuid → LenderCompany | Sí | tenant que dio de alta la propiedad (denormalizado, mismo patrón que `AuditLog.lenderCompanyId`) |
+| lenderCompanyId | Uuid → LenderCompany | **No** (`D-S2-25`, 2026-09-11) | tenant que dio de alta la propiedad (denormalizado, mismo patrón que `AuditLog.lenderCompanyId`) — nulo cuando la crea un Deudor al publicar un `LoanRequest` ([04 §4.7](#47-modelo-extendido--marketplace-fees-vetting-notificaciones-ratings-revisión-2026-09-10)); se backfillea con la `LenderCompany` ganadora al seleccionar una `LoanQuote` (`PB-017`) |
 | deletedAt | DateTime? | No | bloqueado por regla de servicio si está referenciada por un `Contract` no `CANCELLED` |
 | createdAt / updatedAt | DateTime | Sí | |
 
@@ -409,7 +409,9 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 
 ## 4.7 Modelo extendido — Marketplace, fees, vetting, notificaciones, ratings (revisión 2026-09-10)
 
-> Incorpora los requisitos de [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf) y [pml_commitment_letter_spec 1.1.pdf](../pml_commitment_letter_spec%201.1.pdf). El razonamiento completo de cada tabla está en [00 — Decisiones 2026-09-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) bajo los IDs `D-S2-1` a `D-S2-17`; aquí solo se aplica el resultado. **No implementado** — sin migraciones aplicadas, afecta a partir de Fase 6. Las tablas de §4.3 (Fases 0–5, ya implementadas) no cambian salvo donde se indica explícitamente abajo.
+> Incorpora los requisitos de [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf) y [pml_commitment_letter_spec 1.1.pdf](../pml_commitment_letter_spec%201.1.pdf). El razonamiento completo de cada tabla está en [00 — Decisiones 2026-09-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) bajo los IDs `D-S2-1` a `D-S2-17`; aquí solo se aplica el resultado. Las tablas de §4.3 (Fases 0–5, ya implementadas) no cambian salvo donde se indica explícitamente abajo.
+>
+> **Estado de implementación (actualizado 2026-09-11)**: `ContractFeeItem`/`FeeAmountType`/`ContractFeeCategory`/`ContractFeeCode` — **implementado** (Fase 6, `PB-020`). `LoanRequest`, `LoanRequestLenderTarget` (reemplaza a `invitedLenderCompanyId`, `D-S2-22`), `LoanQuote`, `Contract.originationSource`/`loanRequestId` — **implementado** (`PB-011`/`PB-026`/`PB-017` reescrito, `D-S2-21`, ver [00 — Decisiones 2026-09-11](00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar) y [D-S2-25](00-contradicciones-y-decisiones.md#decisión-2026-09-11-implementación-de-pb-011pb-026pb-017-d-s2-25-propertylendercompanyid-opcional)). El resto de esta sección (`LoanRequestInvite`, `BorrowerSubscription`, `BorrowerApplication`, `Notification`, `LenderReview`, y los campos nuevos sobre `BorrowerProfile`/`Property` de RentCast/`LenderCompany`) sigue **sin implementar**.
 
 ### Campos nuevos sobre tablas existentes
 
@@ -453,14 +455,28 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 | requestedClosingDate | DateTime | Sí | |
 | requestedTimelineNotes | Text? | No | |
 | visibility | enum `LoanRequestVisibility` (`PUBLIC`/`PRIVATE`) | Sí | |
-| invitedLenderCompanyId | Uuid? → LenderCompany | No | solo si `visibility=PRIVATE` y se invita a un Prestamista ya en la plataforma (si no, ver `LoanRequestInvite`, `D-S2-14`) |
 | status | enum `LoanRequestStatus` (`DRAFT`/`PUBLISHED`/`MATCHED`/`WITHDRAWN`/`EXPIRED`/`CONVERTED`) | Sí | default `DRAFT` |
-| matchedLenderCompanyId | Uuid? → LenderCompany | No | quién lo enganchó |
+| matchedLenderCompanyId | Uuid? → LenderCompany | No | quién ganó — se fija recién al **seleccionar** una `LoanQuote` (`D-S2-21`), no al enviarla |
 | matchedAt / withdrawnAt / expiresAt / convertedAt | DateTime? | No | |
 | createdAt / updatedAt | DateTime | Sí | |
 
+- ~~`invitedLenderCompanyId`~~ **eliminado (`D-S2-22`, 2026-09-11)** — un solo Prestamista objetivo no alcanzaba ("el Deudor elige varios Lenders específicos" a quienes pedirles cotización). Reemplazado por la tabla `LoanRequestLenderTarget` (N Prestamistas), abajo.
 - En listados `PUBLIC`, el servicio oculta `borrowerProfileId`/dirección exacta de `propertyId` (solo ciudad/estado) y expone el `borrowingScore` (`PB-009`, ya planeado) — regla de servicio, no de esquema.
-- Al enganchar (`status → MATCHED` y luego `CONVERTED`), se crea `Contract(DRAFT, originationSource, loanRequestId)` vía el mismo servicio de `BE-051`, con `ContractTerms` v1 **pre-llenada** desde `totalLoanAmountRequested`/`requestedClosingDate` — punto de partida editable, confirmado con Spencer (`D-S2-1`).
+- **`match` deja de crear el `Contract` directo (`D-S2-21`, 2026-09-11, corrige `D-S2-1`)**: ver `LoanQuote` abajo — el flujo pasa por cotización → comparación → selección.
+
+**`LoanRequestLenderTarget`** (`D-S2-22`, nueva) — lista de `LenderCompany` que el Deudor eligió puntualmente para pedirles cotización (además de, o en vez de, publicar `PUBLIC`). Reemplaza a `LoanRequest.invitedLenderCompanyId` (un solo FK, insuficiente).
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| loanRequestId | Uuid → LoanRequest | Sí | |
+| lenderCompanyId | Uuid → LenderCompany | Sí | |
+| invitedByUserId | Uuid → User | Sí | el propio Deudor |
+| createdAt | DateTime | Sí | |
+| removedAt | DateTime? | No | el Deudor puede quitar un Prestamista de la lista mientras no haya cotizado todavía |
+
+- **Constraint**: `@@unique([loanRequestId, lenderCompanyId])`.
+- Regla de servicio: una `LenderCompany` puede ver/cotizar un `LoanRequest` si `visibility=PUBLIC`, **o** tiene un `LoanRequestLenderTarget` activo para ese `LoanRequest`, **o** aceptó un `LoanRequestInvite` (abajo — contraparte sin cuenta todavía). No reemplaza a `LoanRequestInvite`: esta tabla es para Prestamistas **ya registrados** en la plataforma; `LoanRequestInvite` sigue siendo para invitar a alguien por correo que puede no tener cuenta.
 
 **`LoanRequestInvite`** (`D-S2-14`) — invitar a una contraparte (con o sin cuenta) a un `LoanRequest` puntual.
 
@@ -473,6 +489,28 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 | token | String | Sí (único) | mismo patrón que `PasswordResetToken` |
 | expiresAt | DateTime | Sí | |
 | acceptedAt / acceptedByUserId | DateTime? / Uuid? → User | No | |
+
+**`LoanQuote`** (`D-S2-21`, nueva) — la cotización que **cada** Prestamista interesado le propone al Deudor para un `LoanRequest`; el Deudor las compara y elige una.
+
+| Campo | Tipo | Obligatorio | Notas |
+|---|---|---|---|
+| id | Uuid | Sí | PK |
+| loanRequestId | Uuid → LoanRequest | Sí | |
+| lenderCompanyId | Uuid → LenderCompany | Sí | |
+| structure | enum `LoanStructure` | Sí | reutiliza el mismo enum que `ContractTerms.structure` |
+| principalAmount | Decimal(14,2) | Sí | puede diferir de `LoanRequest.totalLoanAmountRequested` — el Prestamista puede ofrecer menos/más |
+| interestRate | Decimal(6,3) | Sí | |
+| amortizationTermMonths | Int | Sí | "los años a los que espera pagar" — mismo campo que ya usa `ContractTerms` |
+| estimatedClosingCostsAmount | Decimal(14,2)? | No | resumen informativo (no reemplaza a `ContractFeeItem`, que recién se arma sobre el `Contract` ya creado) |
+| message | Text? | No | nota libre del Prestamista al Deudor — cubre "mandar un mensaje" sin modelar mensajería (`D-S2-23`, decisión explícita de **no** construir chat) |
+| status | enum `LoanQuoteStatus` (`SUBMITTED`/`WITHDRAWN`/`DECLINED`/`SELECTED`/`EXPIRED`) | Sí | default `SUBMITTED` |
+| expiresAt | DateTime? | No | |
+| submittedByUserId | Uuid → User | Sí | |
+| createdAt / updatedAt | DateTime | Sí | actualizable mientras `SUBMITTED` — el Prestamista puede revisar su propia cotización antes de que el Deudor decida, en vez de crear una fila nueva |
+
+- **Constraint**: `@@unique([loanRequestId, lenderCompanyId])` — una cotización activa por Prestamista por `LoanRequest`.
+- **Sin rate card estructurado** (`D-S2-24`, decisión explícita): cada Prestamista tipea sus propios números en cada `LoanQuote`; no se modela ninguna tabla de reglas de precio por años/monto/tipo de proyecto — las 4 columnas ya existentes en `LenderCompany` (`ratePreferenceMinPercent`/`MaxPercent`, `loanTypePreferences`, `geographicAreaStates`, `availableCapital`, `D-S2-11`) siguen siendo el único filtro general, y ya cubren literalmente lo que pide el Product Spec v2 ("Rate/term/loan type preferences") — el documento fuente no describe un motor de reglas.
+- **Selección** (`D-S2-21`): el Deudor elige una `LoanQuote` — esa acción es la que crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` vía el mismo servicio de `BE-051`, con `ContractTerms` v1 **pre-llenada desde los campos de la cotización elegida** (no desde el pedido original del Deudor — más preciso que el diseño anterior de `D-S2-1`). El resto de cotizaciones `SUBMITTED` de ese `LoanRequest` pasan a `DECLINED`; `LoanRequest.status → MATCHED` (y `CONVERTED` cuando el `Contract` llega a `ACTIVE`, igual que antes).
 
 **`ContractFeeItem`** (`D-S2-2`) — fees de cierre, por versión de términos.
 
@@ -561,6 +599,7 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 enum ContractOriginationSource { DIRECT MARKETPLACE PRIVATE_INVITE }
 enum LoanRequestVisibility { PUBLIC PRIVATE }
 enum LoanRequestStatus { DRAFT PUBLISHED MATCHED WITHDRAWN EXPIRED CONVERTED }
+enum LoanQuoteStatus { SUBMITTED WITHDRAWN DECLINED SELECTED EXPIRED }
 enum ProjectType { RENTAL FIX_AND_FLIP SLOW_FLIP COMMERCIAL NEW_CONSTRUCTION }
 enum ContractFeeCategory { LENDER PLATFORM }
 enum ContractFeeCode { ORIGINATION_POINTS PROCESSING UNDERWRITING DOC_PREP CUSTOM MARKETPLACE_CONNECTION }
@@ -579,8 +618,11 @@ erDiagram
     BorrowerProfile ||--o{ LoanRequest : "publica"
     Property ||--o{ LoanRequest : ""
     LoanRequest ||--o{ LoanRequestInvite : ""
-    LoanRequest ||--o| Contract : "se convierte en"
-    LenderCompany ||--o{ LoanRequest : "engancha (opcional)"
+    LoanRequest ||--o{ LoanRequestLenderTarget : "Deudor elige a quién pedir cotización"
+    LenderCompany ||--o{ LoanRequestLenderTarget : ""
+    LoanRequest ||--o{ LoanQuote : "recibe cotizaciones"
+    LenderCompany ||--o{ LoanQuote : "propone"
+    LoanRequest ||--o| Contract : "cotización seleccionada se convierte en"
 
     ContractTerms ||--o{ ContractFeeItem : ""
 
@@ -604,10 +646,12 @@ erDiagram
 
 15. `Document` exige exactamente uno de `contractId`/`loanRequestId`/`applicationId` — regla de servicio, no de constraint de BD (`D-S2-8`).
 16. `ContractFeeItem.computedAmount` nunca se recalcula tras crearse — un cambio de monto/tasa implica una nueva versión de `ContractTerms` con sus propios `ContractFeeItem` (mismo principio de inmutabilidad ya aplicado a `ContractTerms.status=ACCEPTED`, regla 3).
-17. `LoanRequest.visibility=PUBLIC` nunca expone `borrowerProfileId`/identidad del Deudor ni la dirección exacta de la propiedad en listados — solo tras un match.
-18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto del match original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión. Esta regla solo es evaluable desde Fase 13 en adelante — `originationSource` no existe durante Fase 6 (`D-S2-19`).
-19. `POST /api/marketplace/loan-requests/:id/match` resuelve la `LenderCompany` destino con la misma regla que `BE-045`: `lenderCompanyId` opcional si el Lender tiene una sola, obligatorio si tiene más de una (`D-S2-20`).
-19. `LenderReview` es de solo inserción, igual que `AuditLog`/`TransactionAllocation`.
+17. `LoanRequest.visibility=PUBLIC` nunca expone `borrowerProfileId`/identidad del Deudor ni la dirección exacta de la propiedad en listados — solo tras seleccionar una cotización.
+18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto de la cotización original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión. Esta regla solo es evaluable desde Fase 13 en adelante — `originationSource` no existe durante Fase 6 (`D-S2-19`).
+19. `POST /api/marketplace/loan-requests/:id/quotes` (enviar/reemplazar una cotización) resuelve la `LenderCompany` origen con la misma regla que `BE-045`: `lenderCompanyId` opcional si el Lender tiene una sola, obligatorio si tiene más de una (`D-S2-20`).
+20. `LenderReview` es de solo inserción, igual que `AuditLog`/`TransactionAllocation`.
+21. Al seleccionar una `LoanQuote` (`status → SELECTED`), todas las demás `LoanQuote(status=SUBMITTED)` del mismo `LoanRequest` pasan a `DECLINED` en la misma transacción — nunca quedan dos cotizaciones "vivas" simultáneas sobre un `LoanRequest` ya `MATCHED` (`D-S2-21`).
+22. Una `LenderCompany` solo puede crear una `LoanQuote` para un `LoanRequest` si: `visibility=PUBLIC`, o tiene un `LoanRequestLenderTarget` activo, o aceptó un `LoanRequestInvite` de ese `LoanRequest` (`D-S2-22`).
 
 ---
 
