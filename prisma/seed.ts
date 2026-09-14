@@ -106,10 +106,11 @@ async function main() {
   // diferencia de las empresas, acá no hay un flujo "Lender crea Borrower
   // desde cero" en este seed, solo el vínculo LenderBorrower de abajo.
   const borrower1User = await prisma.user.create({
-    data: { name: "Borrower One", email: "borrower1@paymyloan.dev", password, role: "BORROWER" },
+    // phone vive en User (D-P2-4), no en BorrowerProfile (D-P5-2, ya eliminado).
+    data: { name: "Borrower One", email: "borrower1@paymyloan.dev", password, role: "BORROWER", phone: "5125550201" },
   });
   const borrower1Profile = await prisma.borrowerProfile.create({
-    data: { userId: borrower1User.id, phone: "512-555-0201" },
+    data: { userId: borrower1User.id },
   });
 
   const borrower2User = await prisma.user.create({

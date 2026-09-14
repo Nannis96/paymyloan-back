@@ -140,9 +140,9 @@ Convención por tabla: para qué existe, de qué depende, y — cuando aplica �
 |---|---|---|---|
 | id | Uuid | Sí | PK |
 | userId | Uuid → User | Sí (único) | 1:1 con el `User` de rol `BORROWER` |
-| phone | String? | No | |
+| ~~phone~~ | ~~String?~~ | — | **Eliminado 2026-09-11 (`D-P5-2`)** — redundante con `User.phone` (`D-P2-4`), mismo criterio que `LenderProfile.contactPhone` (`D-P4-8`). Se edita por `PATCH /api/auth/me`; migración `20260911200000_remove_borrower_profile_phone` |
 | addressLine1 / city / state / postalCode | String? | No | dirección personal del deudor |
-| createdByUserId | Uuid? → User | No | **nulo permitido** (`D-P1-10`) — nulo cuando el propio Deudor se auto-registró; tiene valor cuando lo dio de alta un Lender (`BE-045`, que sigue existiendo en paralelo). Ver también `PB-013` (Fase 2, el endpoint en sí) |
+| createdByUserId | Uuid? → User | No | **nulo permitido** (`D-P1-10`) — nulo cuando el propio Deudor se auto-registró; tiene valor cuando lo dio de alta un Lender (`BE-045`, **deshabilitado 2026-09-11**, `D-P5-1` — sin reemplazo todavía, ver [00](00-contradicciones-y-decisiones.md#decisión-2026-09-11-be-045be-048-deshabilitados-a-pedido-explícito--pendiente-cerrar-el-reemplazo)). Ver también `PB-013` (Fase 2, el endpoint en sí) |
 | deletedAt | DateTime? | No | bloqueado si tiene `ContractBorrower` activo en un contrato `ACTIVE`/`DELINQUENT` con **cualquier** prestamista |
 | createdAt / updatedAt | DateTime | Sí | |
 

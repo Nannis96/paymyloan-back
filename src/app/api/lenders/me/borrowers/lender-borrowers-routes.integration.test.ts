@@ -1,10 +1,11 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { GET, POST } from "@/app/api/lenders/me/borrowers/route";
+import { GET } from "@/app/api/lenders/me/borrowers/route";
 import { POST as changePasswordRoute } from "@/app/api/borrowers/me/password/route";
 import { GET as getOwnBorrowerRoute, PATCH as patchOwnBorrowerRoute } from "@/app/api/borrowers/me/route";
 import { createTestUserWithTwoFactor, issueAccessTokenFor, resetPhase1Tables } from "@/db/testFixtures";
 import * as emailLib from "@/lib/email";
 import * as authService from "@/services/auth.service";
+import * as lenderBorrowersService from "@/services/lenderBorrowers.service";
 import { prisma } from "@/db/prisma";
 
 const LENDER_PASSWORD = "LenderClave123!";
@@ -20,7 +21,7 @@ function jsonRequest(method: string, url: string, body?: unknown, headers: Recor
 describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..050)", () => {
   afterAll(resetPhase1Tables);
 
-  it("camino dorado: Lender (2FA) crea un Borrower → el Borrower loguea → PATCH bloqueado hasta cambiar la contraseña → cambia → ahora puede editar", async () => {
+  it("camino dorado: Borrower creado (BE-045, hoy vía service — POST /api/lenders/me/borrowers deshabilitado 2026-09-11) loguea → PATCH bloqueado hasta cambiar la contraseña → cambia → ahora puede editar", async () => {
     const { user: lenderUser, secret } = await createTestUserWithTwoFactor("LENDER", LENDER_PASSWORD);
     const lenderProfile = await prisma.lenderProfile.create({ data: { userId: lenderUser.id, createdByAdminId: null } });
     const lenderCompany = await prisma.lenderCompany.create({
@@ -37,15 +38,15 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
     });
     const lenderAuth = `Bearer ${await issueAccessTokenFor(lenderUser, LENDER_PASSWORD, secret)}`;
 
+    // POST /api/lenders/me/borrowers está comentado (deshabilitado a pedido
+    // explícito 2026-09-11) — el resto de este test (BE-050, el gate de
+    // mustChangePassword) no depende de cómo nace el Borrower, así que se
+    // arma directo por el service en vez de perder esta cobertura.
     const borrowerEmail = `http-borrower-${Date.now()}@test.local`;
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
-    const createResponse = await POST(
-      jsonRequest("POST", "http://localhost/api/lenders/me/borrowers", { name: "HTTP Borrower", email: borrowerEmail }, { authorization: lenderAuth }),
-    );
-    expect(createResponse.status).toBe(201);
-    const created = await createResponse.json();
-    expect(created.data).not.toHaveProperty("temporaryPassword");
-    expect(created.data.borrower.lenderCompanies.map((c: { id: string }) => c.id)).toEqual([lenderCompany.id]);
+    const created = await lenderBorrowersService.createBorrower(lenderUser.id, { name: "HTTP Borrower", email: borrowerEmail });
+    expect(created).not.toHaveProperty("temporaryPassword");
+    expect(created.borrower.lenderCompanies.map((c) => c.id)).toEqual([lenderCompany.id]);
 
     const temporaryPassword = sendEmailSpy.mock.calls[0][0].data.temporaryPassword as string;
     sendEmailSpy.mockRestore();
@@ -92,11 +93,11 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
       new Request("http://localhost/api/borrowers/me", {
         method: "PATCH",
         headers: { "content-type": "application/json", authorization: newBorrowerAuth },
-        body: JSON.stringify({ phone: "5512345678" }),
+        body: JSON.stringify({ addressLine1: "1 Main St" }),
       }),
     );
     expect(allowedPatch.status).toBe(200);
     const allowedBody = await allowedPatch.json();
-    expect(allowedBody.data.borrowerProfile.phone).toBe("5512345678");
+    expect(allowedBody.data.borrowerProfile.addressLine1).toBe("1 Main St");
   });
 });

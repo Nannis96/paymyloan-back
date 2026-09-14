@@ -641,22 +641,56 @@ export async function getBalance(session: Session, contractId: string): Promise<
 // pero sobre la Property que ya existía en el LoanRequest (no crea una
 // nueva) y marca originationSource=MARKETPLACE (inserta
 // MARKETPLACE_CONNECTION automáticamente, ver createContractCore).
+//
+// D-P5-3 (2026-09-13, cierra D-P5-1): con BE-045 deshabilitado, esta es la
+// ÚNICA forma en que se crea un vínculo LenderBorrower nuevo — al
+// seleccionar una cotización se crea (o reactiva si estaba REMOVED) el
+// LenderBorrower entre el Borrower dueño del LoanRequest y la LenderCompany
+// ganadora, y se lo asocia como ContractBorrower(isPrimary) del Contract
+// recién creado. Antes de este fix, createContractFromLoanQuote no dejaba
+// ningún ContractBorrower — el propio Borrower que pidió la cotización no
+// podía ver el contrato resultante en GET /api/contracts.
 export async function createContractFromLoanQuote(
   tx: Prisma.TransactionClient,
   params: {
     loanRequestId: string;
     propertyId: string;
     lenderCompanyId: string;
+    borrowerProfileId: string;
     createdByUserId: string;
+    invitedByUserId: string;
     terms: CreateContractInput["terms"];
   },
-): Promise<string> {
-  return createContractCore(tx, {
+): Promise<{ contractId: string; lenderBorrowerId: string; lenderBorrowerCreated: boolean }> {
+  const existingLink = await tx.lenderBorrower.findUnique({
+    where: { lenderCompanyId_borrowerProfileId: { lenderCompanyId: params.lenderCompanyId, borrowerProfileId: params.borrowerProfileId } },
+  });
+
+  let lenderBorrowerId: string;
+  let lenderBorrowerCreated: boolean;
+  if (!existingLink) {
+    const link = await tx.lenderBorrower.create({
+      data: { lenderCompanyId: params.lenderCompanyId, borrowerProfileId: params.borrowerProfileId, invitedByUserId: params.invitedByUserId },
+    });
+    lenderBorrowerId = link.id;
+    lenderBorrowerCreated = true;
+  } else {
+    if (existingLink.status !== "ACTIVE") {
+      await tx.lenderBorrower.update({ where: { id: existingLink.id }, data: { status: "ACTIVE", removedAt: null } });
+    }
+    lenderBorrowerId = existingLink.id;
+    lenderBorrowerCreated = false;
+  }
+
+  const contractId = await createContractCore(tx, {
     lenderCompanyId: params.lenderCompanyId,
     propertyId: params.propertyId,
     createdByUserId: params.createdByUserId,
     terms: params.terms,
     originationSource: "MARKETPLACE",
     loanRequestId: params.loanRequestId,
+    borrowerProfileIds: [params.borrowerProfileId],
   });
+
+  return { contractId, lenderBorrowerId, lenderBorrowerCreated };
 }

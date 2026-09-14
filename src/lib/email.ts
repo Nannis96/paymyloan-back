@@ -1,7 +1,7 @@
 import { env } from "@/config/env";
 import { logger } from "@/lib/logger";
 
-export type EmailTemplate = "welcome-borrower" | "password-reset" | "terms-updated" | "account-activated" | "terms-rejected";
+export type EmailTemplate = "welcome-borrower" | "password-reset" | "terms-updated" | "account-activated" | "terms-rejected" | "loan-quote-selected";
 
 export interface SendEmailInput {
   to: string;
@@ -36,6 +36,12 @@ const TEMPLATES: Record<EmailTemplate, (data: Record<string, string>) => string>
     `<p>Hola ${data.name},</p>` +
     `<p>Tu cuenta de PayMyLoan ya está activa. Tu contraseña temporal es <strong>${data.temporaryPassword}</strong>; ` +
     `te la va a pedir cambiar al iniciar sesión por primera vez.</p>`,
+  // PB-017 (D-P5-3). El Borrower seleccionó esta cotización — el contrato en
+  // DRAFT ya existe, falta que el Lender lo revise/complete y lo envíe a
+  // firma (POST .../terms/:termsId/submit).
+  "loan-quote-selected": (data) =>
+    `<p>Tu cotización para la solicitud de préstamo fue seleccionada por el deudor. ` +
+    `Ya se creó el contrato ${data.contractNumber} en borrador — ingresa a PayMyLoan para revisarlo, completarlo y enviarlo a firma.</p>`,
 };
 
 // Wrapper agnóstico de proveedor (BE-006): el resto del código solo llama a

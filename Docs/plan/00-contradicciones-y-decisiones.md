@@ -235,4 +235,50 @@ Encontrado al implementar `PB-011` (crear un `LoanRequest`): `Property.lenderCom
 
 ---
 
+## Decisión 2026-09-11 (`BE-045`/`BE-048` deshabilitados a pedido explícito — pendiente cerrar el reemplazo)
+
+| # | Comportamiento actual | Cambio pedido | Decisión | Motivo |
+|---|---|---|---|---|
+| `D-P5-1` | `POST /api/lenders/me/borrowers` (`BE-045`) crea `User(BORROWER)`+`BorrowerProfile`+`LenderBorrower` de una; `PATCH /api/lenders/me/borrowers/:id` (`BE-048`) edita contacto del `BorrowerProfile` | Spencer pidió explícitamente que **un `LENDER` ya no pueda crear/editar un Borrower directo** por esta vía | **Ambos endpoints quedan comentados (no borrados)** en `route.ts` — `POST` en `src/app/api/lenders/me/borrowers/route.ts`, `PATCH` en `.../[id]/route.ts`. `GET`/`DELETE` (`BE-046`/`047`/`049`) siguen activos. `lenderBorrowersService.createBorrower`/`updateBorrower` (el código real) **no se tocan** — quedan disponibles para reactivar o para uso interno. Test HTTP de `BE-045..050` ajustado: la creación de la fixture ahora llama al service directo (no al endpoint deshabilitado) para no perder la cobertura de `BE-050` (gate de `mustChangePassword`), que es independiente de este cambio | Pedido explícito 2026-09-11, sin motivo de negocio registrado todavía |
+
+**✅ Reemplazo confirmado y construido 2026-09-13** — ver `D-P5-3` justo abajo: el vínculo `LenderBorrower` de un Deudor nuevo se crea únicamente a través del match de marketplace (selección de cotización), nunca por una acción directa del Lender.
+
+---
+
+## Decisión 2026-09-13 (`D-P5-3`: cierra `D-P5-1` — el vínculo `LenderBorrower` nuevo solo se crea vía match de marketplace)
+
+Spencer propuso el reemplazo: cuando al Deudor le gusta una cotización, eso debe llegarle como una señal al Lender y de ahí se concreta el contrato con ese Deudor. Al revisar `loanQuotes.service.ts#selectQuote`/`contracts.service.ts#createContractFromLoanQuote` para implementarlo, aparecieron dos huecos reales en el código ya construido de Fase 13 (no solo la ausencia de reemplazo de `BE-045`): el `Contract` que se crea al seleccionar una cotización no dejaba ningún `ContractBorrower` (el propio Deudor no podía ver su contrato en `GET /api/contracts`) y tampoco creaba ningún `LenderBorrower`.
+
+| # | Comportamiento actual | Problema encontrado | Decisión | Motivo |
+|---|---|---|---|---|
+| `D-P5-3` | `selectQuote` (`PB-017`) ya declina el resto de cotizaciones, backfillea `Property.lenderCompanyId` y crea el `Contract(DRAFT, MARKETPLACE)` automáticamente — sin intervención del Lender | (1) Ningún `ContractBorrower` quedaba asociado al `Contract` recién creado — bug real, no solo el hueco de reemplazo de `BE-045`. (2) No existía ningún camino para crear un `LenderBorrower` nuevo tras deshabilitar `BE-045` (`D-P5-1`) | **`createContractFromLoanQuote` ahora crea (o reactiva si estaba `REMOVED`) el `LenderBorrower(ACTIVE)`** entre el `BorrowerProfile` dueño del `LoanRequest` y la `LenderCompany` ganadora — `invitedByUserId` queda en el usuario Lender que mandó esa cotización (`LoanQuote.submittedByUserId`) — y agrega a ese Deudor como `ContractBorrower(isPrimary: true)` del `Contract`, reusando el mismo mecanismo de `createContractCore` que ya usa `BE-051`. Se mantiene la creación automática del `Contract(DRAFT)` al seleccionar (no se agregó un paso de confirmación separado del Lender, evaluado y descartado — ver abajo); la "señal al Lender" que pidió Spencer se cubre con un correo nuevo (`loan-quote-selected`) avisándole que su cotización ganó y tiene un contrato en borrador esperando que lo revise/complete y lo mande a firma (`POST .../terms/:termsId/submit`) | El Lender sigue siendo quien "concreta" el contrato en la práctica — nada se activa ni queda vinculante hasta que el Lender lo revisa y el Deudor acepta los términos (`BE-061`, aceptación bilateral, `D0-3`); agregar un endpoint nuevo de confirmación del Lender solo para disparar la creación hubiera duplicado casi todo lo que `selectQuote` ya hace, sin cambiar el resultado funcional — se evaluaron ambas opciones con Spencer y se optó por el arreglo mínimo |
+
+**Alternativa evaluada y descartada**: un endpoint nuevo (`POST .../quotes/:quoteId/accept`, rol `LENDER`) donde seleccionar la cotización solo cambiara su status y notificara, y la creación del `Contract` quedara detrás de una acción explícita del Lender. Más fiel a la redacción literal de la propuesta, pero requería un endpoint/status/tests/documentación nuevos para terminar en el mismo lugar (un `Contract(DRAFT)` que el Lender todavía tiene que completar y enviar a firma) — descartada por Spencer a favor del arreglo mínimo sobre el código ya existente.
+
+**Impacto**: `src/services/contracts.service.ts` (`createContractFromLoanQuote` ahora recibe `borrowerProfileId`/`invitedByUserId` y devuelve `{ contractId, lenderBorrowerId, lenderBorrowerCreated }`), `src/services/loanQuotes.service.ts` (`selectQuote` pasa esos datos, audita `BORROWER_LINKED_TO_LENDER` cuando el vínculo es nuevo, envía el correo `loan-quote-selected`), `src/lib/email.ts` (plantilla nueva), tests de `loanQuotes.service.integration.test.ts` (nuevas aserciones: `LenderBorrower` creado, `ContractBorrower` presente, el Borrower ve su contrato en `listContracts`).
+
+---
+
+## Decisión 2026-09-11 (`BorrowerProfile.phone` eliminado, `D-P5-2`)
+
+| # | Comportamiento actual | Cambio pedido | Decisión | Motivo |
+|---|---|---|---|---|
+| `D-P5-2` | `BorrowerProfile.phone` (campo propio, editable por `PATCH /api/lenders/me/borrowers/:id`/`BE-048` y `PATCH /api/borrowers/me`/`BE-050`) | Spencer señaló que es redundante: `User.phone` (`D-P2-4`) ya existe para todos los roles | **`BorrowerProfile.phone` se elimina** (migración `20260911200000_remove_borrower_profile_phone`). El teléfono del Deudor se edita únicamente por `PATCH /api/auth/me` (`BE-099`), igual que cualquier otro rol. `updateBorrowerProfileSchema` pierde `phone`; `BorrowerListItem`/`OwnBorrowerProfile`/`MeResult.borrowerProfile` (respuestas de `GET /api/lenders/me/borrowers*`, `GET /api/borrowers/me`, `GET /api/auth/me`) ya no lo listan por separado — el valor sigue disponible vía `user.phone` (`SafeUser`, siempre presente en esas mismas respuestas) | Mismo criterio ya aplicado a `LenderProfile.contactPhone` (`D-P4-8`): un campo de teléfono por perfil de rol, además del genérico de `User`, es redundancia sin ninguna razón de negocio distinta (a diferencia de `LenderCompany.contactPhone`, que sí es el teléfono de la *empresa*, no de la persona) |
+
+**Impacto**: `prisma/schema.prisma` (`BorrowerProfile.phone` fuera), `src/validations/borrowers.validation.ts`, `src/services/{borrowerProfile,lenderBorrowers,auth}.service.ts`, `prisma/seed.ts` (el teléfono de seed pasa a `User.phone`), `Docs/API_REFERENCE.md` (shapes de `Borrower`/`GET /api/auth/me`/`GET /api/borrowers/me`), `Docs/plan/04-base-de-datos.md` (tabla `BorrowerProfile`, §4.3).
+
+---
+
+## Decisión 2026-09-13 (`D-P4-9`: autoservicio para que el propio Lender edite/borre sus `LenderCompany`)
+
+Spencer preguntó si existía una API para que el propio Lender editara sus empresas — no existía: `D-P4-8` había dejado `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` como Admin-only a propósito ("no se pidió autoservicio del Lender sobre sus propias empresas"). Confirmó que sí lo quiere, con `PATCH` y `DELETE`.
+
+| # | Comportamiento actual | Cambio pedido | Decisión | Motivo |
+|---|---|---|---|---|
+| `D-P4-9` | Solo el Admin puede editar (`PATCH`) o borrar (`DELETE`) una `LenderCompany` puntual (`D-P4-8`) — el propio Lender solo puede crear (`POST /api/lenders/me/companies`, `BE-101`) | Spencer confirmó que el Lender debe poder editar y borrar sus propias empresas, no solo crearlas | **Nuevas rutas `PATCH`/`DELETE /api/lenders/me/companies/:companyId`** — mismo patrón que `createOwnLenderCompany`/`BE-101` (resuelven el `LenderProfile` desde la sesión, reusan `lenders.service.ts#updateLenderCompany`/`deleteLenderCompany` sin duplicar lógica), rol `LENDER` + 2FA activo (escritura de negocio, `D-P3-1`). **`PATCH` autoservicio nunca acepta `status`** (`updateOwnLenderCompanySchema`, mismo shape que la versión Admin sin ese campo) — suspender/reactivar una empresa sigue siendo una acción de moderación exclusiva del Admin; un campo `status` en el body de esta ruta se descarta en vez de aplicarse (no es un error de validación, igual que `PATCH /api/auth/me` descarta `email`/`role`). `isOpenToDeals` sí queda editable por esta vía (preferencia propia del Lender sobre si acepta negocio nuevo, no moderación). Mismo criterio anti-enumeración que el resto de la API: una `LenderCompany` que existe pero es de otro Lender responde `404 LENDER_COMPANY_NOT_FOUND`, nunca `403` | Evita que un Lender se auto-reactive tras una suspensión del Admin (`D-P1-8`) — el resto de campos de la empresa (nombre, EIN, dirección, teléfono, `isOpenToDeals`) no tiene ninguna razón para requerir intervención del Admin, es información operativa del propio negocio del Lender |
+
+**Impacto**: `src/validations/lenders.validation.ts` (`updateOwnLenderCompanySchema`, nuevo, deriva de los mismos campos que `updateLenderCompanySchema` sin `status`), `src/services/lenders.service.ts` (`updateOwnLenderCompany`/`deleteOwnLenderCompany`, nuevos, reusan `updateLenderCompany`/`deleteLenderCompany`), `src/controllers/lenders.controller.ts`, ruta nueva `src/app/api/lenders/me/companies/[companyId]/route.ts`, `Docs/plan/06-api-endpoints.md`/`API_REFERENCE.md`/`IMPLEMENTATION_PROGRESS.md`.
+
+---
+
 [← Índice del plan](README.md)  ·  [Siguiente: 1. Resumen de arquitectura propuesta](01-resumen-arquitectura.md)

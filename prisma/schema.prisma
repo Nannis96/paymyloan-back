@@ -338,7 +338,9 @@ model BorrowerProfile {
   userId String @unique @db.Uuid
   user   User   @relation("UserBorrowerProfile", fields: [userId], references: [id])
 
-  phone        String?
+  // Sin `phone` propio (eliminado 2026-09-11, D-P5-2) — redundante con
+  // `User.phone` (D-P2-4), mismo criterio ya aplicado a
+  // `LenderProfile.contactPhone` (D-P4-8).
   addressLine1 String?
   city         String?
   state        String? @db.VarChar(2)

@@ -2,6 +2,7 @@ import type { LoanQuote } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { sendEmail } from "@/lib/email";
 import { addMonths } from "@/services/amortization.service";
 import { createContractFromLoanQuote } from "@/services/contracts.service";
 import type { ContractTermsInput } from "@/validations/contracts.validation";
@@ -176,7 +177,7 @@ export async function selectQuote(userId: string, loanRequestId: string, quoteId
 
   const terms = deriveContractTermsFromQuote(quote, loanRequest.requestedClosingDate);
 
-  const contractId = await prisma.$transaction(async (tx) => {
+  const { contractId, lenderBorrowerId, lenderBorrowerCreated } = await prisma.$transaction(async (tx) => {
     const claimed = await tx.loanQuote.updateMany({ where: { id: quoteId, status: "SUBMITTED" }, data: { status: "SELECTED" } });
     if (claimed.count === 0) {
       throw new AppError("This quote is no longer available", 409, "QUOTE_NOT_SUBMITTED");
@@ -193,11 +194,16 @@ export async function selectQuote(userId: string, loanRequestId: string, quoteId
       data: { status: "MATCHED", matchedLenderCompanyId: quote.lenderCompanyId, matchedAt: new Date() },
     });
 
+    // D-P5-3: única forma de crear un LenderBorrower nuevo desde que BE-045
+    // quedó deshabilitado (D-P5-1) — ver el comentario en
+    // contracts.service.ts#createContractFromLoanQuote.
     return createContractFromLoanQuote(tx, {
       loanRequestId,
       propertyId: loanRequest.propertyId,
       lenderCompanyId: quote.lenderCompanyId,
+      borrowerProfileId: loanRequest.borrowerProfileId,
       createdByUserId: userId,
+      invitedByUserId: quote.submittedByUserId,
       terms,
     });
   });
@@ -218,6 +224,29 @@ export async function selectQuote(userId: string, loanRequestId: string, quoteId
     lenderCompanyId: quote.lenderCompanyId,
     contractId,
   });
+  if (lenderBorrowerCreated) {
+    await logAuditEvent({
+      action: "BORROWER_LINKED_TO_LENDER",
+      entityType: "LenderBorrower",
+      entityId: lenderBorrowerId,
+      actorUserId: userId,
+      lenderCompanyId: quote.lenderCompanyId,
+      contractId,
+    });
+  }
+
+  const [contract, lenderUser] = await Promise.all([
+    prisma.contract.findUniqueOrThrow({ where: { id: contractId }, select: { contractNumber: true } }),
+    prisma.user.findUnique({ where: { id: quote.submittedByUserId }, select: { email: true } }),
+  ]);
+  if (lenderUser) {
+    await sendEmail({
+      to: lenderUser.email,
+      subject: "Your quote was selected",
+      template: "loan-quote-selected",
+      data: { contractNumber: contract.contractNumber },
+    });
+  }
 
   return { contractId };
 }

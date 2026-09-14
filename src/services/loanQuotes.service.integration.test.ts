@@ -131,6 +131,24 @@ describe("loanQuotes.service (Fase 13)", () => {
     expect(matchedRequest.status).toBe("MATCHED");
     expect(matchedRequest.matchedLenderCompanyId).toBe(lenderA.lenderCompany.id);
 
+    // D-P5-3 (cierra D-P5-1): seleccionar la cotización debe dejar un
+    // LenderBorrower ACTIVE nuevo (única forma de crear el vínculo con
+    // BE-045 deshabilitado) y asociar al Borrower como ContractBorrower —
+    // sin esto el propio Borrower no podría ver su contrato.
+    const link = await prisma.lenderBorrower.findUniqueOrThrow({
+      where: { lenderCompanyId_borrowerProfileId: { lenderCompanyId: lenderA.lenderCompany.id, borrowerProfileId: loanRequest.borrowerProfileId } },
+    });
+    expect(link.status).toBe("ACTIVE");
+    expect(link.invitedByUserId).toBe(lenderA.lenderUser.id);
+
+    const contractBorrowers = await prisma.contractBorrower.findMany({ where: { contractId } });
+    expect(contractBorrowers).toHaveLength(1);
+    expect(contractBorrowers[0].borrowerProfileId).toBe(loanRequest.borrowerProfileId);
+    expect(contractBorrowers[0].isPrimary).toBe(true);
+
+    const borrowerContracts = await contractsService.listContracts({ userId: borrowerUser.id, role: "BORROWER" }, { page: 1, pageSize: 20 });
+    expect(borrowerContracts.items.map((c) => c.id)).toContain(contractId);
+
     // Ya SELECTED — un segundo intento de seleccionar (aunque fuera otra
     // cotización) responde 409, cubre la carrera de dos selects casi
     // simultáneos.

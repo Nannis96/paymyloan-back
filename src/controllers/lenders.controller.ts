@@ -2,7 +2,7 @@ import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
 import * as lendersService from "@/services/lenders.service";
 import { parseOrThrow } from "@/validations/parse";
-import { createLenderCompanySchema, listLendersQuerySchema, updateLenderCompanySchema } from "@/validations/lenders.validation";
+import { createLenderCompanySchema, listLendersQuerySchema, updateLenderCompanySchema, updateOwnLenderCompanySchema } from "@/validations/lenders.validation";
 
 // BE-041..044: /api/admin/lenders — ADMIN, escrituras exigen 2FA (D-P3-1).
 async function requireAdminSession(request: Request, options?: { requireTwoFactor?: boolean }) {
@@ -66,4 +66,22 @@ export async function createOwnLenderCompany(request: Request, body: unknown) {
   await withRole(session, ["LENDER"]);
   const input = parseOrThrow(createLenderCompanySchema, body);
   return lendersService.createOwnLenderCompany(session.userId, input);
+}
+
+// D-P4-9, nuevo (autoservicio): el propio Lender edita/borra una empresa
+// suya — mismo patrón que createOwnLenderCompany, resolviendo el
+// LenderProfile desde la sesión en vez de un :id. Escritura de negocio ->
+// exige 2FA (D-P3-1), igual que su contraparte de Admin.
+export async function updateOwnLenderCompany(request: Request, companyId: string, body: unknown) {
+  const session = await withAuth(request);
+  await withRole(session, ["LENDER"]);
+  const input = parseOrThrow(updateOwnLenderCompanySchema, body);
+  return lendersService.updateOwnLenderCompany(session.userId, companyId, input);
+}
+
+export async function deleteOwnLenderCompany(request: Request, companyId: string) {
+  const session = await withAuth(request);
+  await withRole(session, ["LENDER"]);
+  await lendersService.deleteOwnLenderCompany(session.userId, companyId);
+  return { deleted: true };
 }

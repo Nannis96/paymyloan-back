@@ -38,21 +38,30 @@ export type CreateLenderCompanyInput = z.infer<typeof createLenderCompanySchema>
 // opcionales — reemplaza a BE-043, que solo editaba LenderProfile.contactPhone,
 // eliminado por D-P4-8 al quedar redundante con User.phone). `:companyId` se
 // valida contra el `:id` del Lender en el service (lenders.service.ts#requireLenderCompany).
-export const updateLenderCompanySchema = z
-  .object({
-    companyName: companyName.optional(),
-    ein: ein.optional(),
-    contactPhone: phone,
-    addressLine1: addressLine1.optional(),
-    addressLine2,
-    city: city.optional(),
-    state: state.optional(),
-    postalCode: postalCode.optional(),
-    isOpenToDeals: z.boolean().optional(),
-    status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
-  })
-  .refine((data) => Object.keys(data).length > 0, { message: "Must include at least one field to update" });
+const updateLenderCompanyFields = z.object({
+  companyName: companyName.optional(),
+  ein: ein.optional(),
+  contactPhone: phone,
+  addressLine1: addressLine1.optional(),
+  addressLine2,
+  city: city.optional(),
+  state: state.optional(),
+  postalCode: postalCode.optional(),
+  isOpenToDeals: z.boolean().optional(),
+  status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
+});
+export const updateLenderCompanySchema = updateLenderCompanyFields.refine((data) => Object.keys(data).length > 0, {
+  message: "Must include at least one field to update",
+});
 export type UpdateLenderCompanyInput = z.infer<typeof updateLenderCompanySchema>;
+
+// D-P4-9, nuevo (autoservicio): mismo shape que arriba, sin `status` —
+// suspender/reactivar una LenderCompany es moderación exclusiva del Admin
+// (D-P1-8); el propio Lender no puede auto-reactivarse tras una suspensión.
+export const updateOwnLenderCompanySchema = updateLenderCompanyFields
+  .omit({ status: true })
+  .refine((data) => Object.keys(data).length > 0, { message: "Must include at least one field to update" });
+export type UpdateOwnLenderCompanyInput = z.infer<typeof updateOwnLenderCompanySchema>;
 
 // BE-041.
 export const listLendersQuerySchema = paginationQuerySchema.extend({

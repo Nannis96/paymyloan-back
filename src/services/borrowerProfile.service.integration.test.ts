@@ -34,8 +34,8 @@ describe("borrowerProfile.service (BE-050, D-P4-2)", () => {
     const own = await borrowerProfileService.getOwnProfile(userId);
     expect(own.lenderCompanies.map((c) => c.id)).toContain(lenderCompany.id);
 
-    const updated = await borrowerProfileService.updateOwnProfile(userId, { phone: "5512345678", city: "Austin" });
-    expect(updated.borrowerProfile.phone).toBe("5512345678");
+    const updated = await borrowerProfileService.updateOwnProfile(userId, { addressLine1: "1 Main St", city: "Austin" });
+    expect(updated.borrowerProfile.addressLine1).toBe("1 Main St");
     expect(updated.borrowerProfile.city).toBe("Austin");
   });
 

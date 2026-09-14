@@ -124,8 +124,8 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
     });
     sendEmailSpy.mockRestore();
 
-    const updated = await lenderBorrowersService.updateBorrower(lenderUser.id, created.borrower.id, { phone: "5512345678" });
-    expect(updated.phone).toBe("5512345678");
+    const updated = await lenderBorrowersService.updateBorrower(lenderUser.id, created.borrower.id, { addressLine1: "1 Main St" });
+    expect(updated.addressLine1).toBe("1 Main St");
   });
 
   it("removeBorrower desvincula (removedAt) sin borrar el BorrowerProfile (M-3)", async () => {

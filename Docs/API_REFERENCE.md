@@ -131,6 +131,16 @@ Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActi
   | `role` | string | uno de `ADMIN`, `LENDER`, `BORROWER`, `BOOKKEEPER`, `INSURANCE_COMPANY` — obligatorio, sin default |
   | `isActive` | boolean | opcional — sin este campo, nace **activo** (mismo default que la tabla) |
 
+  ```json
+  {
+    "name": "Jane Cooper",
+    "email": "jane.cooper@example.com",
+    "phone": "5125550100",
+    "role": "BORROWER",
+    "isActive": true
+  }
+  ```
+
 - **Response `201`**:
   ```jsonc
   {
@@ -152,6 +162,15 @@ Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`phone`/`
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Request body**: mismos campos que `POST` (todos opcionales), pero **al menos uno** debe venir.
+
+  ```json
+  {
+    "name": "Jane Cooper",
+    "phone": "5125550100",
+    "isActive": true
+  }
+  ```
+
 - **Response `200`**:
   ```jsonc
   {
@@ -232,6 +251,15 @@ Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin
   | `phone` | string | opcional — exactamente 10 dígitos (`^\d{10}$`) |
   | `role` | string | **solo** `LENDER` o `BORROWER` — `ADMIN`/`BOOKKEEPER`/`INSURANCE_COMPANY` no pueden auto-registrarse |
 
+  ```json
+  {
+    "name": "Jane Cooper",
+    "email": "jane.cooper@example.com",
+    "phone": "5125550100",
+    "role": "BORROWER"
+  }
+  ```
+
 - **Response `202`** (siempre, exista o no ya el correo — anti-enumeración, misma postura que `password/forgot`):
   ```json
   { "success": true, "data": { "message": "Si los datos son válidos, tu cuenta quedará pendiente de activación. Una vez que un administrador la active, recibirás un correo con tu contraseña temporal." } }
@@ -245,6 +273,11 @@ Paso 1 de login. Si el usuario tiene 2FA activo, no emite tokens todavía — ha
 
 - **Auth**: Público. **Rate limit**: bucket `login` (`RATE_LIMIT_LOGIN_MAX` intentos por `RATE_LIMIT_LOGIN_WINDOW_MS`, por IP).
 - **Request body**: `{ "email": string, "password": string (1–72 chars) }`.
+
+  ```json
+  { "email": "lender1@paymyloan.dev", "password": "DevPass!2026" }
+  ```
+
 - **Response `200`** — dos formas posibles:
   ```jsonc
   // sin 2FA
@@ -265,6 +298,11 @@ Paso 2, solo alcanzable con un `pendingToken` válido del paso 1. Acepta un cód
 
 - **Auth**: Público (el `pendingToken` hace de credencial). **Rate limit**: bucket `login2fa`, independiente del bucket `login` — un código incorrecto acá nunca consume el cupo de `/login`.
 - **Request body**: `{ "pendingToken": string, "code": string }` — `code` puede ser un TOTP de 6 dígitos o uno de los 8 recovery codes entregados al activar 2FA.
+
+  ```json
+  { "pendingToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...", "code": "482913" }
+  ```
+
 - **Response `200`**: igual que el login exitoso sin 2FA (`requiresTwoFactor: false, accessToken, refreshToken, user`).
 - **Errores**: `401 INVALID_TOKEN` (pendingToken inválido/expirado) · `401 INVALID_CREDENTIALS` (el usuario detrás del pendingToken ya no es válido — desactivado, borrado, o perdió el 2FA entre el paso 1 y el 2) · `401 INVALID_2FA_CODE` (código y recovery code, ambos inválidos) · `429 RATE_LIMITED`.
 - **Nota**: un recovery code usado una vez queda marcado (`usedAt`) y no vuelve a funcionar.
@@ -275,6 +313,11 @@ Rota el refresh token en cada uso — nunca se puede reusar uno ya canjeado.
 
 - **Auth**: Público (el `refreshToken` hace de credencial).
 - **Request body**: `{ "refreshToken": string }`.
+
+  ```json
+  { "refreshToken": "8f3b1c2a-9e4d-4a7b-9c3e-1a2b3c4d5e6f" }
+  ```
+
 - **Response `200`**: nuevo par `{ accessToken, refreshToken, user }` — el `refreshToken` viejo queda revocado (`revokedAt`), enlazado al nuevo vía `replacedByTokenId`.
 - **Errores**:
   - `401 INVALID_TOKEN` — token inexistente, expirado, o ya revocado.
@@ -286,6 +329,11 @@ Revoca un refresh token puntual.
 
 - **Auth**: Autenticado (`Authorization: Bearer <accessToken>`) + el `refreshToken` a revocar en el body.
 - **Request body**: `{ "refreshToken": string }`.
+
+  ```json
+  { "refreshToken": "8f3b1c2a-9e4d-4a7b-9c3e-1a2b3c4d5e6f" }
+  ```
+
 - **Response `200`**: `{ "loggedOut": true }`.
 - **Errores**: `401 UNAUTHENTICATED` (sin access token) · `401 INVALID_TOKEN` (access token inválido/expirado) · `400 VALIDATION_ERROR`.
 
@@ -315,7 +363,6 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
       // presente solo si role === "BORROWER"
       "borrowerProfile": {
         "id": "...",
-        "phone": null,
         "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
       }
     }
@@ -329,6 +376,11 @@ Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información
 
 - **Auth**: Autenticado. Sin restricción de rol — cualquiera edita lo suyo.
 - **Request body**: `{ "name"?: string, "phone"?: string }` — al menos uno de los dos, `phone` con el mismo formato de 10 dígitos que el resto de la API.
+
+  ```json
+  { "name": "Jane Cooper", "phone": "5125550100" }
+  ```
+
 - **Response `200`**:
   ```json
   { "success": true, "data": { "user": /* SafeUser actualizado */ {} } }
@@ -339,6 +391,11 @@ Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información
 
 - **Auth**: Público. **Rate limit**: bucket `password-forgot`.
 - **Request body**: `{ "email": string }`.
+
+  ```json
+  { "email": "lender1@paymyloan.dev" }
+  ```
+
 - **Response `200`** (siempre, exista o no el correo — anti-enumeración):
   ```json
   { "success": true, "data": { "message": "Si el correo existe, vas a recibir instrucciones para restablecer tu contraseña." } }
@@ -349,6 +406,11 @@ Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información
 
 - **Auth**: Público (el `token` del correo hace de credencial).
 - **Request body**: `{ "token": string, "newPassword": string (8–72 chars) }`.
+
+  ```json
+  { "token": "3f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c", "newPassword": "NewPass!2026" }
+  ```
+
 - **Response `200`**: `{ "message": "Contraseña actualizada." }`.
 - **Errores**: `400 INVALID_TOKEN` (token inexistente, ya usado, o expirado) · `400 VALIDATION_ERROR`.
 - **Efecto secundario importante**: revoca **todos** los refresh tokens del usuario — fuerza a volver a loguearse en todos los dispositivos.
@@ -371,6 +433,11 @@ Confirma que el usuario efectivamente pudo generar un código con el secreto de 
 
 - **Auth**: Autenticado, rol `ADMIN` o `LENDER`.
 - **Request body**: `{ "code": string }` (código TOTP de 6 dígitos).
+
+  ```json
+  { "code": "482913" }
+  ```
+
 - **Response `200`**:
   ```json
   { "success": true, "data": { "recoveryCodes": ["IqM0k63iCI", "UJspkfptW2", "...8 en total..."] } }
@@ -384,6 +451,11 @@ Exige contraseña **y** código TOTP vigente — nunca alcanza con tener la sesi
 
 - **Auth**: Autenticado, rol `ADMIN` o `LENDER`.
 - **Request body**: `{ "password": string, "code": string }`.
+
+  ```json
+  { "password": "DevPass!2026", "code": "482913" }
+  ```
+
 - **Response `200`**: `{ "disabled": true }`.
 - **Errores**: `403 FORBIDDEN` · `401 INVALID_CREDENTIALS` (password o código incorrectos) · `409 TWO_FACTOR_NOT_ENABLED`.
 - **Efecto**: `isTwoFactorEnabled=false`, borra el secreto y **todos** los recovery codes existentes.
@@ -394,6 +466,11 @@ Regenera el set de 8 recovery codes — invalida los anteriores. Misma exigencia
 
 - **Auth**: Autenticado, rol `ADMIN` o `LENDER`.
 - **Request body**: `{ "password": string, "code": string }`.
+
+  ```json
+  { "password": "DevPass!2026", "code": "482913" }
+  ```
+
 - **Response `200`**: `{ "recoveryCodes": [ /* 8 nuevos, en claro, una única vez */ ] }`.
 - **Errores**: igual que `/disable`.
 
@@ -454,6 +531,19 @@ Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunc
   | `contactPhone` | string | opcional, 10 dígitos — teléfono de la empresa (`LenderCompany.contactPhone`) |
   | `addressLine1` / `addressLine2` / `city` / `state` (2 letras) / `postalCode` | string | dirección de la empresa; `addressLine2` opcional |
 
+  ```json
+  {
+    "companyName": "Lone Star Capital LLC",
+    "ein": "12-3456789",
+    "contactPhone": "5125550100",
+    "addressLine1": "100 Congress Ave",
+    "addressLine2": "Suite 200",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78701"
+  }
+  ```
+
 - **Response `201`**: `{ "success": true, "data": { /* LenderCompanySummary, ver forma abajo */ } }`.
 - **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN`/`TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` · `409 EIN_TAKEN`.
 
@@ -463,6 +553,11 @@ Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunc
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`).
 - **Request body**: todos los campos de `POST .../companies` (arriba), todos opcionales, más `isOpenToDeals` (boolean) y `status` (`"ACTIVE"` | `"SUSPENDED"`) — al menos uno.
+
+  ```json
+  { "isOpenToDeals": false, "status": "SUSPENDED" }
+  ```
+
 - **Response `200`**: `{ "success": true, "data": { /* LenderCompanySummary */ } }`.
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` · `404 LENDER_COMPANY_NOT_FOUND` · `409 EIN_TAKEN`.
 
@@ -528,25 +623,46 @@ Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`delete
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo (`D-P3-1`).
 - **Request body**: igual que `POST /api/admin/lenders/:id/companies` (`companyName`/`ein`/`contactPhone`?/dirección) — **sin** `name`/`email`, esos son de la persona, no de la empresa.
+
+  ```json
+  {
+    "companyName": "Lone Star Capital LLC",
+    "ein": "12-3456789",
+    "contactPhone": "5125550100",
+    "addressLine1": "100 Congress Ave",
+    "addressLine2": "Suite 200",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78701"
+  }
+  ```
+
 - **Response `201`**: `{ "success": true, "data": { /* LenderCompanySummary, ver forma abajo */ } }`.
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` (perfil de prestamista de la sesión no encontrado) · `409 EIN_TAKEN`.
 
-### `POST /api/lenders/me/borrowers`
+### `PATCH`/`DELETE /api/lenders/me/companies/:companyId`
 
-`BE-045`. Crea `User(role=BORROWER)` + `BorrowerProfile` (sin `lenderId` — ya no existe, `D-P1-4`) + `LenderBorrower`, activo de inmediato con contraseña temporal por correo, **nunca en la respuesta** (mismo patrón que la activación por Admin, `BE-097`).
+`D-P4-9`, nuevo. El propio Lender edita o borra una empresa suya — mismo servicio que `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` (`D-P4-8`), resolviendo el `LenderProfile` desde la sesión en vez de un `:id`. `:companyId` que existe pero es de otro Lender responde `404 LENDER_COMPANY_NOT_FOUND`, igual que si no existiera.
 
-- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
-- **Request body**:
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (`D-P3-1`).
+- **Request body (`PATCH`)**: igual que `POST /api/lenders/me/companies` (arriba), todos opcionales, más `isOpenToDeals` (boolean) — al menos uno. **`status` no está disponible por esta vía** (`D-P4-9`): suspender/reactivar una empresa sigue siendo exclusivo del Admin (`PATCH /api/admin/lenders/:id/companies/:companyId`); si se manda igual, se descarta en vez de aplicarse — no es un error de validación.
 
-  | Campo | Tipo | Validación |
-  |---|---|---|
-  | `name` | string | 1–120 caracteres |
-  | `email` | string | formato email |
-  | `phone` | string | opcional, 10 dígitos |
-  | `lenderCompanyId` | string | **obligatorio solo si el Lender tiene más de una `LenderCompany`** — con una sola, se resuelve sola (`D-P4-1`) |
+  ```json
+  { "companyName": "Lone Star Capital LLC", "isOpenToDeals": false }
+  ```
 
-- **Response `201`**: `{ "success": true, "data": { "borrower": { /* ver forma abajo */ }, "emailSent": true } }`.
-- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` (tiene más de una empresa y no mandó `lenderCompanyId`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId` no es una empresa del Lender — nunca se usa, § 7.5) · `409 EMAIL_TAKEN` · `409 NO_LENDER_COMPANY` (el Lender todavía no tiene ninguna empresa).
+- **Response `200` (`PATCH`)**: `{ "success": true, "data": { /* LenderCompanySummary */ } }`.
+- **Response `200` (`DELETE`)**: `{ "success": true, "data": { "deleted": true } }` — soft-delete de esa sola empresa, no de todo el Lender ni sus otras empresas.
+- **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_COMPANY_NOT_FOUND` · `409 EIN_TAKEN` (`PATCH`) · `409 LENDER_HAS_ACTIVE_CONTRACTS` (`DELETE`, esa empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`).
+
+### ~~`POST /api/lenders/me/borrowers`~~ — ⚠️ deshabilitado (`D-P5-1`, 2026-09-11)
+
+`BE-045`, comentado en `route.ts` a pedido explícito — responde `405` (ningún handler registrado para `POST` en esa ruta). Un `LENDER` ya no puede crear un Borrower directo. El código de servicio (`lenderBorrowersService.createBorrower`) sigue intacto; se documenta el shape original acá por si se reactiva.
+
+**Reemplazo (`D-P5-3`, 2026-09-13)**: la única forma de crear un `LenderBorrower` nuevo hoy es seleccionar una cotización de marketplace — ver [`POST /api/borrowers/me/loan-requests/:id/quotes/:quoteId/select`](#post-apiborrowersmeloan-requestsidquotesquoteidselect) más abajo y [00 — `D-P5-3`](plan/00-contradicciones-y-decisiones.md#decisión-2026-09-13-d-p5-3-cierra-d-p5-1--el-vínculo-lenderborrower-nuevo-solo-se-crea-vía-match-de-marketplace).
+
+- ~~**Request body**~~: `name`, `email`, `phone?`, `lenderCompanyId?` (obligatorio solo con más de una `LenderCompany`).
+- ~~**Response `201`**~~: `{ "success": true, "data": { "borrower": { /* ver forma abajo */ }, "emailSent": true } }`.
 
 ### `GET /api/lenders/me/borrowers`
 
@@ -567,20 +683,16 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
     "data": {
       "id": "...",                // BorrowerProfile.id
       "user": /* SafeUser */ {},
-      "phone": null, "addressLine1": null, "city": null, "state": null, "postalCode": null,
+      "addressLine1": null, "city": null, "state": null, "postalCode": null,
       "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
     }
   }
   ```
 - **Errores**: `401`/`403` · `404 NOT_FOUND`.
 
-### `PATCH /api/lenders/me/borrowers/:id`
+### ~~`PATCH /api/lenders/me/borrowers/:id`~~ — ⚠️ deshabilitado (`D-P5-1`, 2026-09-11)
 
-Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/`postalCode`) — nunca `lenderCompanyId`.
-
-- **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
-- **Response `200`**: mismo shape que `GET .../borrowers/:id`.
-- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND`.
+`BE-048`, comentado en `route.ts` a pedido explícito — responde `405`. Editaba campos de contacto del `BorrowerProfile` (`addressLine1`/`city`/`state`/`postalCode` — `phone` ya no vive acá, `D-P5-2`); el código de servicio (`lenderBorrowersService.updateBorrower`) sigue intacto.
 
 ### `DELETE /api/lenders/me/borrowers/:id`
 
@@ -602,11 +714,22 @@ Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/
     "success": true,
     "data": {
       "user": /* SafeUser */ {},
-      "borrowerProfile": { "id": "...", "phone": null, "addressLine1": null, "city": null, "state": null, "postalCode": null },
+      "borrowerProfile": { "id": "...", "addressLine1": null, "city": null, "state": null, "postalCode": null },
       "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
     }
   }
   ```
+- **Request body (`PATCH`)**: `addressLine1`/`city`/`state`/`postalCode` — `phone` se edita por [`PATCH /api/auth/me`](#patch-apiauthme) (`D-P5-2`, ya no vive en `BorrowerProfile`).
+
+  ```json
+  {
+    "addressLine1": "500 Lamar Blvd",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78701"
+  }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` (solo `PATCH`) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 PASSWORD_CHANGE_REQUIRED` (solo `PATCH`) · `404 BORROWER_NOT_FOUND`.
 
 ### `POST /api/borrowers/me/password`
@@ -615,6 +738,11 @@ Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/
 
 - **Auth**: Autenticado, rol `BORROWER`.
 - **Request body**: `{ "currentPassword": string, "newPassword": string (8–72 chars) }`.
+
+  ```json
+  { "currentPassword": "DevPass!2026", "newPassword": "NewPass!2026" }
+  ```
+
 - **Response `200`**: `{ "success": true, "data": { "changed": true } }`.
 - **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `401 INVALID_CREDENTIALS` (`currentPassword` incorrecta) · `404 USER_NOT_FOUND`.
 - **Efecto secundario**: apaga `mustChangePassword`, revoca todos los refresh tokens del usuario — igual que `password/reset` (`BE-032`).
@@ -639,11 +767,11 @@ Campos de contacto del `BorrowerProfile` (`phone`/`addressLine1`/`city`/`state`/
   "isOpenToDeals": true, "status": "ACTIVE"
 }
 
-// Borrower (POST/GET/PATCH /api/lenders/me/borrowers*)
+// Borrower (GET /api/lenders/me/borrowers* — POST/PATCH deshabilitados, D-P5-1)
 {
   "id": "...",                 // BorrowerProfile.id
-  "user": /* SafeUser */ {},
-  "phone": null, "addressLine1": null, "city": null, "state": null, "postalCode": null,
+  "user": /* SafeUser */ {},   // el teléfono vive acá (user.phone), no en BorrowerProfile (D-P5-2)
+  "addressLine1": null, "city": null, "state": null, "postalCode": null,
   "lenderCompanies": [ { "id": "...", "companyName": "..." } ]  // solo las que comparte con el Lender que consulta
 }
 ```
@@ -669,6 +797,54 @@ Crea el contrato en un solo paso.
   | `insuranceCompanyId` | string | Opcional |
   | `borrowerProfileIds` | string[] | Opcional — cada uno debe tener un `LenderBorrower` `ACTIVE` con la `LenderCompany` resuelta |
 
+  ```json
+  {
+    "lenderCompanyId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5b",
+    "property": {
+      "addressLine1": "500 Lamar Blvd",
+      "addressLine2": "Unit 3",
+      "city": "Austin",
+      "state": "TX",
+      "postalCode": "78701",
+      "county": "Travis",
+      "parcelNumber": "01-2345-6789",
+      "propertyType": "SINGLE_FAMILY",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "squareFootage": 1800,
+      "lotSize": 6000,
+      "yearBuilt": 1998,
+      "conditionScale": 3,
+      "estimatedRepairCost": 15000,
+      "estimatedMarketValue": 320000,
+      "afterRepairValue": 350000,
+      "lastSalePrice": 280000,
+      "lastSaleDate": "2020-06-15",
+      "annualPropertyTax": 6500,
+      "annualInsuranceEstimate": 1800
+    },
+    "terms": {
+      "structure": "AMORTIZED",
+      "principalAmount": 200000,
+      "interestRate": 9.5,
+      "dayCountConvention": "THIRTY_360",
+      "amortizationTermMonths": 24,
+      "firstPaymentDate": "2026-11-01",
+      "paymentDueDay": 1,
+      "maturityDate": "2028-10-01",
+      "lateFeeType": "FLAT",
+      "lateFeeAmount": 50,
+      "gracePeriodDays": 10,
+      "prePayPenaltyType": "PERCENTAGE",
+      "prePayPenaltyAmount": 2
+    },
+    "insuranceCompanyId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5c",
+    "borrowerProfileIds": ["01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5d"]
+  }
+  ```
+
+  Notas: `lenderCompanyId` solo hace falta si el Lender tiene más de una `LenderCompany`; `insuranceCompanyId` y `borrowerProfileIds` son opcionales; `prePayPenaltyType`/`prePayPenaltyAmount` viajan juntos o ninguno de los dos.
+
 - **Response `201`**: `Contract` completo (ver forma abajo), `status: "DRAFT"`, `currentTerms` con `versionNumber: 1` y `status: "DRAFT"`.
 - **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId`/`insuranceCompanyId`/algún `borrowerProfileId` ajeno o no vinculado) · `409 NO_LENDER_COMPANY`.
 
@@ -689,6 +865,16 @@ Lista + filtro `status` + paginación. `LENDER` ve todas sus `LenderCompany`; `B
 `property`/`insuranceCompanyId` editables en cualquier estado del contrato; `terms` solo si la `ContractTerms` vigente está `DRAFT` — para cambiar términos financieros de un contrato ya enviado/activo, usar `POST .../terms` (nueva versión).
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo.
+- **Request body**: `property` (parcial, mismos campos que la creación), `terms` (parcial, mismos campos que la creación), `insuranceCompanyId` (`string`, o `null` para quitarlo) — todos opcionales, al menos uno.
+
+  ```json
+  {
+    "property": { "estimatedMarketValue": 325000, "conditionScale": 4 },
+    "terms": { "interestRate": 9 },
+    "insuranceCompanyId": null
+  }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_EDITABLE` · `409 NO_CURRENT_TERMS`.
 
 ### `DELETE /api/contracts/:id`
@@ -705,6 +891,11 @@ Permitido en `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT`; nunca borra `ScheduledP
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo.
 - **Request body**: `{ "reason": string }` (obligatorio, auditado).
+
+  ```json
+  { "reason": "Borrower requested to cancel before closing." }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 CONTRACT_NOT_CANCELLABLE`.
 
 ### `POST /api/contracts/:id/borrowers` / `DELETE /api/contracts/:id/borrowers/:borrowerId`
@@ -713,6 +904,11 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo.
 - **Request body (`POST`)**: `{ "borrowerProfileId": string, "isPrimary"?: boolean }`.
+
+  ```json
+  { "borrowerProfileId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5d", "isPrimary": true }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (deudor no vinculado, o ya no asociado en el `DELETE`) · `409 ALREADY_ASSOCIATED`.
 
 ### `GET /api/contracts/:id/terms` / `POST /api/contracts/:id/terms`
@@ -720,6 +916,25 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 `GET`: historial completo de versiones, más reciente primero. `POST`: propone una nueva versión — solo si la vigente **no** está `DRAFT` (si lo está, usar `PATCH /api/contracts/:id`); mismo shape de `terms` que la creación, sin copiar los `ContractFeeItem` de la versión anterior. La versión anterior pasa a `SUPERSEDED` de inmediato.
 
 - **Auth**: `GET` — `LENDER`/`BORROWER` asociado, lectura. `POST` — `LENDER` + 2FA.
+- **Request body (`POST`)**: mismo shape completo que `terms` en [`POST /api/contracts`](#post-apicontracts) (arriba) — no admite parcial.
+
+  ```json
+  {
+    "structure": "AMORTIZED",
+    "principalAmount": 195000,
+    "interestRate": 9,
+    "dayCountConvention": "THIRTY_360",
+    "amortizationTermMonths": 24,
+    "firstPaymentDate": "2027-01-01",
+    "paymentDueDay": 1,
+    "maturityDate": "2028-12-01",
+    "lateFeeType": "FLAT",
+    "lateFeeAmount": 50,
+    "gracePeriodDays": 10,
+    "changeSummary": "Rate reduced after refinance negotiation."
+  }
+  ```
+
 - **Errores (`POST`)**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 NO_CURRENT_TERMS` · `409 TERMS_STILL_DRAFT`.
 
 ### `POST /api/contracts/:id/terms/:termsId/submit`
@@ -735,6 +950,11 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 
 - **Auth**: Autenticado, rol `BORROWER` asociado (nunca exige 2FA).
 - **Request body (`reject`)**: `{ "comment"?: string }`.
+
+  ```json
+  { "comment": "Interest rate is higher than what we discussed." }
+  ```
+
 - **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 TERMS_NOT_PENDING` · `409 ALREADY_DECIDED`.
 
 ### `GET /api/contracts/:id/schedule` / `.../balance`
@@ -750,6 +970,15 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 
 - **Auth**: `GET` — `LENDER`/`BORROWER` asociado. `POST`/`DELETE` — `LENDER` + 2FA.
 - **Request body (`POST`)**: `{ "category": "LENDER"|"PLATFORM", "code": "ORIGINATION_POINTS"|"PROCESSING"|"UNDERWRITING"|"DOC_PREP"|"CUSTOM"|"MARKETPLACE_CONNECTION", "label"?: string (obligatorio si code=CUSTOM), "amountType": "FLAT"|"PERCENTAGE", "amountValue": number }`.
+
+  ```json
+  { "category": "LENDER", "code": "ORIGINATION_POINTS", "amountType": "PERCENTAGE", "amountValue": 2 }
+  ```
+
+  ```json
+  { "category": "PLATFORM", "code": "CUSTOM", "label": "Wire fee", "amountType": "FLAT", "amountValue": 35 }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` · `400 RESERVED_FEE_CODE` (`code=MARKETPLACE_CONNECTION`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_EDITABLE`.
 
 ### Forma de `Contract`
@@ -782,6 +1011,31 @@ Fase 13 parcial (`PB-011`/`PB-026`/`PB-017`, reescrito 2026-09-11 — `D-S2-21`/
 
 - **Auth**: Autenticado, rol `BORROWER` (nunca exige 2FA).
 - **Request body**: `property` (mismo shape que `POST /api/contracts`, ver [arriba](#post-apicontracts)), `projectType` (`RENTAL`/`FIX_AND_FLIP`/`SLOW_FLIP`/`COMMERCIAL`/`NEW_CONSTRUCTION`), `purchasePrice`/`rehabAmount`/`totalLoanAmountRequested`, `requestedClosingDate`, `requestedTimelineNotes`?, `visibility` (`PUBLIC`/`PRIVATE` — se fija acá, no en `publish`).
+
+  ```json
+  {
+    "property": {
+      "addressLine1": "500 Lamar Blvd",
+      "city": "Austin",
+      "state": "TX",
+      "postalCode": "78701",
+      "propertyType": "SINGLE_FAMILY",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "squareFootage": 1800,
+      "estimatedMarketValue": 320000,
+      "afterRepairValue": 350000
+    },
+    "projectType": "FIX_AND_FLIP",
+    "purchasePrice": 250000,
+    "rehabAmount": 40000,
+    "totalLoanAmountRequested": 260000,
+    "requestedClosingDate": "2026-11-15",
+    "requestedTimelineNotes": "Looking to close within 30 days of an accepted offer.",
+    "visibility": "PUBLIC"
+  }
+  ```
+
 - **Response `201`**: `LoanRequest` completo, `status: "DRAFT"`, `property.lenderCompanyId: null`.
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 BORROWER_NOT_FOUND`.
 
@@ -790,6 +1044,12 @@ Fase 13 parcial (`PB-011`/`PB-026`/`PB-017`, reescrito 2026-09-11 — `D-S2-21`/
 Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
 
 - **Auth**: Autenticado, rol `BORROWER`.
+- **Request body (`PATCH`)**: cualquier subconjunto no vacío de los campos de la creación (`property` parcial incluida).
+
+  ```json
+  { "totalLoanAmountRequested": 270000, "requestedTimelineNotes": "Flexible on closing date, 30-45 days." }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_EDITABLE` (`PATCH` fuera de `DRAFT`).
 
 ### `POST /api/borrowers/me/loan-requests/:id/publish` / `.../withdraw`
@@ -805,6 +1065,11 @@ Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
 
 - **Auth**: Autenticado, rol `BORROWER`.
 - **Request body (`POST`)**: `{ "lenderCompanyId": string }`.
+
+  ```json
+  { "lenderCompanyId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5b" }
+  ```
+
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 NOT_FOUND` (loan request ajeno, o `lenderCompanyId` inexistente) · `409 LOAN_REQUEST_NOT_TARGETABLE` · `409 ALREADY_TARGETED`.
 
 ### `GET /api/marketplace/loan-requests` / `GET /api/marketplace/loan-requests/:id`
@@ -820,6 +1085,20 @@ Para `LENDER`: `PUBLIC` visibles a todos + `PRIVATE` donde su `LenderCompany` es
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
 - **Request body (`POST`)**: `{ "lenderCompanyId"?: string, "structure": "INTEREST_ONLY"|"AMORTIZED"|"BALLOON", "principalAmount": number, "interestRate": number, "amortizationTermMonths": number, "estimatedClosingCostsAmount"?: number, "message"?: string, "expiresAt"?: string }`. `lenderCompanyId` obligatorio solo si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`).
+
+  ```json
+  {
+    "lenderCompanyId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5b",
+    "structure": "INTEREST_ONLY",
+    "principalAmount": 255000,
+    "interestRate": 10.5,
+    "amortizationTermMonths": 12,
+    "estimatedClosingCostsAmount": 5500,
+    "message": "Can close in 3 weeks, no prepayment penalty.",
+    "expiresAt": "2026-10-01T00:00:00.000Z"
+  }
+  ```
+
 - **Response `201`**: `LoanQuote`.
 - **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (loan request no visible para este Lender) · `409 LOAN_REQUEST_ALREADY_MATCHED`.
 
@@ -833,6 +1112,8 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 ### `POST /api/borrowers/me/loan-requests/:id/quotes/:quoteId/select`
 
 `PB-017`. El Deudor elige una cotización: en una sola transacción, declina el resto `SUBMITTED` de ese `LoanRequest`, backfillea `Property.lenderCompanyId` con la `LenderCompany` ganadora (`D-S2-25`), mueve `LoanRequest.status → MATCHED`, y crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` (mismo servicio que `BE-051`) con `ContractTerms` v1 pre-llenada desde la cotización — `structure`/`principalAmount`/`interestRate`/`amortizationTermMonths` vienen de la `LoanQuote`; `firstPaymentDate` se deriva como un mes después de `requestedClosingDate`, `maturityDate` a partir de ahí + `amortizationTermMonths`, mora `FLAT $50`/10 días de gracia por default — todo editable por el Lender después (`PATCH /api/contracts/:id`, mientras `ContractTerms` siga `DRAFT`). Inserta automáticamente `ContractFeeItem(MARKETPLACE_CONNECTION)` (1pt del `principalAmount`, mínimo $999, `D-S2-5`).
+
+**`D-P5-3` (2026-09-13)**: en la misma transacción crea (o reactiva si estaba `REMOVED`) el `LenderBorrower(ACTIVE)` entre el Deudor y la `LenderCompany` ganadora — `invitedByUserId` queda en el usuario Lender que mandó esa cotización — y agrega al Deudor como `ContractBorrower(isPrimary: true)` del `Contract` recién creado. Es la única forma de crear un `LenderBorrower` nuevo con `POST /api/lenders/me/borrowers` deshabilitado (`D-P5-1`). Después de crear el contrato, envía al Lender el correo `loan-quote-selected` avisándole que tiene un contrato en `DRAFT` listo para revisar/completar.
 
 - **Auth**: Autenticado, rol `BORROWER`.
 - **Response `201`**: `{ "success": true, "data": { "contractId": "..." } }`.
@@ -848,24 +1129,24 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 |---|---|---|
 | `INVALID_JSON` | 400 | El body no es JSON válido |
 | `VALIDATION_ERROR` | 400 | El body no cumple el schema Zod del endpoint (primer error de validación) |
-| `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/lenders/me/borrowers` — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
+| `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/marketplace/loan-requests/:id/quotes`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
 | `INVALID_TOKEN` | 400 o 401 | Refresh token / pending token / access token / token de reset: inválido, manipulado o expirado. `password/reset` usa 400 (es un dato del body); el resto usa 401 |
 | `UNAUTHENTICATED` | 401 | Falta el header `Authorization: Bearer` en un endpoint que lo exige |
 | `INVALID_CREDENTIALS` | 401 | Login: correo inexistente o contraseña incorrecta (mismo código para ambos). También: 2FA con sesión de verificación inválida, o `disable`/`recovery-codes` con password/código incorrectos |
 | `INVALID_2FA_CODE` | 401 | Código TOTP y recovery code, ambos inválidos, en `/login/2fa` o `/2fa/verify` |
 | `ACCOUNT_INACTIVE` | 403 | Login con contraseña correcta pero `User.isActive=false`. También: un ADMIN/LENDER con `isActive=false` intenta una escritura de negocio con un access token todavía vigente (`withRole` lo revisa en vivo, `BE-036`) |
 | `FORBIDDEN` | 403 | Sesión válida pero el rol no tiene permiso para el endpoint (p.ej. un BORROWER llamando a `/2fa/setup`, o un LENDER llamando a `/admin/users/:id/activate`); también el caso de `requireContractAccess` para un rol sin modelo de acceso a contratos definido todavía |
-| `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `POST /api/lenders/me/borrowers`, `PATCH`/`DELETE /api/lenders/me/borrowers/:id`, todo endpoint de escritura de `LENDER` bajo `/api/contracts/**` (crear/editar/borrar/cancelar contrato, borrowers, terms, fees — nunca `accept`/`reject`, esos son `BORROWER`), y `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes` (Fase 13). No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
+| `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`), `DELETE /api/lenders/me/borrowers/:id` (`POST`/`PATCH` de ese mismo módulo deshabilitados, `D-P5-1`), todo endpoint de escritura de `LENDER` bajo `/api/contracts/**` (crear/editar/borrar/cancelar contrato, borrowers, terms, fees — nunca `accept`/`reject`, esos son `BORROWER`), y `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes` (Fase 13). No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | `PATCH /api/borrowers/me` con `mustChangePassword=true` (`D-P4-2`) — el Deudor todavía no cambió la contraseña temporal que se le generó al crearlo |
 | `USER_NOT_FOUND` | 404 | `:id` no corresponde a ningún usuario (o está borrado lógicamente) |
-| `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, usado por todo el módulo de Contratos): el contrato no existe, o existe pero no pertenece a la sesión. También `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender, `POST /api/contracts` con un `insuranceCompanyId`/`borrowerProfileId` ajeno, `POST /api/contracts/:id/borrowers` con un deudor no vinculado, `.../terms/:termsId*` con un `termsId` que no es de ese contrato, `.../fees/:feeId` con un fee que no es de esa versión. También en el módulo de marketplace (Fase 13): un `LoanRequest` ajeno o inexistente, un `lenderCompanyId` inexistente en `.../targets`, un `LoanRequest` `PRIVATE` que el Lender no puede ver (sin `target`/no `PUBLISHED`), una `LoanQuote` que no es de ese `LoanRequest`. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
+| `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, usado por todo el módulo de Contratos): el contrato no existe, o existe pero no pertenece a la sesión. También (mientras estuvo activo) `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender (`D-P5-1`, deshabilitado), `POST /api/contracts` con un `insuranceCompanyId`/`borrowerProfileId` ajeno, `POST /api/contracts/:id/borrowers` con un deudor no vinculado, `.../terms/:termsId*` con un `termsId` que no es de ese contrato, `.../fees/:feeId` con un fee que no es de esa versión. También en el módulo de marketplace (Fase 13): un `LoanRequest` ajeno o inexistente, un `lenderCompanyId` inexistente en `.../targets`, un `LoanRequest` `PRIVATE` que el Lender no puede ver (sin `target`/no `PUBLISHED`), una `LoanQuote` que no es de ese `LoanRequest`. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
 | `LENDER_NOT_FOUND` | 404 | `:id` de `/api/admin/lenders*` no corresponde a ningún `LenderProfile` ni `User.id` de un Lender (o está borrado lógicamente, `D-P4-7`); o el `User` autenticado en `/api/lenders/me*` no tiene `LenderProfile` |
-| `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente) |
+| `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente); mismo código en `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`) si `:companyId` no es del Lender de la sesión |
 | `BORROWER_NOT_FOUND` | 404 | El `User` autenticado en `/api/borrowers/me*` no tiene `BorrowerProfile` |
-| `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users`, `POST /api/lenders/me/borrowers` con un correo que ya existe |
-| `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies` o `POST /api/lenders/me/companies` con un `ein` que ya usa otra `LenderCompany` |
-| `LENDER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/admin/lenders/:id` (alguna de sus `LenderCompany` tiene un `Contract` `ACTIVE`/`DELINQUENT`) o `DELETE /api/admin/lenders/:id/companies/:companyId` (esa empresa puntual lo tiene) |
-| `NO_LENDER_COMPANY` | 409 | `POST /api/lenders/me/borrowers` — el Lender todavía no tiene ninguna `LenderCompany` |
+| `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) con un correo que ya existe |
+| `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies`, `POST /api/lenders/me/companies`, o `PATCH /api/admin\|lenders/.../companies/:companyId` (incluido `D-P4-9`) con un `ein` que ya usa otra `LenderCompany` |
+| `LENDER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/admin/lenders/:id` (alguna de sus `LenderCompany` tiene un `Contract` `ACTIVE`/`DELINQUENT`) o `DELETE .../companies/:companyId` (esa empresa puntual lo tiene) — Admin o autoservicio (`D-P4-9`) |
+| `NO_LENDER_COMPANY` | 409 | `POST /api/marketplace/loan-requests/:id/quotes`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender todavía no tiene ninguna `LenderCompany` |
 | `BORROWER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/lenders/me/borrowers/:id` — el deudor tiene un `Contract` `ACTIVE`/`DELINQUENT` con alguna de las empresas de las que se lo está desvinculando |
 | `TWO_FACTOR_ALREADY_ENABLED` | 409 | `/2fa/setup` o `/2fa/verify` cuando el usuario ya tiene 2FA activo |
 | `TWO_FACTOR_NOT_ENABLED` | 409 | `/2fa/disable` o `/2fa/recovery-codes` cuando el usuario no tiene 2FA activo |

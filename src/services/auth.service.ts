@@ -240,7 +240,6 @@ export interface MeResult {
   };
   borrowerProfile?: {
     id: string;
-    phone: string | null;
     lenderCompanies: { id: string; companyName: string }[];
   };
 }
@@ -282,7 +281,6 @@ export async function getMe(userId: string): Promise<MeResult> {
     if (borrowerProfile) {
       result.borrowerProfile = {
         id: borrowerProfile.id,
-        phone: borrowerProfile.phone,
         lenderCompanies: borrowerProfile.lenders.map((link) => ({
           id: link.lenderCompany.id,
           companyName: link.lenderCompany.companyName,

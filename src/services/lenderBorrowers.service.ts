@@ -12,7 +12,6 @@ import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagina
 export interface BorrowerListItem {
   id: string;
   user: SafeUser;
-  phone: string | null;
   addressLine1: string | null;
   city: string | null;
   state: string | null;
@@ -46,11 +45,10 @@ type BorrowerProfileWithRelations = BorrowerProfile & {
 };
 
 function mapBorrowerListItem(profile: BorrowerProfileWithRelations): BorrowerListItem {
-  const { id, phone, addressLine1, city, state, postalCode } = profile;
+  const { id, addressLine1, city, state, postalCode } = profile;
   return {
     id,
     user: toSafeUser(profile.user),
-    phone,
     addressLine1,
     city,
     state,
@@ -185,8 +183,7 @@ export async function getBorrowerForLender(userId: string, borrowerProfileId: st
 export async function updateBorrower(userId: string, borrowerProfileId: string, input: UpdateBorrowerProfileInput): Promise<BorrowerListItem> {
   await getBorrowerForLender(userId, borrowerProfileId);
 
-  const data: { phone?: string; addressLine1?: string; city?: string; state?: string; postalCode?: string } = {};
-  if (input.phone !== undefined) data.phone = input.phone;
+  const data: { addressLine1?: string; city?: string; state?: string; postalCode?: string } = {};
   if (input.addressLine1 !== undefined) data.addressLine1 = input.addressLine1;
   if (input.city !== undefined) data.city = input.city;
   if (input.state !== undefined) data.state = input.state;

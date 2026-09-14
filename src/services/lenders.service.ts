@@ -3,7 +3,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
-import type { CreateLenderCompanyInput, ListLendersQuery, UpdateLenderCompanyInput } from "@/validations/lenders.validation";
+import type { CreateLenderCompanyInput, ListLendersQuery, UpdateLenderCompanyInput, UpdateOwnLenderCompanyInput } from "@/validations/lenders.validation";
 import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagination";
 
 export interface LenderCompanySummary {
@@ -292,4 +292,22 @@ export async function deleteLender(id: string, actorUserId: string): Promise<Saf
 export async function getOwnLenderProfile(userId: string): Promise<LenderDetail> {
   const profile = await requireLenderProfileByUserId(userId);
   return getLender(profile.id);
+}
+
+// D-P4-9, nuevo: variante autoservicio de updateLenderCompany — el propio
+// Lender edita una empresa suya, resolviendo el LenderProfile desde la
+// sesión en vez de un :id (mismo patrón que createOwnLenderCompany).
+// UpdateOwnLenderCompanyInput nunca trae `status` (el schema lo omite), así
+// que updateLenderCompany nunca lo toca por esta vía.
+export async function updateOwnLenderCompany(userId: string, companyId: string, input: UpdateOwnLenderCompanyInput): Promise<LenderCompanySummary> {
+  const profile = await requireLenderProfileByUserId(userId);
+  return updateLenderCompany(profile.id, companyId, input as UpdateLenderCompanyInput, userId);
+}
+
+// D-P4-9, nuevo: variante autoservicio de deleteLenderCompany — mismas
+// reglas (bloqueado por contratos ACTIVE/DELINQUENT), resolviendo el
+// LenderProfile desde la sesión.
+export async function deleteOwnLenderCompany(userId: string, companyId: string): Promise<void> {
+  const profile = await requireLenderProfileByUserId(userId);
+  return deleteLenderCompany(profile.id, companyId, userId);
 }

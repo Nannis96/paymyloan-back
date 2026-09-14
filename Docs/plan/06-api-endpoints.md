@@ -52,10 +52,11 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 |---|---|---|---|
 | GET | `/api/lenders/me` | LENDER | `BE-100`, nuevo — propio `LenderProfile` + todas sus `LenderCompany`. Sin `PATCH` (`D-P4-8`) — `LenderProfile` no tiene campo propio editable; `name`/`phone` de `User` van por `PATCH /api/auth/me`, `BE-099` |
 | POST | `/api/lenders/me/companies` | LENDER | `BE-101`, nuevo (`D-P4-5`) — el propio Lender se crea una empresa, mismo shape que `POST /api/admin/lenders/:id/companies`; cierra el hueco de un Lender auto-registrado sin ninguna `LenderCompany` |
-| POST | `/api/lenders/me/borrowers` | LENDER | crea `User(role=BORROWER)` + `BorrowerProfile` (sin `lenderId`) + `LenderBorrower(lenderCompanyId, ...)` — una sola empresa se resuelve sola, más de una exige `lenderCompanyId` en el body, validado contra las propias |
+| PATCH / DELETE | `/api/lenders/me/companies/:companyId` | LENDER | `D-P4-9`, nuevo — el propio Lender edita/borra una empresa suya, mismas reglas que `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` (`D-P4-8`), salvo que `PATCH` autoservicio nunca acepta `status` (suspender/reactivar sigue siendo solo del Admin) |
+| ~~POST~~ | ~~`/api/lenders/me/borrowers`~~ | LENDER | **Deshabilitado 2026-09-11 (`D-P5-1`)** — creaba `User(role=BORROWER)` + `BorrowerProfile` (sin `lenderId`) + `LenderBorrower(lenderCompanyId, ...)`; sin reemplazo todavía, ver [00](00-contradicciones-y-decisiones.md#decisión-2026-09-11-be-045be-048-deshabilitados-a-pedido-explícito--pendiente-cerrar-el-reemplazo) |
 | GET | `/api/lenders/me/borrowers` | LENDER | across **todas** las `LenderCompany` del Lender |
 | GET | `/api/lenders/me/borrowers/:id` | LENDER | `EXISTS(LenderBorrower WHERE borrowerProfileId=:id AND lenderCompanyId IN (mis empresas) AND status=ACTIVE)` |
-| PATCH | `/api/lenders/me/borrowers/:id` | LENDER | idem |
+| ~~PATCH~~ | ~~`/api/lenders/me/borrowers/:id`~~ | LENDER | **Deshabilitado 2026-09-11 (`D-P5-1`)** — editaba contacto del `BorrowerProfile` |
 | DELETE | `/api/lenders/me/borrowers/:id` | LENDER | **desvincula** (`LenderBorrower.removedAt`, `M-3`) — nunca borra el `BorrowerProfile`, el deudor puede tener otros lenders; bloqueado si tiene contratos `ACTIVE`/`DELINQUENT` con esa empresa |
 
 ## 6.4 Borrowers (autoservicio)
@@ -63,7 +64,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | Método | Ruta | Rol | Tenant |
 |---|---|---|---|
 | GET | `/api/borrowers/me` | BORROWER | propio |
-| PATCH | `/api/borrowers/me` | BORROWER | campos de contacto propios, nunca `lenderId`. Bloqueado (`403 PASSWORD_CHANGE_REQUIRED`) mientras `mustChangePassword=true` (`D-P4-2`) |
+| PATCH | `/api/borrowers/me` | BORROWER | dirección propia (`addressLine1`/`city`/`state`/`postalCode`), nunca `lenderId` ni `phone` (`D-P5-2`, se edita por `PATCH /api/auth/me`). Bloqueado (`403 PASSWORD_CHANGE_REQUIRED`) mientras `mustChangePassword=true` (`D-P4-2`) |
 | POST | `/api/borrowers/me/password` | BORROWER | `BE-050` — cambia la contraseña temporal del primer login; exige `currentPassword`, revoca todos los refresh tokens, apaga `mustChangePassword` |
 | POST | `/api/borrowers/me/password` | BORROWER | cambia la contraseña temporal en primer login |
 
@@ -134,7 +135,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | POST | `/api/borrowers/me/loan-requests/:id/invites` | BORROWER | `D-S2-14` — invita por email a alguien que puede no tener cuenta todavía (`LoanRequestInvite`) — distinto de `targets`, arriba |
 | POST | `/api/borrowers/me/loan-requests/:id/photos` | BORROWER | sube `Document(type=LOAN_REQUEST_PHOTO)` |
 | GET | `/api/borrowers/me/loan-requests/:id/quotes` | BORROWER | `D-S2-21`, nuevo — lista las `LoanQuote` recibidas, para comparar |
-| POST | `/api/borrowers/me/loan-requests/:id/quotes/:quoteId/select` | BORROWER | `D-S2-21`, nuevo — elige una cotización: crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` pre-llenado desde ella (`BE-051`); el resto de cotizaciones `SUBMITTED` → `DECLINED`; `LoanRequest.status → MATCHED` |
+| POST | `/api/borrowers/me/loan-requests/:id/quotes/:quoteId/select` | BORROWER | `D-S2-21`, nuevo — elige una cotización: crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` pre-llenado desde ella (`BE-051`); el resto de cotizaciones `SUBMITTED` → `DECLINED`; `LoanRequest.status → MATCHED`. `D-P5-3` (cierra `D-P5-1`): también crea/reactiva el `LenderBorrower(ACTIVE)` ganador y agrega al Deudor como `ContractBorrower` |
 | GET | `/api/marketplace/loan-requests` | LENDER | listado de `LoanRequest(PUBLISHED)` visibles para el Lender — `PUBLIC` (identidad/dirección exacta ocultas) más los `PRIVATE` donde está en `LoanRequestLenderTarget` |
 | GET | `/api/marketplace/loan-requests/:id` | LENDER | detalle (mismo enmascarado si `PUBLIC`) |
 | POST | `/api/marketplace/loan-requests/:id/quotes` | LENDER | `D-S2-21`, reemplaza a `POST .../match` — crea o reemplaza (mientras siga `SUBMITTED`) la `LoanQuote` propia; **no** crea el `Contract`. `lenderCompanyId` obligatorio en el body si el Lender tiene más de una `LenderCompany` (mismo patrón que `BE-045`, `D-S2-20`) |

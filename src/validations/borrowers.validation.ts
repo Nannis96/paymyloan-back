@@ -25,10 +25,11 @@ export const createBorrowerSchema = z.object({
 });
 export type CreateBorrowerInput = z.infer<typeof createBorrowerSchema>;
 
-// BE-048 (el Lender edita) y BE-050 (el Borrower edita lo propio) — mismos
-// campos de contacto, nunca lenderCompanyId/lenderId.
+// BE-048 (el Lender edita) y BE-050 (el Borrower edita lo propio) — dirección
+// únicamente; `phone` ya no vive en `BorrowerProfile` (D-P5-2, redundante
+// con `User.phone`) — se edita por `PATCH /api/auth/me` (BE-099).
 export const updateBorrowerProfileSchema = z
-  .object({ phone, addressLine1, city, state, postalCode })
+  .object({ addressLine1, city, state, postalCode })
   .refine((data) => Object.keys(data).length > 0, { message: "Must include at least one field to update" });
 export type UpdateBorrowerProfileInput = z.infer<typeof updateBorrowerProfileSchema>;
 
