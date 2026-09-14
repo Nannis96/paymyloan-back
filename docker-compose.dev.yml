@@ -1,0 +1,74 @@
+# Desarrollo con recarga en caliente:
+#   docker compose -f docker-compose.dev.yml up --build
+services:
+  api:
+    build:
+      context: .
+      target: dev
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4000}:4000"
+    env_file:
+      # Opcional: el backend arranca sin el, con los valores por defecto.
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: development
+      # Apunta al servicio "db" de esta misma red, no a localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-paymyloan}:${POSTGRES_PASSWORD:-paymyloan}@db:5432/${POSTGRES_DB:-paymyloan}?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # El código se monta; node_modules y .next se quedan los del contenedor.
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    # Aplica migraciones pendientes antes de levantar el server de desarrollo.
+    command: sh -c "pnpm exec prisma migrate deploy && pnpm run dev -H 0.0.0.0 -p 4000"
+
+  db:
+    # postgres:18 (BE-001): uuidv7() nativo para las PK de toda tabla nueva
+    # (decisión D0-2) — verificado compatible con Prisma 6.19 sin warnings.
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paymyloan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paymyloan}
+      POSTGRES_DB: ${POSTGRES_DB:-paymyloan}
+    ports:
+      - "5432:5432"
+    volumes:
+      # postgres:18 cambió la convención: monta en /var/lib/postgresql (no
+      # ".../data") para que el propio contenedor arme subdirectorios por
+      # versión mayor (soporte de pg_upgrade in-place en el futuro).
+      - paymyloan_back_db_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paymyloan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Base separada para la suite de integración (BE-073/081): nunca toca los
+  # datos de desarrollo de "db". Sin volumen — se descarta al bajar el stack.
+  # Uso: docker compose -f docker-compose.dev.yml up -d db-test
+  #      pnpm run test:integration
+  db-test:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paymyloan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paymyloan}
+      POSTGRES_DB: ${POSTGRES_DB:-paymyloan_test}
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-paymyloan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  paymyloan_back_db_data:
