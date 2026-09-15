@@ -1,10 +1,10 @@
 # Producción: imagen compilada (target "runner"), sin volúmenes, sin
 # node_modules en runtime.
 #
-# Todavía no hay reverse proxy/TLS delante (ver README): el servicio publica
-# su puerto directo al host. Cuando este backend salga a un servidor real,
-# se puede sumar un nginx + certbot igual que en el proyecto paymyloan
-# (frontend), reutilizando ese mismo patrón.
+# El TLS y el enrutamiento por dominio los maneja Nginx Proxy Manager desde
+# el stack hermano "nginx-proxy-manager": "api" ya no publica su puerto al
+# host, se alcanza vía la red compartida "paymyloan-edge" (y sigue en la red
+# default del proyecto para hablarle a "db").
 #
 #   docker compose up --build -d
 services:
@@ -51,8 +51,8 @@ services:
       target: runner
     image: paymyloan-back:latest
     restart: unless-stopped
-    ports:
-      - "${PORT:-4000}:4000"
+    expose:
+      - "4000"
     env_file:
       - path: .env
         required: false
@@ -64,6 +64,17 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    networks:
+      # "default": para hablarle a "db" y "migrate", que no se tocan y
+      # siguen solo ahi. "paymyloan-edge": para que Nginx Proxy Manager
+      # llegue a este servicio como "api:4000".
+      - default
+      - paymyloan-edge
 
 volumes:
   paymyloan_back_db_data:
+
+networks:
+  # Creada por el compose de nginx-proxy-manager; aca solo nos unimos.
+  paymyloan-edge:
+    external: true
