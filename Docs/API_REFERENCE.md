@@ -94,6 +94,8 @@ Fuente única: `src/config/env.ts` (`.env.example` documenta lo mismo con coment
 
 ### `GET /api/health`
 
+**¿Para qué sirve?** Para que un balanceador de carga, Docker o un monitoreo externo verifiquen que el proceso sigue vivo — no lo llama el frontend de la app.
+
 Sonda de infraestructura (Docker `HEALTHCHECK`, balanceador, monitoreo externo) — no es un endpoint de negocio y no toca la base de datos.
 
 - **Auth**: Público.
@@ -110,6 +112,8 @@ Sonda de infraestructura (Docker `HEALTHCHECK`, balanceador, monitoreo externo) 
 
 ### `GET /api/users`
 
+**¿Para qué sirve?** Para que un Admin vea de un vistazo todas las cuentas del sistema (de cualquier rol) y decida a quién activar, desactivar o editar.
+
 Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incluye tanto activos como inactivos, es lo que el Admin necesita ver para decidir a quién activar/desactivar.
 
 - **Auth**: Autenticado, rol `ADMIN`.
@@ -117,6 +121,8 @@ Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incl
 - **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (sesión válida pero no es ADMIN).
 
 ### `POST /api/users`
+
+**¿Para qué sirve?** Para que un Admin dé de alta una cuenta a mano (sin pasar por el auto-registro público) — es el único camino para crear cuentas de roles que no pueden auto-registrarse (`ADMIN`, `BOOKKEEPER`, `INSURANCE_COMPANY`).
 
 Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActive`). **No pide contraseña** (`D-P2-5`, 2026-09-07) — nace sin una utilizable, igual que el auto-registro (`POST /api/auth/register`, más abajo). No confundir tampoco con ese endpoint: acá lo llama un Admin autenticado y la cuenta queda **activa por default** salvo que se mande `isActive:false` explícito (el auto-registro siempre nace inactivo).
 
@@ -158,6 +164,8 @@ Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActi
 
 ### `PATCH /api/users/:id`
 
+**¿Para qué sirve?** Para que un Admin corrija los datos de cualquier cuenta, o la active/desactive — es el mismo endpoint que se usa para "prender" a alguien que nació inactivo.
+
 Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`phone`/`password`/`isActive`.
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
@@ -187,6 +195,8 @@ Edición parcial — cualquier subconjunto no vacío de `name`/`email`/`phone`/`
 - **`isActive`, activación/desactivación desde este mismo endpoint (`D-P2-4`)**: si `isActive` pasa de `false` a `true`, corre exactamente la misma lógica que [`POST /api/admin/users/:id/activate`](#post-apiadminusersidactivate) — en la primera activación (el usuario nunca inició sesión) genera una contraseña temporal, la guarda hasheada, intenta enviarla por correo, **y la devuelve en la respuesta** (`temporaryPassword`) — mientras no haya un proveedor de correo real configurado, esta es la forma confiable de que el Admin la vea. Una reactivación (el usuario ya había iniciado sesión antes) no toca la contraseña ni agrega `temporaryPassword`. Si `isActive` pasa de `true` a `false`, revoca todos los refresh tokens vigentes del usuario, igual que `/deactivate`. Un `password` explícito enviado en el mismo body que dispara una primera activación se ignora — gana la contraseña generada.
 
 ### `DELETE /api/users/:id`
+
+**¿Para qué sirve?** Para que un Admin dé de baja una cuenta sin destruir su historial — préstamos, documentos y auditoría pueden seguir apuntando a ese usuario.
 
 Eliminación **lógica**: pone `deletedAt = now()`. Nunca borra la fila (puede estar referenciada desde préstamos, documentos o auditoría) — distinto de `isActive` (activar/desactivar), que es reversible y no oculta al usuario de listados.
 
@@ -239,6 +249,8 @@ JWT propio (access + refresh), sin NextAuth ni cookies — ver [plan/07 §7.1](p
 
 ### `POST /api/auth/register`
 
+**¿Para qué sirve?** Para que una persona (futuro Lender o Borrower) cree su propia cuenta sin que nadie la haya dado de alta antes. Queda inactiva hasta que un Admin la active.
+
 Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin que un Admin/Lender lo haya dado de alta antes (`D-P1-10`). **No pide contraseña.** La cuenta nace `isActive=false`; solo un Admin puede activarla (`POST /api/admin/users/:id/activate`, más abajo), momento en el que recién se genera una contraseña y se envía por correo.
 
 - **Auth**: Público.
@@ -269,6 +281,8 @@ Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin
 
 ### `POST /api/auth/login`
 
+**¿Para qué sirve?** Iniciar sesión con correo y contraseña — primer paso del login. Si la cuenta tiene 2FA activo, todavía no entrega tokens de sesión: hay que completar el paso 2 (`/login/2fa`).
+
 Paso 1 de login. Si el usuario tiene 2FA activo, no emite tokens todavía — hay que completar el paso 2.
 
 - **Auth**: Público. **Rate limit**: bucket `login` (`RATE_LIMIT_LOGIN_MAX` intentos por `RATE_LIMIT_LOGIN_WINDOW_MS`, por IP).
@@ -294,6 +308,8 @@ Paso 1 de login. Si el usuario tiene 2FA activo, no emite tokens todavía — ha
 
 ### `POST /api/auth/login/2fa`
 
+**¿Para qué sirve?** Completar el login cuando la cuenta tiene 2FA activo — recién acá se entregan `accessToken`/`refreshToken`.
+
 Paso 2, solo alcanzable con un `pendingToken` válido del paso 1. Acepta un código TOTP **o** un recovery code de un solo uso.
 
 - **Auth**: Público (el `pendingToken` hace de credencial). **Rate limit**: bucket `login2fa`, independiente del bucket `login` — un código incorrecto acá nunca consume el cupo de `/login`.
@@ -308,6 +324,8 @@ Paso 2, solo alcanzable con un `pendingToken` válido del paso 1. Acepta un cód
 - **Nota**: un recovery code usado una vez queda marcado (`usedAt`) y no vuelve a funcionar.
 
 ### `POST /api/auth/refresh`
+
+**¿Para qué sirve?** Renovar la sesión (pedir un `accessToken` nuevo, que dura solo 15 min) sin volver a pedir usuario/contraseña, usando el `refreshToken` que se recibió al loguearse.
 
 Rota el refresh token en cada uso — nunca se puede reusar uno ya canjeado.
 
@@ -325,6 +343,8 @@ Rota el refresh token en cada uso — nunca se puede reusar uno ya canjeado.
 
 ### `POST /api/auth/logout`
 
+**¿Para qué sirve?** Cerrar sesión en un solo dispositivo/pestaña — revoca únicamente el `refreshToken` que se le manda, el resto de sesiones abiertas del usuario siguen activas.
+
 Revoca un refresh token puntual.
 
 - **Auth**: Autenticado (`Authorization: Bearer <accessToken>`) + el `refreshToken` a revocar en el body.
@@ -339,12 +359,16 @@ Revoca un refresh token puntual.
 
 ### `POST /api/auth/logout-all`
 
+**¿Para qué sirve?** Cerrar sesión en todos los dispositivos a la vez — por ejemplo si el usuario sospecha que alguien más tiene acceso a su cuenta.
+
 Revoca **todos** los refresh tokens vigentes del usuario autenticado (todas sus sesiones).
 
 - **Auth**: Autenticado. Sin body.
 - **Response `200`**: `{ "loggedOut": true }`.
 
 ### `GET /api/auth/me`
+
+**¿Para qué sirve?** Es el endpoint que cualquier cliente (frontend, mobile) llama justo después de loguearse, para saber quién es el usuario y con qué `LenderCompany`(s) puede operar — el token JWT en sí no trae esa información.
 
 Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderId` (ver [Convenciones](#convenciones)), esta es la forma de que el cliente sepa con qué `LenderCompany`(s) puede operar.
 
@@ -372,6 +396,8 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
 
 ### `PATCH /api/auth/me`
 
+**¿Para qué sirve?** Para que cualquier usuario logueado (de cualquier rol) edite su propio nombre o teléfono, sin depender de un Admin.
+
 Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información de contacto. Deliberadamente **no** acepta `email`/`password`/`role`/`isActive` — un campo fuera de este schema se descarta en vez de aplicarse, así que no hay forma de colarlos en el mismo body.
 
 - **Auth**: Autenticado. Sin restricción de rol — cualquiera edita lo suyo.
@@ -389,6 +415,8 @@ Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información
 
 ### `POST /api/auth/password/forgot`
 
+**¿Para qué sirve?** Pedir un correo con un link para restablecer la contraseña cuando no se la recuerda (o nunca se logueó y no tiene una todavía).
+
 - **Auth**: Público. **Rate limit**: bucket `password-forgot`.
 - **Request body**: `{ "email": string }`.
 
@@ -404,6 +432,8 @@ Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información
 
 ### `POST /api/auth/password/reset`
 
+**¿Para qué sirve?** Fijar una contraseña nueva usando el token que llegó por correo desde `/password/forgot` — cierra el flujo de "olvidé mi contraseña".
+
 - **Auth**: Público (el `token` del correo hace de credencial).
 - **Request body**: `{ "token": string, "newPassword": string (8–72 chars) }`.
 
@@ -417,6 +447,8 @@ Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información
 
 ### `POST /api/auth/2fa/setup`
 
+**¿Para qué sirve?** Primer paso para activar 2FA en la cuenta: genera el secreto y el QR para escanear con Google Authenticator/Authy. Todavía no activa nada.
+
 Genera el secreto TOTP — **no activa 2FA todavía**, eso pasa recién en `/verify`.
 
 - **Auth**: Autenticado, rol `ADMIN` o `LENDER`. Sin body.
@@ -428,6 +460,8 @@ Genera el secreto TOTP — **no activa 2FA todavía**, eso pasa recién en `/ver
 - **Errores**: `403 FORBIDDEN` (rol no permitido) · `409 TWO_FACTOR_ALREADY_ENABLED`.
 
 ### `POST /api/auth/2fa/verify`
+
+**¿Para qué sirve?** Segundo y último paso para activar 2FA: confirma que la app autenticadora quedó bien configurada (el usuario manda un código válido) y recién ahí prende `isTwoFactorEnabled`, entregando los recovery codes.
 
 Confirma que el usuario efectivamente pudo generar un código con el secreto de `/setup` — recién ahí activa 2FA.
 
@@ -447,6 +481,8 @@ Confirma que el usuario efectivamente pudo generar un código con el secreto de 
 
 ### `POST /api/auth/2fa/disable`
 
+**¿Para qué sirve?** Apagar 2FA en la cuenta (por ejemplo si se cambió de celular y se perdió acceso a la app autenticadora, pero todavía se tiene un recovery code o la app vieja).
+
 Exige contraseña **y** código TOTP vigente — nunca alcanza con tener la sesión activa (evita que un access token robado, por sí solo, pueda apagar 2FA).
 
 - **Auth**: Autenticado, rol `ADMIN` o `LENDER`.
@@ -461,6 +497,8 @@ Exige contraseña **y** código TOTP vigente — nunca alcanza con tener la sesi
 - **Efecto**: `isTwoFactorEnabled=false`, borra el secreto y **todos** los recovery codes existentes.
 
 ### `POST /api/auth/2fa/recovery-codes`
+
+**¿Para qué sirve?** Generar un set nuevo de 8 códigos de respaldo (por ejemplo porque se perdieron o se gastaron los anteriores), invalidando los viejos.
 
 Regenera el set de 8 recovery codes — invalida los anteriores. Misma exigencia que `/disable`.
 
@@ -481,6 +519,8 @@ Regenera el set de 8 recovery codes — invalida los anteriores. Misma exigencia
 Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-06-ronda-fase-2)) porque sin ellos el auto-registro (`POST /api/auth/register`) es un callejón sin salida: una cuenta que nace `isActive=false` necesita alguna forma de activarse.
 
 ### `POST /api/admin/users/:id/activate`
+
+**¿Para qué sirve?** Habilitar el acceso de una cuenta que nació inactiva (auto-registro, o creada con `isActive:false`). Si el usuario nunca inició sesión, además le genera y envía una contraseña temporal — es el paso que "destraba" a alguien recién auto-registrado.
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Response `200`**:
@@ -504,6 +544,8 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
 
 ### `POST /api/admin/users/:id/deactivate`
 
+**¿Para qué sirve?** Bloquear el acceso de una cuenta sin borrarla, y cerrar de paso cualquier sesión que tuviera abierta en ese momento.
+
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Response `200`**: `{ "success": true, "data": /* SafeUser, isActive: false */ {} }`.
 - **Errores**: igual que `/activate`.
@@ -518,6 +560,8 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
 > **`:id` en las 4 rutas de abajo acepta `LenderProfile.id` o el `User.id` de la persona** (`D-P4-7`) — indistintamente. Existen porque [`GET /api/users`](#get-apiusers) (el único lugar donde un Admin ve el id de un Lender sin pasar por `GET /api/admin/lenders`) solo expone `User.id`; exigir `LenderProfile.id` ahí hacía inutilizable ese camino.
 
 ### `POST /api/admin/lenders/:id/companies`
+
+**¿Para qué sirve?** Crearle una empresa (`LenderCompany`) nueva a un Lender que ya existe como persona — es lo que convierte a alguien en prestamista "operativo" (sin ninguna empresa, no puede recibir deudores ni contratos).
 
 Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunca toca `User`/`LenderProfile`, solo campos de la empresa (`D-P4-5`: rescopeo de `BE-040`, que antes creaba la persona también). Mismo servicio (`lenders.service.ts#createLenderCompany`) que usa la variante autoservicio, [`POST /api/lenders/me/companies`](#post-apilendersmecompanies), abajo.
 
@@ -549,6 +593,8 @@ Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunc
 
 ### `PATCH /api/admin/lenders/:id/companies/:companyId`
 
+**¿Para qué sirve?** Editar los datos de una empresa de un Lender, o — algo que solo puede hacer el Admin — suspenderla (`status: SUSPENDED`) o marcarla como cerrada a nuevos negocios (`isOpenToDeals: false`).
+
 `D-P4-8`, nuevo. Un Admin edita cualquier campo de una `LenderCompany` puntual — incluidos `status` (suspender/reactivar una empresa, `D-P1-8`) e `isOpenToDeals` (`M-4`). `:companyId` se valida contra `:id`: una empresa que existe pero es de otro Lender responde `404`, igual que si no existiera.
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`).
@@ -563,6 +609,8 @@ Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunc
 
 ### `DELETE /api/admin/lenders/:id/companies/:companyId`
 
+**¿Para qué sirve?** Dar de baja una sola empresa de un Lender (no a la persona ni a sus otras empresas) — por ejemplo si cerró esa entidad legal puntual.
+
 `D-P4-8`, nuevo. Soft-delete de **una sola** `LenderCompany` (no del Lender ni de sus otras empresas) — bloqueado si esa empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`. Puede dejar al Lender con cero empresas — estado ya válido (el mismo que un recién auto-registrado, `D-P2-1`).
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`).
@@ -571,12 +619,16 @@ Un Admin asocia una `LenderCompany` **nueva** a un Lender que ya existe — nunc
 
 ### `GET /api/admin/lenders`
 
+**¿Para qué sirve?** Para que un Admin busque y liste todos los Lenders del sistema junto con sus empresas — la pantalla típica de "gestión de prestamistas".
+
 Lista + búsqueda (por nombre/email de la persona o `companyName`) + paginación (ver [Convenciones](#convenciones)) + filtro `status` (`ACTIVE`/`SUSPENDED`, sobre alguna `LenderCompany` del Lender).
 
 - **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
 - **Response `200`**: `data` = [resultado paginado](#convenciones) de objetos con la forma de `Lender` (ver abajo).
 
 ### `GET /api/admin/lenders/:id`
+
+**¿Para qué sirve?** Ver el detalle completo de un Lender puntual: todas sus empresas, cuántos deudores tiene y cuántos contratos activos — la pantalla de "ficha de prestamista".
 
 Incluye el resumen agregado de **todas** las `LenderCompany` del Lender — no depende de ninguna "empresa activa".
 
@@ -600,6 +652,8 @@ Incluye el resumen agregado de **todas** las `LenderCompany` del Lender — no d
 
 ### `DELETE /api/admin/lenders/:id`
 
+**¿Para qué sirve?** Dar de baja a un Lender completo: la persona y todas sus empresas de una — bloqueado si alguna empresa tiene contratos en curso, para no dejar deuda huérfana.
+
 Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`deletedAt`, y el `User` además `isActive=false` + revoca sus refresh tokens) — bloqueado si alguna empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`.
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (escritura).
@@ -612,12 +666,16 @@ Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`delete
 
 ### `GET /api/lenders/me`
 
+**¿Para qué sirve?** Para que un Lender vea su propio perfil y sus empresas, sin depender de un Admin — es el `/me` equivalente de `GET /api/admin/lenders/:id`.
+
 `BE-100` (nuevo — el mapa de endpoints del plan lo preveía sin ningún ticket detrás, `D-P4-3`). Mismo shape que `GET /api/admin/lenders/:id` (arriba), pero sobre el `LenderProfile` de la sesión. No hay `PATCH` acá (`D-P4-8`): `LenderProfile` no tiene ningún campo propio editable — `name`/`phone` de `User` se editan por [`PATCH /api/auth/me`](#patch-apiauthme) (`BE-099`); editar una empresa propia es cosa del Admin por ahora (`PATCH /api/admin/lenders/:id/companies/:companyId`), no hay autoservicio de edición de empresa todavía.
 
 - **Auth**: Autenticado, rol `LENDER`, exenta de 2FA (lectura).
 - **Errores**: `401`/`403` · `404 LENDER_NOT_FOUND`.
 
 ### `POST /api/lenders/me/companies`
+
+**¿Para qué sirve?** Para que el propio Lender se cree su primera empresa (o una adicional) sin esperar a que un Admin se la cree — un Lender recién auto-registrado nace sin ninguna, y sin al menos una no puede recibir deudores ni contratos.
 
 `BE-101`, nuevo (`D-P4-5`). El propio Lender se crea una `LenderCompany` — mismo body/servicio que [`POST /api/admin/lenders/:id/companies`](#post-apiadminlendersidcompanies), resolviendo el `LenderProfile` desde la sesión en vez de un `:id`. Cierra el hueco de un Lender auto-registrado (`D-P2-1`) que nace con `LenderProfile` pero sin ninguna `LenderCompany` — antes no había ningún endpoint para que se diera de alta la primera.
 
@@ -641,6 +699,8 @@ Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`delete
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND` (perfil de prestamista de la sesión no encontrado) · `409 EIN_TAKEN`.
 
 ### `PATCH`/`DELETE /api/lenders/me/companies/:companyId`
+
+**¿Para qué sirve?** Para que el Lender edite o borre una empresa suya sin pasar por un Admin — salvo suspender/reactivar (`status`), que sigue siendo exclusivo del Admin.
 
 `D-P4-9`, nuevo. El propio Lender edita o borra una empresa suya — mismo servicio que `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` (`D-P4-8`), resolviendo el `LenderProfile` desde la sesión en vez de un `:id`. `:companyId` que existe pero es de otro Lender responde `404 LENDER_COMPANY_NOT_FOUND`, igual que si no existiera.
 
@@ -666,12 +726,16 @@ Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`delete
 
 ### `GET /api/lenders/me/borrowers`
 
+**¿Para qué sirve?** Para que un Lender vea y busque todos los deudores vinculados a cualquiera de sus empresas — la pantalla de "mis deudores".
+
 Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `LenderCompany` del Lender (`D-P4-1`) — cada fila trae `lenderCompanies` con las empresas del Lender de las que ese deudor es parte, para distinguirlas si tiene más de una.
 
 - **Auth**: Autenticado, rol `LENDER` (lectura, exenta de 2FA).
 - **Response `200`**: `data` = [resultado paginado](#convenciones) de objetos con la forma de `Borrower` (ver abajo).
 
 ### `GET /api/lenders/me/borrowers/:id`
+
+**¿Para qué sirve?** Ver el detalle de un deudor puntual vinculado al Lender (ficha del deudor).
 
 `:id` = `BorrowerProfile.id`. Mismo criterio anti-enumeración que [`requireContractAccess`](plan/07-autenticacion-y-autorizacion.md#75-rbac--aislamiento-multi-tenant--cómo-se-evita-que-un-prestamista-acceda-a-datos-de-otro): un deudor que existe pero no es del Lender responde `404`, nunca `403`.
 
@@ -696,6 +760,8 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
 
 ### `DELETE /api/lenders/me/borrowers/:id`
 
+**¿Para qué sirve?** Desvincular a un deudor de las empresas del Lender (sin borrar su perfil — puede seguir teniendo contratos con otros lenders). Bloqueado si hay un contrato activo de por medio.
+
 `BE-049` (`M-3`). **Desvincula** (`LenderBorrower.removedAt`+`status=REMOVED`) — nunca borra el `BorrowerProfile`, el deudor puede tener otros lenders. Bloqueado si tiene un `Contract` `ACTIVE`/`DELINQUENT` con alguna de las empresas de las que se lo está desvinculando.
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo (escritura).
@@ -703,6 +769,8 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
 - **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 BORROWER_HAS_ACTIVE_CONTRACTS`.
 
 ### `GET /api/borrowers/me` / `PATCH /api/borrowers/me`
+
+**¿Para qué sirve?** Para que el propio Deudor vea o edite su dirección de contacto — el `/me` equivalente a lo que hace un Lender con sus propios datos.
 
 `BE-050`. Perfil propio del Deudor — campos de contacto propios, nunca `lenderCompanyId`.
 
@@ -733,6 +801,8 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
 - **Errores**: `400 VALIDATION_ERROR` (solo `PATCH`) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 PASSWORD_CHANGE_REQUIRED` (solo `PATCH`) · `404 BORROWER_NOT_FOUND`.
 
 ### `POST /api/borrowers/me/password`
+
+**¿Para qué sirve?** Para que el Deudor cambie su contraseña estando ya logueado — es también la única forma de apagar el aviso "tenés que cambiar tu contraseña temporal" (`mustChangePassword`).
 
 `BE-050`. Cambia la contraseña mientras el usuario ya está autenticado — exige la contraseña actual (defensa en profundidad, mismo criterio que `/2fa/disable`, `BE-034`). **Siempre accesible**, incluso con `mustChangePassword:true` — es el único camino para apagarlo.
 
@@ -782,7 +852,46 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
 
 Fase 6 (`BE-051..064`, `PB-020`). Sin endpoint propio de `Property` en el plan (`D-P6-2`): `POST /api/contracts` recibe la dirección/valuación embebida en el mismo body y crea `Property`+`Contract(DRAFT)`+`ContractTerms(v1, DRAFT)` en una sola transacción. Todo endpoint de este módulo pasa por [`requireContractAccess`](plan/07-autenticacion-y-autorizacion.md#75-rbac--aislamiento-multi-tenant--cómo-se-evita-que-un-prestamista-acceda-a-datos-de-otro) (`BE-038`) — `LENDER` dueño de la `LenderCompany` (contra **todas** sus empresas) o `BORROWER` asociado vía `ContractBorrower` activo; un contrato ajeno responde `404`, nunca `403`.
 
+### Cómo funciona: el flujo completo de un contrato
+
+Un `Contract` tiene **dos estados que avanzan juntos pero no son lo mismo**: el del contrato (`Contract.status`) y el de la versión de términos vigente (`ContractTerms.status`). Casi toda la confusión de este módulo viene de no separar esos dos conceptos, así que van los dos diagramas:
+
+```
+Contract.status
+────────────────
+DRAFT ──(submit + todos aceptan)──► ACTIVE ──(atraso de pago)──► DELINQUENT
+  │         │                          │                             │
+  │         │ (algún borrower rechaza) │                             │
+  │         └──────────◄───────────────┘                             │
+  │                                    │                             │
+  │ DELETE (sin Transaction)           └────────► CANCELLED ◄─────────┘
+  ▼                                        (POST .../cancel, en cualquiera de los 3 estados de arriba)
+(borrado)
+
+ContractTerms.status (una fila por versión — v1, v2, v3...)
+────────────────────
+DRAFT ──POST .../submit──► PENDING_ACCEPTANCE ──todos ACCEPT──► ACCEPTED
+  ▲                                │                                │
+  │                                └──algún REJECT──► REJECTED      │
+  │ (PATCH mientras sigue DRAFT)                                    │
+  └── al crear una v(n+1) con POST .../terms, la versión ACCEPTED vigente pasa a SUPERSEDED de inmediato
+```
+
+Paso a paso, quién hace qué y con qué endpoint:
+
+1. **El Lender crea el contrato** — [`POST /api/contracts`](#post-apicontracts). En un solo llamado nace la propiedad, el contrato en `DRAFT` y su primera versión de términos (`ContractTerms` v1, también `DRAFT`). Todavía no hay ningún compromiso: es un borrador que solo ve el Lender.
+2. **El Lender lo termina de armar mientras está en `DRAFT`** — [`PATCH /api/contracts/:id`](#patch-apicontractsid) para ajustar propiedad/términos, [`POST`/`DELETE /api/contracts/:id/borrowers`](#post-apicontractsidborrowers--delete-apicontractsidborrowersborrowerid) para sumar o sacar codeudores, [`POST`/`DELETE .../fees`](#getpost-apicontractsidtermstermsidfees--delete-feesfeeid) para cargar puntos de originación u otros cargos. Todo esto se puede tirar abajo con [`DELETE /api/contracts/:id`](#delete-apicontractsid) mientras nadie lo haya aceptado y no tenga movimientos de dinero.
+3. **El Lender manda los términos a firma** — [`POST /api/contracts/:id/terms/:termsId/submit`](#post-apicontractsidtermstermsidsubmit): la versión pasa `DRAFT → PENDING_ACCEPTANCE`, se les avisa por correo a todos los deudores asociados, y (si es la primera vez) el contrato entero pasa `Contract.status: DRAFT → PENDING_ACCEPTANCE`. A partir de acá el Lender ya no puede tocar los términos con `PATCH` — quedaron "congelados" esperando respuesta.
+4. **Cada deudor acepta o rechaza** — [`POST .../terms/:termsId/accept`](#post-apicontractsidtermstermsidaccept--reject) o `.../reject`. Si **todos** los codeudores aceptan (quórum), esa versión pasa a `ACCEPTED`, se genera el calendario de pagos completo y el contrato pasa a `ACTIVE` (ya es un préstamo en curso). Si **cualquiera** rechaza, la versión pasa a `REJECTED` y el contrato vuelve a `DRAFT` para que el Lender la corrija y la vuelva a mandar (vuelve al paso 2/3).
+5. **Con el contrato `ACTIVE`**, se puede consultar en cualquier momento el calendario y el saldo — [`GET .../schedule`](#get-apicontractsidschedule--balance) / `.../balance`.
+6. **Renegociar un contrato ya activo** (cambiar tasa, plazo, etc.): [`POST /api/contracts/:id/terms`](#get-apicontractsidterms--post-apicontractsidterms) crea una versión nueva (`DRAFT`) y **supersede de inmediato** a la versión `ACCEPTED` vigente. Esa versión nueva repite el mismo circuito que un contrato nuevo: se edita (paso 2), se manda a firma (paso 3), se acepta o rechaza (paso 4) — y si se acepta, regenera el calendario desde ahí (anulando las cuotas futuras que quedaron pendientes de la versión anterior).
+7. **Cancelar** — [`POST /api/contracts/:id/cancel`](#post-apicontractsidcancel) corta el contrato en cualquiera de los tres estados "en curso" (`PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT`), con motivo obligatorio auditado. Nunca borra el calendario ni los pagos ya hechos.
+
+**Quién puede hacer qué**: casi todas las escrituras (crear, editar, cancelar, borrar, subir términos) son del `LENDER` y exigen 2FA activo. La única acción del lado `BORROWER` es aceptar/rechazar términos, y nunca exige 2FA.
+
 ### `POST /api/contracts`
+
+**¿Para qué sirve?** Es el punto de partida de todo el módulo: el Lender crea un contrato desde cero (propiedad + términos financieros) para un deudor que ya tiene vinculado. Ver el flujo completo arriba.
 
 Crea el contrato en un solo paso.
 
@@ -850,6 +959,8 @@ Crea el contrato en un solo paso.
 
 ### `GET /api/contracts`
 
+**¿Para qué sirve?** Listar los contratos propios — la pantalla de "mis contratos", tanto para el Lender (todos los de sus empresas) como para el Borrower (todos donde es codeudor activo).
+
 Lista + filtro `status` + paginación. `LENDER` ve todas sus `LenderCompany`; `BORROWER` ve donde es `ContractBorrower` activo.
 
 - **Auth**: Autenticado, rol `LENDER` o `BORROWER` (lectura, exenta de 2FA).
@@ -857,10 +968,14 @@ Lista + filtro `status` + paginación. `LENDER` ve todas sus `LenderCompany`; `B
 
 ### `GET /api/contracts/:id`
 
+**¿Para qué sirve?** Ver el detalle completo de un contrato puntual (propiedad, términos vigentes, codeudores, saldo) — la ficha del contrato.
+
 - **Auth**: Autenticado, rol `LENDER` o `BORROWER` asociado.
 - **Errores**: `401`/`403` · `404 NOT_FOUND`.
 
 ### `PATCH /api/contracts/:id`
+
+**¿Para qué sirve?** Corregir datos de la propiedad o de la aseguradora en cualquier momento, y ajustar los términos financieros **solo mientras siguen en borrador** (paso 2 del flujo de arriba). Para cambiar términos de un contrato ya enviado/activo hay que abrir una versión nueva (`POST .../terms`, paso 6).
 
 `property`/`insuranceCompanyId` editables en cualquier estado del contrato; `terms` solo si la `ContractTerms` vigente está `DRAFT` — para cambiar términos financieros de un contrato ya enviado/activo, usar `POST .../terms` (nueva versión).
 
@@ -879,6 +994,8 @@ Lista + filtro `status` + paginación. `LENDER` ve todas sus `LenderCompany`; `B
 
 ### `DELETE /api/contracts/:id`
 
+**¿Para qué sirve?** Descartar un borrador de contrato que todavía no se le mandó a nadie a firmar y no tiene ningún movimiento de dinero — por ejemplo si se cargó por error o el negocio se cayó antes de arrancar.
+
 Solo `status=DRAFT` y sin ninguna `Transaction` (08-contratos.md §8.1).
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo.
@@ -886,6 +1003,8 @@ Solo `status=DRAFT` y sin ninguna `Transaction` (08-contratos.md §8.1).
 - **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 CONTRACT_NOT_DELETABLE` · `409 CONTRACT_HAS_TRANSACTIONS`.
 
 ### `POST /api/contracts/:id/cancel`
+
+**¿Para qué sirve?** Terminar anticipadamente un contrato que ya estaba en curso (esperando firma, activo, o en mora) — por ejemplo un acuerdo de cancelación entre las partes. A diferencia de `DELETE`, no borra nada: deja el rastro completo (calendario, pagos) y exige un motivo auditado.
 
 Permitido en `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT`; nunca borra `ScheduledPayment`/`Transaction`.
 
@@ -900,6 +1019,8 @@ Permitido en `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT`; nunca borra `ScheduledP
 
 ### `POST /api/contracts/:id/borrowers` / `DELETE /api/contracts/:id/borrowers/:borrowerId`
 
+**¿Para qué sirve?** Sumar o sacar codeudores de un contrato puntual — por ejemplo agregar al cónyuge como co-firmante, o corregir un contrato armado con la persona equivocada antes de mandarlo a firma.
+
 Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower ACTIVE` de la `LenderCompany` del contrato (07 §7.5 punto 4), nunca contra un `lenderId` directo (no existe desde `D-P1-4`).
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo.
@@ -912,6 +1033,8 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 - **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (deudor no vinculado, o ya no asociado en el `DELETE`) · `409 ALREADY_ASSOCIATED`.
 
 ### `GET /api/contracts/:id/terms` / `POST /api/contracts/:id/terms`
+
+**¿Para qué sirve?** `GET` muestra el historial de todas las versiones de términos que tuvo el contrato (para auditar cambios). `POST` es el paso 6 del flujo de arriba: abre una versión nueva para **renegociar** un contrato cuya versión vigente ya fue aceptada — nunca se usa para el ajuste inicial de un borrador (eso es `PATCH /api/contracts/:id`).
 
 `GET`: historial completo de versiones, más reciente primero. `POST`: propone una nueva versión — solo si la vigente **no** está `DRAFT` (si lo está, usar `PATCH /api/contracts/:id`); mismo shape de `terms` que la creación, sin copiar los `ContractFeeItem` de la versión anterior. La versión anterior pasa a `SUPERSEDED` de inmediato.
 
@@ -939,12 +1062,16 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 
 ### `POST /api/contracts/:id/terms/:termsId/submit`
 
+**¿Para qué sirve?** El Lender "envía a firma" una versión de términos que ya terminó de armar — paso 3 del flujo de arriba. Antes de este llamado, los deudores no ven ni saben nada del contrato; después, quedan esperando que acepten o rechacen.
+
 `DRAFT → PENDING_ACCEPTANCE`, notifica por correo a todos los `ContractBorrower` activos (`terms-updated`). Si el contrato nunca se activó, también mueve `Contract.status → PENDING_ACCEPTANCE`.
 
 - **Auth**: Autenticado, rol `LENDER` + 2FA activo.
 - **Errores**: `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_DRAFT` · `409 NO_BORROWERS`.
 
 ### `POST /api/contracts/:id/terms/:termsId/accept` / `.../reject`
+
+**¿Para qué sirve?** Es la "firma digital" del deudor — paso 4 del flujo de arriba. `accept` es dar el visto bueno a los términos propuestos; si es el último codeudor en aceptar, el contrato queda activo automáticamente (se genera todo el calendario de pagos ahí mismo, sin ningún paso extra). `reject` es rechazarlos con un comentario opcional — basta con que **un solo** codeudor rechace para tumbar toda la versión, aunque el resto ya hubiera aceptado.
 
 `accept`: registra `ContractTermsAcceptance(ACCEPTED)`; al completar el quórum (todos los `ContractBorrower` activos), `ContractTerms.status → ACCEPTED` y, en la misma transacción: si el contrato nunca se activó, genera el calendario completo y `Contract.status → ACTIVE`; si ya estaba `ACTIVE` (renegociación), anula las filas futuras `PENDING`/`PARTIALLY_PAID` de la versión anterior y genera el calendario de la nueva. `reject`: registra `ContractTermsAcceptance(REJECTED)` — un solo rechazo termina la versión (`ContractTerms.status → REJECTED`) sin esperar al resto de co-deudores; si el contrato nunca se activó, `Contract.status → DRAFT`; notifica al Lender por correo (`terms-rejected`).
 
@@ -959,12 +1086,16 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
 
 ### `GET /api/contracts/:id/schedule` / `.../balance`
 
+**¿Para qué sirve?** `schedule` es la tabla de amortización completa (todas las cuotas, pasadas y futuras) de un contrato activo. `balance` es la foto rápida de "cuánto se debe hoy" — pensados para la pantalla de detalle del préstamo, tanto para el Lender como para el Borrower.
+
 `schedule`: `ScheduledPayment[]` completo (incluye filas `VOIDED` de versiones superadas). `balance`: `{ principalBalance, accruedInterestNotYetBilled, nextPaymentDueDate, asOf }` — el interés devengado se calcula desde `activatedAt` con `calculateAccruedInterest`; sin un `Transaction` real todavía (Fase 7), es el mejor ancla disponible.
 
 - **Auth**: Autenticado, rol `LENDER`/`BORROWER` asociado (lectura).
 - **Errores**: `401`/`403` · `404 NOT_FOUND`.
 
 ### `GET`/`POST /api/contracts/:id/terms/:termsId/fees` · `DELETE .../fees/:feeId`
+
+**¿Para qué sirve?** Cargar los cargos de cierre de una versión de términos puntual (puntos de originación, procesamiento, suscripción, etc.) — es la tabla que arma el desglose de costos que el deudor ve antes de firmar. Solo se puede tocar mientras esa versión sigue en `DRAFT` (paso 2 del flujo).
 
 `PB-020` — Closing Fee Summary Table. Solo editable (`POST`/`DELETE`) mientras `ContractTerms.status=DRAFT`. `computedAmount` se resuelve al crear la fila (`amountValue` si `FLAT`, o `amountValue`% × `principalAmount` de esa versión si `PERCENTAGE`) y nunca se recalcula. `code=MARKETPLACE_CONNECTION` está reservado — lo inserta automáticamente el propio servicio desde Fase 13 (`D-S2-5`), nunca este endpoint.
 
@@ -1007,7 +1138,51 @@ Los montos (`Decimal` de Prisma) serializan como string en el JSON de respuesta.
 
 Fase 13 parcial (`PB-011`/`PB-026`/`PB-017`, reescrito 2026-09-11 — `D-S2-21`/`D-S2-22`, ver [00](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar)). El Deudor publica un `LoanRequest` (con su `Property` embebida, sin endpoint propio — mismo criterio que `POST /api/contracts`, `D-P6-2`/`D-S2-25`), elige a qué Prestamistas pedirles cotización (o lo publica abierto), cada Prestamista interesado responde con su propia `LoanQuote`, y el Deudor selecciona una — esa selección es la que crea el `Contract`. **No implementado en esta ronda**: `LoanRequestInvite` (invitar por correo a alguien sin cuenta todavía), fotos, RentCast, `BorrowerApplication`, `BorrowerSubscription`, pitch deck PDF.
 
+### Cómo funciona: el flujo completo de Marketplace
+
+Piensen a Marketplace como una "licitación": el Deudor pide plata contando su proyecto, varios Lenders le ofrecen condiciones distintas, y el Deudor elige una — esa elección **crea automáticamente un `Contract`** en el módulo de [Contratos](#contratos-srcappapicontracts) (arranca en `DRAFT`, en el paso 1 de ese flujo). Es el único puente entre ambos módulos hoy: no hay otra forma de originar un contrato "de mercado".
+
+Dos objetos con estados independientes:
+
+```
+LoanRequest.status (lo publica el Deudor — "estoy buscando plata para esto")
+──────────────────
+DRAFT ──POST .../publish──► PUBLISHED ──el Deudor selecciona una LoanQuote──► MATCHED
+  │                              │                                      (acá nace el Contract)
+  │ PATCH (editable)             │ POST .../withdraw
+  ▼                              ▼
+(sigue en DRAFT)              WITHDRAWN (declina todas las quotes SUBMITTED que tuviera)
+
+LoanQuote.status (una fila por cada LenderCompany que cotiza ese LoanRequest)
+─────────────────
+SUBMITTED ──el Deudor elige ESTA──► SELECTED
+    │
+    ├──Lender la borra (DELETE)────► WITHDRAWN
+    └──el Deudor elige OTRA, o retira el LoanRequest──► DECLINED
+```
+
+Paso a paso:
+
+1. **El Deudor arma la solicitud** — [`POST /api/borrowers/me/loan-requests`](#post-apiborrowersmeloan-requests). Un solo llamado con la propiedad embebida (igual que un contrato), el tipo de proyecto, cuánto necesita, y la **visibilidad** (`PUBLIC` o `PRIVATE`) — esto último se fija acá y no cambia después. Nace en `DRAFT`, invisible para cualquier Lender todavía.
+2. **El Deudor la termina de editar y, opcionalmente, la dirige a Lenders puntuales** — [`PATCH .../loan-requests/:id`](#getpatch-apiborrowersmeloan-requestsid) mientras sigue en `DRAFT`, y [`POST`/`DELETE .../targets`](#post-apiborrowersmeloan-requestsidtargets--delete-targetslendercompanyid) para armar una lista de `LenderCompany` invitadas puntualmente. **Ojo**: `targets` es independiente de `visibility` — sirve tanto para invitar a alguien puntual a una solicitud `PUBLIC` (que igual es visible para todos los demás) como para una `PRIVATE` (que solo ven los targeteados; una `PRIVATE` sin ningún target no la ve ningún Lender).
+3. **El Deudor la publica** — [`POST .../loan-requests/:id/publish`](#post-apiborrowersmeloan-requestsidpublish--withdraw): `DRAFT → PUBLISHED`. Recién acá empieza a ser visible para Lenders.
+4. **Los Lenders la descubren** — [`GET /api/marketplace/loan-requests`](#get-apimarketplaceloan-requests--get-apimarketplaceloan-requestsid) (listado) o `/:id` (detalle). Una `PUBLIC` aparece para **cualquier** Lender, pero con la dirección exacta y el dueño ocultos, salvo que ese Lender puntual esté en `targets` (ahí la ve completa). Una `PRIVATE` solo aparece — completa — para los Lenders que están en `targets`; para el resto, ni siquiera existe (`404`).
+5. **Cada Lender interesado cotiza** — [`POST /api/marketplace/loan-requests/:id/quotes`](#post-apimarketplaceloan-requestsidquotes--delete-quotes): crea su propia `LoanQuote` (`SUBMITTED`) con tasa/plazo/estructura propuestos. Puede reemplazarla mientras siga `SUBMITTED` (volver a mandar el `POST`), o retirarla con `DELETE`.
+6. **El Deudor compara todas las ofertas** — [`GET .../loan-requests/:id/quotes`](#get-apiborrowersmeloan-requestsidquotes).
+7. **El Deudor elige una** — [`POST .../quotes/:quoteId/select`](#post-apiborrowersmeloan-requestsidquotesquoteidselect). Esto dispara, en una sola transacción:
+   - el resto de cotizaciones `SUBMITTED` de ese `LoanRequest` quedan `DECLINED`;
+   - el `LoanRequest` pasa a `MATCHED`;
+   - se crea un `Contract` nuevo en `DRAFT` (paso 1 del flujo de Contratos) con los términos pre-cargados desde la cotización ganadora;
+   - se crea (o reactiva) el vínculo `LenderBorrower` entre el Deudor y la empresa del Lender ganador — **hoy es la única forma de crear ese vínculo**, porque el alta directa (`POST /api/lenders/me/borrowers`) está deshabilitada;
+   - se le agrega automáticamente un cargo `MARKETPLACE_CONNECTION` al contrato;
+   - se le avisa por correo al Lender que tiene un contrato nuevo esperando que lo termine de completar.
+8. **De acá en adelante es un contrato normal**: el Lender sigue el flujo de [Contratos](#contratos-srcappapicontracts) desde el paso 2 en adelante (completar/editar términos, mandar a firma, esperar aceptación).
+
+En cualquier punto entre el paso 3 y el 7, el Deudor puede arrepentirse y bajar toda la solicitud con [`POST .../withdraw`](#post-apiborrowersmeloan-requestsidpublish--withdraw), lo que además declina cualquier cotización pendiente.
+
 ### `POST /api/borrowers/me/loan-requests`
+
+**¿Para qué sirve?** Es el punto de partida del flujo de arriba: el Deudor describe qué proyecto quiere financiar y cuánto necesita, para empezar a recibir cotizaciones de Lenders.
 
 - **Auth**: Autenticado, rol `BORROWER` (nunca exige 2FA).
 - **Request body**: `property` (mismo shape que `POST /api/contracts`, ver [arriba](#post-apicontracts)), `projectType` (`RENTAL`/`FIX_AND_FLIP`/`SLOW_FLIP`/`COMMERCIAL`/`NEW_CONSTRUCTION`), `purchasePrice`/`rehabAmount`/`totalLoanAmountRequested`, `requestedClosingDate`, `requestedTimelineNotes`?, `visibility` (`PUBLIC`/`PRIVATE` — se fija acá, no en `publish`).
@@ -1041,6 +1216,8 @@ Fase 13 parcial (`PB-011`/`PB-026`/`PB-017`, reescrito 2026-09-11 — `D-S2-21`/
 
 ### `GET`/`PATCH /api/borrowers/me/loan-requests/:id`
 
+**¿Para qué sirve?** Ver o corregir una solicitud propia mientras todavía está en borrador (paso 2 del flujo) — una vez publicada, ya no se puede editar (habría que retirarla y crear una nueva).
+
 Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
 
 - **Auth**: Autenticado, rol `BORROWER`.
@@ -1054,12 +1231,16 @@ Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
 
 ### `POST /api/borrowers/me/loan-requests/:id/publish` / `.../withdraw`
 
+**¿Para qué sirve?** `publish` es lo que hace visible la solicitud para los Lenders (paso 3) — antes de esto, nadie más que el Deudor la ve. `withdraw` es bajarla de circulación (por ejemplo si ya no necesita el préstamo), declinando de paso cualquier cotización que hubiera recibido.
+
 `publish`: `DRAFT → PUBLISHED`. `withdraw`: `PUBLISHED → WITHDRAWN`, declina (`DECLINED`) cualquier `LoanQuote` `SUBMITTED` recibida.
 
 - **Auth**: Autenticado, rol `BORROWER`.
 - **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_DRAFT` (`publish`) · `409 LOAN_REQUEST_NOT_PUBLISHED` (`withdraw`).
 
 ### `POST /api/borrowers/me/loan-requests/:id/targets` / `DELETE .../targets/:lenderCompanyId`
+
+**¿Para qué sirve?** Invitar puntualmente a Lenders específicos a cotizar una solicitud — útil tanto para una solicitud `PRIVATE` (que si no, nadie la ve) como para "avisarle" a un Lender de confianza sobre una `PUBLIC` que igual es visible para todos.
 
 `D-S2-22`. Elige (o quita) `LenderCompany` ya registradas a quienes pedirles cotización puntualmente — reemplaza al viejo `invitedLenderCompanyId` singular. Independiente de la visibilidad (`PUBLIC` también puede targetear).
 
@@ -1074,12 +1255,16 @@ Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
 
 ### `GET /api/marketplace/loan-requests` / `GET /api/marketplace/loan-requests/:id`
 
+**¿Para qué sirve?** Es la vitrina del Lender: listar (o ver el detalle de) las solicitudes de préstamo disponibles para cotizar — las públicas de todo el mercado, más las privadas donde fue invitado puntualmente (paso 4 del flujo).
+
 Para `LENDER`: `PUBLIC` visibles a todos + `PRIVATE` donde su `LenderCompany` está en `LoanRequestLenderTarget`. `PUBLIC` enmascara `borrowerProfileId` y la dirección exacta (`addressLine1`/`addressLine2`/`county`/`parcelNumber` vacíos) — regla 17 de [04 §4.7](plan/04-base-de-datos.md#reglas-de-negocio-nuevas-extiende-46); `PRIVATE` targeteado se ve completo (el Deudor ya eligió compartirlo con ese Lender puntual).
 
 - **Auth**: Autenticado, rol `LENDER` (lectura, exenta de 2FA).
 - **Errores**: `401`/`403`/`404 LENDER_NOT_FOUND` · `404 NOT_FOUND` (`:id` inexistente, no `PUBLISHED`, o `PRIVATE` sin target).
 
 ### `POST /api/marketplace/loan-requests/:id/quotes` / `DELETE .../quotes`
+
+**¿Para qué sirve?** Es la "oferta" del Lender: proponer sus propias condiciones (tasa, plazo, estructura) para una solicitud que le interesa financiar (paso 5). `DELETE` retira esa oferta si se arrepiente antes de que el Deudor la elija.
 
 `PB-026`. Crea o reemplaza (mientras `status=SUBMITTED`) la `LoanQuote` propia — una fila por `(loanRequestId, lenderCompanyId)`. `DELETE` la retira (`status → WITHDRAWN`).
 
@@ -1104,12 +1289,16 @@ Para `LENDER`: `PUBLIC` visibles a todos + `PRIVATE` donde su `LenderCompany` es
 
 ### `GET /api/borrowers/me/loan-requests/:id/quotes`
 
+**¿Para qué sirve?** Para que el Deudor compare todas las ofertas que recibió sobre una solicitud (paso 6) antes de elegir una.
+
 Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 - **Auth**: Autenticado, rol `BORROWER`.
 - **Errores**: `401`/`403` · `404 NOT_FOUND`.
 
 ### `POST /api/borrowers/me/loan-requests/:id/quotes/:quoteId/select`
+
+**¿Para qué sirve?** Es el paso decisivo del flujo (paso 7): el Deudor acepta la oferta de un Lender puntual y eso **crea el contrato automáticamente** — de acá en adelante el negocio sigue como un contrato normal, en el módulo de Contratos.
 
 `PB-017`. El Deudor elige una cotización: en una sola transacción, declina el resto `SUBMITTED` de ese `LoanRequest`, backfillea `Property.lenderCompanyId` con la `LenderCompany` ganadora (`D-S2-25`), mueve `LoanRequest.status → MATCHED`, y crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` (mismo servicio que `BE-051`) con `ContractTerms` v1 pre-llenada desde la cotización — `structure`/`principalAmount`/`interestRate`/`amortizationTermMonths` vienen de la `LoanQuote`; `firstPaymentDate` se deriva como un mes después de `requestedClosingDate`, `maturityDate` a partir de ahí + `amortizationTermMonths`, mora `FLAT $50`/10 días de gracia por default — todo editable por el Lender después (`PATCH /api/contracts/:id`, mientras `ContractTerms` siga `DRAFT`). Inserta automáticamente `ContractFeeItem(MARKETPLACE_CONNECTION)` (1pt del `principalAmount`, mínimo $999, `D-S2-5`).
 
