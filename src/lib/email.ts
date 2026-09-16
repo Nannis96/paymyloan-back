@@ -44,10 +44,8 @@ const TEMPLATES: Record<EmailTemplate, (data: Record<string, string>) => string>
     `Ya se creó el contrato ${data.contractNumber} en borrador — ingresa a PayMyLoan para revisarlo, completarlo y enviarlo a firma.</p>`,
 };
 
-// Wrapper agnóstico de proveedor (BE-006): el resto del código solo llama a
-// sendEmail(). El proveedor concreto sigue pendiente de confirmar (plan de
-// backend, sección 15) — Resend detrás de EMAIL_PROVIDER como placeholder,
-// cambiarlo es tocar solo este archivo.
+// Wrapper sobre Resend (BE-006): el resto del código solo llama a
+// sendEmail(); si algún día se suma otro proveedor, se decide acá.
 export async function sendEmail(input: SendEmailInput): Promise<void> {
   const html = TEMPLATES[input.template](input.data);
 
@@ -65,12 +63,7 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
     return;
   }
 
-  switch (env.emailProvider) {
-    case "resend":
-      return sendViaResend({ to: input.to, subject: input.subject, html });
-    default:
-      throw new Error(`Proveedor de correo no soportado: ${env.emailProvider}`);
-  }
+  return sendViaResend({ to: input.to, subject: input.subject, html });
 }
 
 async function sendViaResend(message: { to: string; subject: string; html: string }): Promise<void> {
