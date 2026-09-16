@@ -80,7 +80,7 @@ describe("BE-079 — suite de seguridad negativa", () => {
 
   it("un access token con la firma manipulada es rechazado por una ruta protegida real (GET /api/auth/me)", async () => {
     const user = await createTestUserWithPassword("BORROWER", PASSWORD);
-    const token = await signAccessToken({ sub: user.id, role: "BORROWER" });
+    const token = await signAccessToken({ sub: user.id, role: "BORROWER", roles: ["BORROWER"] });
     const tampered = `${token.slice(0, -4)}${token.slice(-4) === "AAAA" ? "BBBB" : "AAAA"}`;
 
     const response = await meRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: `Bearer ${tampered}` }));
@@ -134,7 +134,7 @@ describe("BE-079 — suite de seguridad negativa", () => {
 
   it("un usuario borrado con un access token todavía sin expirar es rechazado por la ruta protegida (USER_NOT_FOUND)", async () => {
     const user = await createTestUserWithPassword("BORROWER", PASSWORD);
-    const token = await signAccessToken({ sub: user.id, role: "BORROWER" });
+    const token = await signAccessToken({ sub: user.id, role: "BORROWER", roles: ["BORROWER"] });
 
     await prisma.user.update({ where: { id: user.id }, data: { deletedAt: new Date() } });
 

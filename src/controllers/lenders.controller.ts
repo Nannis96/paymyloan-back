@@ -1,6 +1,9 @@
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
+import { reissueAccessToken } from "@/services/auth.service";
+import * as borrowerProfileService from "@/services/borrowerProfile.service";
 import * as lendersService from "@/services/lenders.service";
+import { becomeBorrowerSchema } from "@/validations/borrowers.validation";
 import { parseOrThrow } from "@/validations/parse";
 import { createLenderCompanySchema, listLendersQuerySchema, updateLenderCompanySchema, updateOwnLenderCompanySchema } from "@/validations/lenders.validation";
 
@@ -84,4 +87,16 @@ export async function deleteOwnLenderCompany(request: Request, companyId: string
   await withRole(session, ["LENDER"]);
   await lendersService.deleteOwnLenderCompany(session.userId, companyId);
   return { deleted: true };
+}
+
+// D-P7-1. POST /api/lenders/me/become-borrower — un LENDER adquiere el rol
+// BORROWER completando su dirección. Escritura de negocio -> exige 2FA
+// (D-P3-1), igual que el resto de rutas LENDER de este controller.
+export async function becomeBorrower(request: Request, body: unknown) {
+  const session = await withAuth(request);
+  await withRole(session, ["LENDER"]);
+  const input = parseOrThrow(becomeBorrowerSchema, body);
+  const result = await borrowerProfileService.becomeBorrower(session.userId, input);
+  const { accessToken } = await reissueAccessToken(session.userId);
+  return { ...result, accessToken };
 }

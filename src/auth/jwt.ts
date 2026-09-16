@@ -16,10 +16,14 @@ const accessSigningKey = textEncoder.encode(env.jwtAccessSecret);
 export interface AccessTokenPayload {
   sub: string;
   role: UserRole;
+  // Roles activos del usuario (rol dual LENDER+BORROWER) — `role` se
+  // mantiene como el rol de registro, informativo/compatibilidad; `roles`
+  // es la lista real usada para autorizar.
+  roles: UserRole[];
 }
 
 export async function signAccessToken(payload: AccessTokenPayload): Promise<string> {
-  return new SignJWT({ role: payload.role })
+  return new SignJWT({ role: payload.role, roles: payload.roles })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
@@ -33,7 +37,11 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
     if (typeof payload.sub !== "string" || typeof payload.role !== "string" || "purpose" in payload) {
       throw new Error("Forma de payload inesperada");
     }
-    return { sub: payload.sub, role: payload.role as UserRole };
+    // Compatibilidad: un access token firmado antes de este cambio no trae
+    // `roles` — se lo trata como si su único rol activo fuera `role` (sigue
+    // siendo válido hasta que expire su TTL corto, sin forzar re-login).
+    const roles = Array.isArray(payload.roles) && payload.roles.every((r) => typeof r === "string") ? (payload.roles as UserRole[]) : [payload.role as UserRole];
+    return { sub: payload.sub, role: payload.role as UserRole, roles };
   } catch {
     throw new AppError("Invalid or expired access token", 401, "INVALID_TOKEN");
   }

@@ -32,12 +32,12 @@ const TWO_FACTOR_ROLES: UserRole[] = ["ADMIN", "LENDER"];
 // cambio, ambos resueltos con la misma consulta en vivo (ninguno de los dos
 // viaja en el JWT, D-P2-2).
 export async function withRole(session: Session, allowedRoles: UserRole[], options: WithRoleOptions = {}): Promise<void> {
-  if (!allowedRoles.includes(session.role)) {
+  if (!allowedRoles.some((role) => session.roles.includes(role))) {
     throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
   }
 
   const needsTwoFactor =
-    env.requireTwoFactorForWrites && options.requireTwoFactor !== false && TWO_FACTOR_ROLES.includes(session.role);
+    env.requireTwoFactorForWrites && options.requireTwoFactor !== false && TWO_FACTOR_ROLES.some((role) => session.roles.includes(role));
   const needsPasswordCheck = options.requirePasswordChanged === true;
   if (!needsTwoFactor && !needsPasswordCheck) return;
 

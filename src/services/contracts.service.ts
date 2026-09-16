@@ -7,6 +7,7 @@ import { logAuditEvent } from "@/lib/audit";
 import { sendEmail } from "@/lib/email";
 import type { RequestMeta } from "@/lib/requestMeta";
 import { calculateAccruedInterest, generateAmortizationSchedule, regenerateScheduleAfterTermsChange } from "@/services/amortization.service";
+import { assertNotSelfLending, assertPropertyNotSelfEncumbered } from "@/services/selfDealing.service";
 import type {
   AddContractBorrowerInput,
   CancelContractInput,
@@ -174,6 +175,8 @@ export async function createContract(userId: string, input: CreateContractInput)
 
   const borrowerProfileIds = input.borrowerProfileIds ?? [];
   await requireActiveLenderBorrowers(lenderCompanyId, borrowerProfileIds);
+  await assertNotSelfLending(lenderCompanyId, borrowerProfileIds);
+  await assertPropertyNotSelfEncumbered(userId, input.property);
 
   const contractId = await prisma.$transaction(async (tx) => {
     const property = await tx.property.create({
@@ -206,23 +209,44 @@ export async function createContract(userId: string, input: CreateContractInput)
 
 // BE-052. LENDER ve todas sus LenderCompany (D-P4-1); BORROWER ve donde es
 // ContractBorrower activo.
+//
+// D-P7-1: un usuario dual ve la unión de ambos lados en una sola lista (no
+// hay selector `?as=`) — se arma un `OR` con la condición de cada rol que
+// tenga activo, en vez del `if/else` excluyente de antes.
 export async function listContracts(session: Session, query: ListContractsQuery): Promise<PaginatedResult<ContractDetail>> {
   let where: Prisma.ContractWhereInput;
-  if (session.role === "LENDER") {
-    const companyIds = (await requireOwnedLenderCompanies(session.userId)).map((company) => company.id);
-    if (companyIds.length === 0) return buildPaginatedResult([], 0, query);
-    where = { lenderCompanyId: { in: companyIds }, deletedAt: null };
-  } else if (session.role === "BORROWER") {
-    const borrowerProfile = await prisma.borrowerProfile.findUnique({ where: { userId: session.userId } });
-    if (!borrowerProfile) return buildPaginatedResult([], 0, query);
-    where = { deletedAt: null, borrowers: { some: { borrowerProfileId: borrowerProfile.id, removedAt: null } } };
-  } else if (session.role === "ADMIN") {
+
+  if (session.roles.includes("ADMIN")) {
     // Fase 7 (pedido explícito): el Admin ve todos los contratos, sin
     // restricción de tenant — mismo criterio que GET /api/users.
     where = { deletedAt: null };
   } else {
-    throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
+    const conditions: Prisma.ContractWhereInput[] = [];
+
+    if (session.roles.includes("LENDER")) {
+      const companyIds = (await requireOwnedLenderCompanies(session.userId)).map((company) => company.id);
+      if (companyIds.length > 0) {
+        conditions.push({ lenderCompanyId: { in: companyIds } });
+      }
+    }
+
+    if (session.roles.includes("BORROWER")) {
+      const borrowerProfile = await prisma.borrowerProfile.findUnique({ where: { userId: session.userId } });
+      if (borrowerProfile) {
+        conditions.push({ borrowers: { some: { borrowerProfileId: borrowerProfile.id, removedAt: null } } });
+      }
+    }
+
+    if (conditions.length === 0) {
+      if (!session.roles.includes("LENDER") && !session.roles.includes("BORROWER")) {
+        throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
+      }
+      return buildPaginatedResult([], 0, query);
+    }
+
+    where = conditions.length === 1 ? { ...conditions[0], deletedAt: null } : { deletedAt: null, OR: conditions };
   }
+
   if (query.status) where.status = query.status;
 
   const [total, contracts] = await Promise.all([
@@ -286,7 +310,7 @@ export async function updateContract(session: Session, contractId: string, input
 
 // BE-055 (08-contratos.md §8.1): solo DRAFT sin ninguna Transaction.
 export async function deleteContract(userId: string, contractId: string): Promise<void> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   if (contract.status !== "DRAFT") {
     throw new AppError("Only DRAFT contracts can be deleted", 409, "CONTRACT_NOT_DELETABLE");
   }
@@ -302,7 +326,7 @@ export async function deleteContract(userId: string, contractId: string): Promis
 // BE-056 (08-contratos.md §8.1): permitido en PENDING_ACCEPTANCE o ACTIVE;
 // nunca borra ScheduledPayment/Transaction existentes.
 export async function cancelContract(userId: string, contractId: string, input: CancelContractInput): Promise<ContractDetail> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   if (contract.status !== "PENDING_ACCEPTANCE" && contract.status !== "ACTIVE" && contract.status !== "DELINQUENT") {
     throw new AppError("Contract cannot be cancelled from its current status", 409, "CONTRACT_NOT_CANCELLABLE");
   }
@@ -327,8 +351,9 @@ export async function cancelContract(userId: string, contractId: string, input: 
 // `borrowerProfile.lenderId` que no existe desde D-P1-4). PK compuesta:
 // "agregar" a alguien ya removido reactiva la misma fila en vez de duplicar.
 export async function addContractBorrower(userId: string, contractId: string, input: AddContractBorrowerInput): Promise<ContractDetail> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   await requireActiveLenderBorrowers(contract.lenderCompanyId, [input.borrowerProfileId]);
+  await assertNotSelfLending(contract.lenderCompanyId, [input.borrowerProfileId]);
 
   const existing = await prisma.contractBorrower.findUnique({
     where: { contractId_borrowerProfileId: { contractId, borrowerProfileId: input.borrowerProfileId } },
@@ -361,7 +386,7 @@ export async function addContractBorrower(userId: string, contractId: string, in
 }
 
 export async function removeContractBorrower(userId: string, contractId: string, borrowerProfileId: string): Promise<void> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   const link = await prisma.contractBorrower.findUnique({ where: { contractId_borrowerProfileId: { contractId, borrowerProfileId } } });
   if (!link || link.removedAt) {
     throw new AppError("Borrower not found on this contract", 404, "NOT_FOUND");
@@ -386,7 +411,7 @@ export async function removeContractBorrower(userId: string, contractId: string,
 // el calendario activo (eso lo resuelve acceptContractTerms vía
 // `supersedesId`, ver más abajo).
 export async function proposeContractTerms(userId: string, contractId: string, input: ProposeContractTermsInput): Promise<ContractDetail> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   if (!contract.currentTermsId) {
     throw new AppError("Contract has no current terms", 409, "NO_CURRENT_TERMS");
   }
@@ -420,7 +445,7 @@ export async function proposeContractTerms(userId: string, contractId: string, i
 // §8.1); si ya está ACTIVE (renegociación), el préstamo sigue sirviéndose
 // bajo la versión anterior hasta que esta complete su propio quórum.
 export async function submitContractTerms(userId: string, contractId: string, termsId: string): Promise<ContractDetail> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   const terms = await prisma.contractTerms.findUnique({ where: { id: termsId } });
   if (!terms || terms.contractId !== contractId) {
     throw new AppError("Contract terms not found", 404, "NOT_FOUND");
@@ -465,7 +490,7 @@ async function requireBorrowerAssociation(userId: string, contractId: string): P
   if (!borrowerProfile) {
     throw new AppError("Contract not found", 404, "NOT_FOUND");
   }
-  await requireContractAccess({ userId, role: "BORROWER" }, contractId);
+  await requireContractAccess({ userId, role: "BORROWER", roles: ["BORROWER"] }, contractId);
   return { borrowerProfileId: borrowerProfile.id };
 }
 

@@ -130,6 +130,58 @@ async function requireLenderCompany(lenderProfileId: string, companyId: string):
   return company;
 }
 
+// D-P7-1. POST /api/borrowers/me/become-lender — a diferencia de
+// createOwnLenderCompany (que asume que el LenderProfile ya existe), acá lo
+// crea: es la vía por la que un BORROWER adquiere el rol LENDER además del
+// que ya tiene, completando la información de su primera LenderCompany.
+export async function becomeLender(userId: string, input: CreateLenderCompanyInput): Promise<{ lenderProfileId: string; company: LenderCompanySummary }> {
+  const existingProfile = await prisma.lenderProfile.findUnique({ where: { userId } });
+  if (existingProfile) {
+    throw new AppError("You already have a lender profile", 409, "LENDER_PROFILE_ALREADY_EXISTS");
+  }
+
+  const existingEin = await prisma.lenderCompany.findUnique({ where: { ein: input.ein } });
+  if (existingEin) {
+    throw new AppError("A company with that EIN already exists", 409, "EIN_TAKEN");
+  }
+
+  const { lenderProfile, lenderCompany } = await prisma.$transaction(async (tx) => {
+    const lenderProfile = await tx.lenderProfile.create({ data: { userId, createdByAdminId: null } });
+    const lenderCompany = await tx.lenderCompany.create({
+      data: {
+        lenderProfileId: lenderProfile.id,
+        companyName: input.companyName,
+        ein: input.ein,
+        contactPhone: input.contactPhone,
+        addressLine1: input.addressLine1,
+        addressLine2: input.addressLine2,
+        city: input.city,
+        state: input.state,
+        postalCode: input.postalCode,
+        createdByUserId: userId,
+      },
+    });
+    return { lenderProfile, lenderCompany };
+  });
+
+  await logAuditEvent({
+    action: "LENDER_CREATED",
+    entityType: "User",
+    entityId: userId,
+    actorUserId: userId,
+    metadata: { secondRole: true },
+  });
+  await logAuditEvent({
+    action: "LENDER_COMPANY_CREATED",
+    entityType: "LenderCompany",
+    entityId: lenderCompany.id,
+    actorUserId: userId,
+    lenderCompanyId: lenderCompany.id,
+  });
+
+  return { lenderProfileId: lenderProfile.id, company: mapLenderCompany(lenderCompany) };
+}
+
 // D-P4-8, nuevo: PATCH /api/admin/lenders/:id/companies/:companyId — Admin
 // edita cualquier campo de la empresa, incluido status (suspender/reactivar,
 // D-P1-8) e isOpenToDeals (M-4). Reemplaza el hueco que dejaba BE-043 (que

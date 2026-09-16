@@ -67,7 +67,7 @@ describe("rutas HTTP de /api/contracts (Fase 6)", () => {
 
     const { user: borrowerUser, borrowerProfile } = await createTestBorrower();
     await linkBorrowerToLenderCompany(lenderCompany.id, borrowerProfile.id, lenderUser.id);
-    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER" })}`;
+    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const createResponse = await POST(jsonRequest("POST", "http://localhost/api/contracts", contractPayload(borrowerProfile.id), { authorization: lenderAuth }));
     expect(createResponse.status).toBe(201);
@@ -122,7 +122,7 @@ describe("rutas HTTP de /api/contracts (Fase 6)", () => {
     const owner = await createTestLenderCompanyWithTwoFactor("89");
     const stranger = await createTestLenderCompanyWithTwoFactor("90");
 
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: owner.lenderUser.id, role: "LENDER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: owner.lenderUser.id, role: "LENDER", roles: ["LENDER"] })}`;
     const createResponse = await POST(jsonRequest("POST", "http://localhost/api/contracts", contractPayload(), { authorization: ownerAuth }));
     const created = await createResponse.json();
 

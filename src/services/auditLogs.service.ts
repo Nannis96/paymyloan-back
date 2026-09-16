@@ -12,7 +12,9 @@ import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagina
 export async function listAuditLogs(session: Session, query: ListAuditLogsQuery): Promise<PaginatedResult<AuditLog>> {
   const where: Prisma.AuditLogWhereInput = {};
 
-  if (session.role === "LENDER") {
+  if (session.roles.includes("ADMIN")) {
+    // sin restricción de tenant
+  } else if (session.roles.includes("LENDER")) {
     const profile = await prisma.lenderProfile.findUnique({
       where: { userId: session.userId },
       include: { lenderCompanies: { where: { deletedAt: null }, select: { id: true } } },
@@ -20,7 +22,7 @@ export async function listAuditLogs(session: Session, query: ListAuditLogsQuery)
     const companyIds = profile?.lenderCompanies.map((company) => company.id) ?? [];
     if (companyIds.length === 0) return buildPaginatedResult([], 0, query);
     where.lenderCompanyId = { in: companyIds };
-  } else if (session.role !== "ADMIN") {
+  } else {
     throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
   }
 

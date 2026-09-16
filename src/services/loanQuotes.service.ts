@@ -5,6 +5,7 @@ import { logAuditEvent } from "@/lib/audit";
 import { sendEmail } from "@/lib/email";
 import { addMonths } from "@/services/amortization.service";
 import { createContractFromLoanQuote } from "@/services/contracts.service";
+import { assertNotSelfLending } from "@/services/selfDealing.service";
 import type { ContractTermsInput } from "@/validations/contracts.validation";
 import type { SubmitLoanQuoteInput } from "@/validations/loanQuotes.validation";
 
@@ -63,7 +64,8 @@ async function requireQuotableLoanRequest(lenderCompanyId: string, loanRequestId
 // nunca una segunda fila, @@unique([loanRequestId, lenderCompanyId]).
 export async function submitQuote(userId: string, loanRequestId: string, input: SubmitLoanQuoteInput): Promise<LoanQuote> {
   const lenderCompanyId = await resolveTargetLenderCompanyId(userId, input.lenderCompanyId);
-  await requireQuotableLoanRequest(lenderCompanyId, loanRequestId);
+  const loanRequest = await requireQuotableLoanRequest(lenderCompanyId, loanRequestId);
+  await assertNotSelfLending(lenderCompanyId, [loanRequest.borrowerProfileId]);
 
   const existing = await prisma.loanQuote.findUnique({
     where: { loanRequestId_lenderCompanyId: { loanRequestId, lenderCompanyId } },
@@ -174,6 +176,9 @@ export async function selectQuote(userId: string, loanRequestId: string, quoteId
   if (quote.status !== "SUBMITTED") {
     throw new AppError("This quote is no longer available", 409, "QUOTE_NOT_SUBMITTED");
   }
+  // Defensa en profundidad: submitQuote ya rechaza esto, pero es acá donde
+  // realmente nace el Contract — este es el chequeo que cuenta.
+  await assertNotSelfLending(quote.lenderCompanyId, [loanRequest.borrowerProfileId]);
 
   const terms = deriveContractTermsFromQuote(quote, loanRequest.requestedClosingDate);
 

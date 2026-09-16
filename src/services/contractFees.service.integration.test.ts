@@ -52,7 +52,7 @@ describe("contractFees.service (PB-020)", () => {
     // 2% de 100,000 = 2,000.
     expect(percentFee.computedAmount.toFixed(2)).toBe("2000.00");
 
-    const fees = await contractFeesService.listFees({ userId: lenderUser.id, role: "LENDER" }, contract.id, termsId);
+    const fees = await contractFeesService.listFees({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contract.id, termsId);
     expect(fees).toHaveLength(2);
   });
 

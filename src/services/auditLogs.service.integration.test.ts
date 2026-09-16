@@ -26,7 +26,7 @@ describe("auditLogs.service (BE-072)", () => {
       ],
     });
 
-    const result = await auditLogsService.listAuditLogs({ userId: "00000000-0000-0000-0000-000000000000", role: "ADMIN" }, query());
+    const result = await auditLogsService.listAuditLogs({ userId: "00000000-0000-0000-0000-000000000000", role: "ADMIN", roles: ["ADMIN"] }, query());
     expect(result.total).toBeGreaterThanOrEqual(2);
     const companyIds = result.items.map((item) => item.lenderCompanyId);
     expect(companyIds).toContain(a.lenderCompany.id);
@@ -43,21 +43,34 @@ describe("auditLogs.service (BE-072)", () => {
       ],
     });
 
-    const result = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER" }, query());
+    const result = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, query());
     expect(result.items.every((item) => item.lenderCompanyId === owner.lenderCompany.id)).toBe(true);
     expect(result.items.map((item) => item.lenderCompanyId)).not.toContain(stranger.lenderCompany.id);
   });
 
+  it("D-P7-1: un usuario registrado BORROWER que también es LENDER (roles) ve auditoría de su empresa", async () => {
+    const owner = await createTestLenderCompany();
+    await prisma.auditLog.create({ data: { action: "CONTRACT_CREATED", entityType: "Contract", lenderCompanyId: owner.lenderCompany.id } });
+
+    // `role` (registro) sigue siendo LENDER acá porque la fixture crea al
+    // usuario así — el punto del test es que el gate mira `roles`, no
+    // `role`, así que un BORROWER-vuelto-LENDER (roles: ["BORROWER",
+    // "LENDER"], role: "BORROWER") tiene el mismo resultado.
+    const result = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "BORROWER", roles: ["BORROWER", "LENDER"] }, query());
+    expect(result.items.every((item) => item.lenderCompanyId === owner.lenderCompany.id)).toBe(true);
+    expect(result.total).toBeGreaterThanOrEqual(1);
+  });
+
   it("un LENDER sin ninguna LenderCompany recibe una página vacía, no un error", async () => {
     const { lenderUser } = await createTestLenderWithoutCompany();
-    const result = await auditLogsService.listAuditLogs({ userId: lenderUser.id, role: "LENDER" }, query());
+    const result = await auditLogsService.listAuditLogs({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, query());
     expect(result.items).toEqual([]);
     expect(result.total).toBe(0);
   });
 
   it("un BORROWER no tiene acceso (403 FORBIDDEN)", async () => {
     const error = await auditLogsService
-      .listAuditLogs({ userId: "00000000-0000-0000-0000-000000000000", role: "BORROWER" }, query())
+      .listAuditLogs({ userId: "00000000-0000-0000-0000-000000000000", role: "BORROWER", roles: ["BORROWER"] }, query())
       .catch((e) => e);
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).statusCode).toBe(403);
@@ -74,12 +87,12 @@ describe("auditLogs.service (BE-072)", () => {
       ],
     });
 
-    const byAction = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER" }, query({ action: "CONTRACT_CANCELLED" }));
+    const byAction = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, query({ action: "CONTRACT_CANCELLED" }));
     expect(byAction.items.every((item) => item.action === "CONTRACT_CANCELLED")).toBe(true);
     expect(byAction.total).toBe(2);
 
     const byBoth = await auditLogsService.listAuditLogs(
-      { userId: owner.lenderUser.id, role: "LENDER" },
+      { userId: owner.lenderUser.id, role: "LENDER", roles: ["LENDER"] },
       query({ action: "CONTRACT_CANCELLED", entityType: "ContractTerms" }),
     );
     expect(byBoth.total).toBe(1);
@@ -91,12 +104,12 @@ describe("auditLogs.service (BE-072)", () => {
       data: Array.from({ length: 5 }, () => ({ action: "CONTRACT_CREATED", entityType: "Contract", lenderCompanyId: owner.lenderCompany.id })),
     });
 
-    const firstPage = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER" }, query({ pageSize: 2 }));
+    const firstPage = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, query({ pageSize: 2 }));
     expect(firstPage.items).toHaveLength(2);
     expect(firstPage.total).toBe(5);
     expect(firstPage.totalPages).toBe(3);
 
-    const secondPage = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER" }, query({ page: 2, pageSize: 2 }));
+    const secondPage = await auditLogsService.listAuditLogs({ userId: owner.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, query({ page: 2, pageSize: 2 }));
     expect(secondPage.items).toHaveLength(2);
     expect(secondPage.items.map((item) => item.id)).not.toEqual(firstPage.items.map((item) => item.id));
   });

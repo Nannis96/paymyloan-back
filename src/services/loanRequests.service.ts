@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { assertNotSelfLending } from "@/services/selfDealing.service";
 import type {
   AddLoanRequestTargetInput,
   CreateLoanRequestInput,
@@ -156,6 +157,7 @@ export async function addLoanRequestTarget(userId: string, id: string, input: Ad
   if (!lenderCompany || lenderCompany.deletedAt) {
     throw new AppError("Lender company not found", 404, "NOT_FOUND");
   }
+  await assertNotSelfLending(input.lenderCompanyId, [borrowerProfile.id]);
 
   const existing = await prisma.loanRequestLenderTarget.findUnique({
     where: { loanRequestId_lenderCompanyId: { loanRequestId: id, lenderCompanyId: input.lenderCompanyId } },

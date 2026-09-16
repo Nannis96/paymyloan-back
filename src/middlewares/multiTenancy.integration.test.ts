@@ -56,7 +56,7 @@ async function createLenderWithCompany(einPrefix: string) {
     lenderUser,
     secret,
     lenderCompany,
-    auth: `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER" })}`,
+    auth: `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER", roles: ["LENDER"] })}`,
   };
 }
 
@@ -202,9 +202,9 @@ describe("BE-078 — aislamiento multi-tenant, parametrizado por endpoint", () =
 
   it("GET /api/borrowers/me/loan-requests/:id y GET /api/marketplace/loan-requests/:id: un LoanRequest PRIVATE de otro Deudor/no targeteado responde 404", async () => {
     const { user: ownerBorrowerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerBorrowerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerBorrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     const { user: strangerBorrowerUser } = await createTestBorrower();
-    const strangerBorrowerAuth = `Bearer ${await signAccessToken({ sub: strangerBorrowerUser.id, role: "BORROWER" })}`;
+    const strangerBorrowerAuth = `Bearer ${await signAccessToken({ sub: strangerBorrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     const strangerLender = await createLenderWithCompany("t7");
 
     const createResponse = await createLoanRequestRoute(

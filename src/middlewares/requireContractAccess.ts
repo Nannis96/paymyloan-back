@@ -11,6 +11,12 @@ import { logAuditEvent } from "@/lib/audit";
 // editables por el Admin) no tiene restricción de tenant — ve y opera sobre
 // cualquier contrato, igual que ya puede listar cualquier usuario/Lender.
 //
+// D-P7-1: un usuario puede tener LENDER y BORROWER a la vez, así que ya no
+// es un `if/else` excluyente por rol — se prueba la vía LENDER y la vía
+// BORROWER (las que `session.roles` traiga) y alcanza con que una funcione.
+// Esto evita que un usuario dual reciba 404 sobre su propio contrato solo
+// porque también tiene el otro rol.
+//
 // Siempre 404 (nunca 403) cuando el contrato existe pero no pertenece a la
 // sesión — mismo criterio anti-enumeración que el resto de §7.5: no le
 // confirma a un atacante que el ID que probó existe. Cada rechazo por
@@ -21,56 +27,42 @@ export async function requireContractAccess(session: Session, contractId: string
     throw new AppError("Contract not found", 404, "NOT_FOUND");
   }
 
-  if (session.role === "ADMIN") {
+  if (session.roles.includes("ADMIN")) {
     return contract;
   }
 
-  if (session.role === "LENDER") {
+  if (!session.roles.includes("LENDER") && !session.roles.includes("BORROWER")) {
+    throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
+  }
+
+  if (session.roles.includes("LENDER")) {
     const lenderProfile = await prisma.lenderProfile.findUnique({ where: { userId: session.userId } });
     const ownsCompany = lenderProfile
       ? await prisma.lenderCompany.findFirst({
           where: { id: contract.lenderCompanyId, lenderProfileId: lenderProfile.id },
         })
       : null;
-
-    if (!ownsCompany) {
-      await logAuditEvent({
-        action: "ACCESS_DENIED",
-        entityType: "Contract",
-        entityId: contractId,
-        actorUserId: session.userId,
-        lenderCompanyId: contract.lenderCompanyId,
-        contractId,
-        metadata: { role: session.role, reason: "tenant_mismatch" },
-      });
-      throw new AppError("Contract not found", 404, "NOT_FOUND");
-    }
-
-    return contract;
+    if (ownsCompany) return contract;
   }
 
-  if (session.role === "BORROWER") {
+  if (session.roles.includes("BORROWER")) {
     const borrowerProfile = await prisma.borrowerProfile.findUnique({ where: { userId: session.userId } });
     const link = borrowerProfile
       ? await prisma.contractBorrower.findUnique({
           where: { contractId_borrowerProfileId: { contractId, borrowerProfileId: borrowerProfile.id } },
         })
       : null;
-
-    if (!link || link.removedAt) {
-      await logAuditEvent({
-        action: "ACCESS_DENIED",
-        entityType: "Contract",
-        entityId: contractId,
-        actorUserId: session.userId,
-        contractId,
-        metadata: { role: session.role, reason: "not_associated" },
-      });
-      throw new AppError("Contract not found", 404, "NOT_FOUND");
-    }
-
-    return contract;
+    if (link && !link.removedAt) return contract;
   }
 
-  throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
+  await logAuditEvent({
+    action: "ACCESS_DENIED",
+    entityType: "Contract",
+    entityId: contractId,
+    actorUserId: session.userId,
+    lenderCompanyId: contract.lenderCompanyId,
+    contractId,
+    metadata: { roles: session.roles, reason: "tenant_mismatch" },
+  });
+  throw new AppError("Contract not found", 404, "NOT_FOUND");
 }

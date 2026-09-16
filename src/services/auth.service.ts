@@ -1,4 +1,4 @@
-import { Prisma, type User } from "@prisma/client";
+import { Prisma, type User, type UserRole } from "@prisma/client";
 import { durationToMs, generateOpaqueToken, hashOpaqueToken, signAccessToken, signPendingToken, verifyPendingToken } from "@/auth/jwt";
 import { hashPassword, verifyDummyPassword, verifyPassword } from "@/auth/password";
 import { verifyCode as verifyTotpCode } from "@/auth/totp";
@@ -7,6 +7,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
+import { getActiveRoles } from "@/services/userRoles.service";
 import type { LoginInput, LoginTwoFactorInput, RegisterInput } from "@/validations/auth.validation";
 
 export interface RequestMeta {
@@ -34,7 +35,8 @@ export type LoginResult = LoginSuccessResult | LoginPendingResult;
 const GENERIC_CREDENTIALS_ERROR = "Incorrect email or password";
 
 async function issueSession(user: User, meta: RequestMeta): Promise<AuthTokens> {
-  const accessToken = await signAccessToken({ sub: user.id, role: user.role });
+  const roles = await getActiveRoles(user.id);
+  const accessToken = await signAccessToken({ sub: user.id, role: user.role, roles });
   const refreshTokenPlain = generateOpaqueToken();
 
   await prisma.refreshToken.create({
@@ -196,7 +198,8 @@ export async function refresh(input: { refreshToken: string } & RequestMeta): Pr
     throw new AppError("Invalid refresh token", 401, "INVALID_TOKEN");
   }
 
-  const accessToken = await signAccessToken({ sub: user.id, role: user.role });
+  const roles = await getActiveRoles(user.id);
+  const accessToken = await signAccessToken({ sub: user.id, role: user.role, roles });
   const refreshTokenPlain = generateOpaqueToken();
 
   const newToken = await prisma.refreshToken.create({
@@ -234,6 +237,9 @@ export async function logoutAll(userId: string): Promise<void> {
 
 export interface MeResult {
   user: SafeUser;
+  // D-P7-1: roles activos del usuario — puede incluir LENDER y BORROWER a
+  // la vez.
+  roles: UserRole[];
   lenderProfile?: {
     id: string;
     lenderCompanies: { id: string; companyName: string; status: string; isOpenToDeals: boolean }[];
@@ -247,49 +253,67 @@ export interface MeResult {
 // BE-031. Sin `lenderId` resuelto en el JWT (D-P2-2), el cliente necesita
 // esta lista para poder elegir con qué LenderCompany está operando — Fase 3
 // decide cómo esa elección viaja en requests posteriores (riesgo #18).
+//
+// D-P7-1: los bloques `lenderProfile`/`borrowerProfile` se resuelven por
+// existencia del perfil, no por `user.role` — un usuario dual los recibe
+// ambos.
 export async function getMe(userId: string): Promise<MeResult> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user || user.deletedAt) {
     throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
 
-  const result: MeResult = { user: toSafeUser(user) };
-
-  if (user.role === "LENDER") {
-    const lenderProfile = await prisma.lenderProfile.findUnique({
+  const [roles, lenderProfile, borrowerProfile] = await Promise.all([
+    getActiveRoles(user.id),
+    prisma.lenderProfile.findUnique({
       where: { userId: user.id },
       include: { lenderCompanies: { where: { deletedAt: null } } },
-    });
-    if (lenderProfile) {
-      result.lenderProfile = {
-        id: lenderProfile.id,
-        lenderCompanies: lenderProfile.lenderCompanies.map((company) => ({
-          id: company.id,
-          companyName: company.companyName,
-          status: company.status,
-          isOpenToDeals: company.isOpenToDeals,
-        })),
-      };
-    }
-  }
-
-  if (user.role === "BORROWER") {
-    const borrowerProfile = await prisma.borrowerProfile.findUnique({
+    }),
+    prisma.borrowerProfile.findUnique({
       where: { userId: user.id },
       include: { lenders: { where: { status: "ACTIVE" }, include: { lenderCompany: true } } },
-    });
-    if (borrowerProfile) {
-      result.borrowerProfile = {
-        id: borrowerProfile.id,
-        lenderCompanies: borrowerProfile.lenders.map((link) => ({
-          id: link.lenderCompany.id,
-          companyName: link.lenderCompany.companyName,
-        })),
-      };
-    }
+    }),
+  ]);
+
+  const result: MeResult = { user: toSafeUser(user), roles };
+
+  if (lenderProfile && !lenderProfile.deletedAt) {
+    result.lenderProfile = {
+      id: lenderProfile.id,
+      lenderCompanies: lenderProfile.lenderCompanies.map((company) => ({
+        id: company.id,
+        companyName: company.companyName,
+        status: company.status,
+        isOpenToDeals: company.isOpenToDeals,
+      })),
+    };
+  }
+
+  if (borrowerProfile && !borrowerProfile.deletedAt) {
+    result.borrowerProfile = {
+      id: borrowerProfile.id,
+      lenderCompanies: borrowerProfile.lenders.map((link) => ({
+        id: link.lenderCompany.id,
+        companyName: link.lenderCompany.companyName,
+      })),
+    };
   }
 
   return result;
+}
+
+// D-P7-1. Tras adquirir el segundo rol (become-lender/become-borrower) la
+// sesión necesita un access token nuevo con los `roles` actualizados — sin
+// esto, el usuario tendría que volver a loguearse para poder usar el rol
+// recién adquirido. No toca el refresh token: sigue siendo la misma sesión.
+export async function reissueAccessToken(userId: string): Promise<{ accessToken: string }> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.deletedAt) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  }
+  const roles = await getActiveRoles(user.id);
+  const accessToken = await signAccessToken({ sub: user.id, role: user.role, roles });
+  return { accessToken };
 }
 
 const REGISTER_RESPONSE_MESSAGE =

@@ -109,7 +109,7 @@ describe("loanQuotes.service (Fase 13)", () => {
 
     const { contractId } = await loanQuotesService.selectQuote(borrowerUser.id, loanRequest.id, quoteA.id);
 
-    const contract = await contractsService.getContract({ userId: lenderA.lenderUser.id, role: "LENDER" }, contractId);
+    const contract = await contractsService.getContract({ userId: lenderA.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contractId);
     expect(contract.originationSource).toBe("MARKETPLACE");
     expect(contract.loanRequestId).toBe(loanRequest.id);
     expect(contract.lenderCompanyId).toBe(lenderA.lenderCompany.id);
@@ -146,7 +146,7 @@ describe("loanQuotes.service (Fase 13)", () => {
     expect(contractBorrowers[0].borrowerProfileId).toBe(loanRequest.borrowerProfileId);
     expect(contractBorrowers[0].isPrimary).toBe(true);
 
-    const borrowerContracts = await contractsService.listContracts({ userId: borrowerUser.id, role: "BORROWER" }, { page: 1, pageSize: 20 });
+    const borrowerContracts = await contractsService.listContracts({ userId: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] }, { page: 1, pageSize: 20 });
     expect(borrowerContracts.items.map((c) => c.id)).toContain(contractId);
 
     // Ya SELECTED — un segundo intento de seleccionar (aunque fuera otra
@@ -166,7 +166,7 @@ describe("loanQuotes.service (Fase 13)", () => {
     // BE-060 solo permite proponer una versión nueva si la vigente NO está
     // DRAFT — se fuerza a ACCEPTED acá para aislar la regla de
     // MARKETPLACE_CONNECTION sin correr todo el flujo de aceptación (BE-061).
-    const draftContract = await contractsService.getContract({ userId: lender.lenderUser.id, role: "LENDER" }, contractId);
+    const draftContract = await contractsService.getContract({ userId: lender.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contractId);
     await prisma.contractTerms.update({ where: { id: draftContract.currentTerms!.id }, data: { status: "ACCEPTED" } });
 
     const revised = await contractsService.proposeContractTerms(lender.lenderUser.id, contractId, {
@@ -187,5 +187,58 @@ describe("loanQuotes.service (Fase 13)", () => {
     const newMarketplaceFee = newFees.find((fee) => fee.code === "MARKETPLACE_CONNECTION");
     expect(newMarketplaceFee).toBeDefined();
     expect(newMarketplaceFee?.computedAmount.toFixed(2)).toBe("999.00");
+  });
+
+  async function makeDualRoleUser(einPrefix: string) {
+    const { user, borrowerProfile } = await createTestBorrower();
+    const lenderProfile = await prisma.lenderProfile.create({ data: { userId: user.id, createdByAdminId: null } });
+    const lenderCompany = await prisma.lenderCompany.create({
+      data: {
+        lenderProfileId: lenderProfile.id,
+        companyName: `Dual Co ${einPrefix}`,
+        ein: `${einPrefix}-${Date.now()}`,
+        addressLine1: "1 Dual St",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        createdByUserId: user.id,
+      },
+    });
+    return { user, borrowerProfile, lenderCompany };
+  }
+
+  it("D-P7-2: submitQuote rechaza cotizar la propia LoanRequest (auto-préstamo)", async () => {
+    const dual = await makeDualRoleUser("dual1");
+    const loanRequest = await publishedLoanRequest(dual.user.id);
+
+    const error = await loanQuotesService.submitQuote(dual.user.id, loanRequest.id, quotePayload({ lenderCompanyId: dual.lenderCompany.id })).catch((e) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).statusCode).toBe(409);
+    expect((error as AppError).code).toBe("SELF_LENDING_NOT_ALLOWED");
+  });
+
+  it("D-P7-2: selectQuote rechaza una cotización propia aunque ya exista en la base (defensa en profundidad)", async () => {
+    const dual = await makeDualRoleUser("dual2");
+    const loanRequest = await publishedLoanRequest(dual.user.id);
+
+    // Inserta la cotización directo (sin pasar por submitQuote, que ya la
+    // rechazaría) para probar el chequeo de selectQuote de forma aislada.
+    const selfQuote = await prisma.loanQuote.create({
+      data: {
+        loanRequestId: loanRequest.id,
+        lenderCompanyId: dual.lenderCompany.id,
+        structure: "AMORTIZED",
+        principalAmount: 160_000,
+        interestRate: 9,
+        amortizationTermMonths: 12,
+        status: "SUBMITTED",
+        submittedByUserId: dual.user.id,
+      },
+    });
+
+    const error = await loanQuotesService.selectQuote(dual.user.id, loanRequest.id, selfQuote.id).catch((e) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).statusCode).toBe(409);
+    expect((error as AppError).code).toBe("SELF_LENDING_NOT_ALLOWED");
   });
 });

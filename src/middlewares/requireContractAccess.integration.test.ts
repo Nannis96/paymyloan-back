@@ -15,7 +15,7 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
     const property = await createTestProperty(lenderCompany.id, lenderUser.id);
     const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
 
-    const result = await requireContractAccess({ userId: lenderUser.id, role: "LENDER" }, contract.id);
+    const result = await requireContractAccess({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contract.id);
     expect(result.id).toBe(contract.id);
   });
 
@@ -30,7 +30,7 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
 
     const stranger = await createTestLenderCompany();
 
-    const error = await requireContractAccess({ userId: stranger.lenderUser.id, role: "LENDER" }, contract.id).catch((e) => e);
+    const error = await requireContractAccess({ userId: stranger.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contract.id).catch((e) => e);
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).statusCode).toBe(404);
     expect((error as AppError).code).toBe("NOT_FOUND");
@@ -52,7 +52,7 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
       data: { contractId: contract.id, borrowerProfileId: borrowerProfile.id, addedByUserId: lenderUser.id },
     });
 
-    const result = await requireContractAccess({ userId: borrowerUser.id, role: "BORROWER" }, contract.id);
+    const result = await requireContractAccess({ userId: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] }, contract.id);
     expect(result.id).toBe(contract.id);
   });
 
@@ -63,7 +63,7 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
 
     const { user: strangerBorrower } = await createTestBorrower();
 
-    const error = await requireContractAccess({ userId: strangerBorrower.id, role: "BORROWER" }, contract.id).catch((e) => e);
+    const error = await requireContractAccess({ userId: strangerBorrower.id, role: "BORROWER", roles: ["BORROWER"] }, contract.id).catch((e) => e);
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).statusCode).toBe(404);
     expect((error as AppError).code).toBe("NOT_FOUND");
@@ -75,7 +75,10 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
   });
 
   it("un contrato inexistente responde 404 sin distinguirlo de un tenant mismatch", async () => {
-    const error = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "LENDER" }, "00000000-0000-0000-0000-000000000001").catch((e) => e);
+    const error = await requireContractAccess(
+      { userId: "00000000-0000-0000-0000-000000000000", role: "LENDER", roles: ["LENDER"] },
+      "00000000-0000-0000-0000-000000000001",
+    ).catch((e) => e);
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).statusCode).toBe(404);
   });
@@ -88,7 +91,7 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
     const property = await createTestProperty(lenderCompany.id, lenderUser.id);
     const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
 
-    const result = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "ADMIN" }, contract.id);
+    const result = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "ADMIN", roles: ["ADMIN"] }, contract.id);
     expect(result.id).toBe(contract.id);
   });
 
@@ -97,9 +100,60 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
     const property = await createTestProperty(lenderCompany.id, lenderUser.id);
     const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
 
-    const error = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "BOOKKEEPER" }, contract.id).catch((e) => e);
+    const error = await requireContractAccess(
+      { userId: "00000000-0000-0000-0000-000000000000", role: "BOOKKEEPER", roles: ["BOOKKEEPER"] },
+      contract.id,
+    ).catch((e) => e);
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).statusCode).toBe(403);
     expect((error as AppError).code).toBe("FORBIDDEN");
+  });
+
+  // D-P7-1: el caso que el rol dual vuelve posible por primera vez — antes
+  // era imposible que `session.roles` tuviera los dos a la vez.
+  it("D-P7-1: un usuario dual accede como BORROWER a un contrato aunque también tenga LENDER en `roles`", async () => {
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
+    const property = await createTestProperty(lenderCompany.id, lenderUser.id);
+    const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
+
+    const { user: borrowerUser, borrowerProfile } = await createTestBorrower();
+    await prisma.contractBorrower.create({
+      data: { contractId: contract.id, borrowerProfileId: borrowerProfile.id, addedByUserId: lenderUser.id },
+    });
+
+    const result = await requireContractAccess({ userId: borrowerUser.id, role: "BORROWER", roles: ["BORROWER", "LENDER"] }, contract.id);
+    expect(result.id).toBe(contract.id);
+  });
+
+  it("D-P7-1: un usuario dual accede como LENDER a su contrato aunque también tenga BORROWER en `roles`", async () => {
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
+    const property = await createTestProperty(lenderCompany.id, lenderUser.id);
+    const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
+
+    const result = await requireContractAccess({ userId: lenderUser.id, role: "LENDER", roles: ["BORROWER", "LENDER"] }, contract.id);
+    expect(result.id).toBe(contract.id);
+  });
+
+  it("D-P7-1: un usuario dual sigue sin poder acceder a un contrato completamente ajeno", async () => {
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
+    const property = await createTestProperty(lenderCompany.id, lenderUser.id);
+    const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
+
+    const stranger = await createTestLenderCompany();
+    const { user: strangerBorrower } = await createTestBorrower();
+
+    const error = await requireContractAccess(
+      { userId: stranger.lenderUser.id, role: "LENDER", roles: ["BORROWER", "LENDER"] },
+      contract.id,
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).statusCode).toBe(404);
+
+    const error2 = await requireContractAccess(
+      { userId: strangerBorrower.id, role: "BORROWER", roles: ["BORROWER", "LENDER"] },
+      contract.id,
+    ).catch((e) => e);
+    expect(error2).toBeInstanceOf(AppError);
+    expect((error2 as AppError).statusCode).toBe(404);
   });
 });

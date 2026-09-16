@@ -43,7 +43,7 @@ describe("rutas HTTP de marketplace / loan-requests (Fase 13)", () => {
 
   it("camino dorado: publica -> targetea un Lender -> cotiza -> Deudor compara y selecciona -> Contract MARKETPLACE", async () => {
     const { user: borrowerUser } = await createTestBorrower();
-    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER" })}`;
+    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const createResponse = await createLoanRequestRoute(
       jsonRequest(
@@ -66,7 +66,7 @@ describe("rutas HTTP de marketplace / loan-requests (Fase 13)", () => {
     const loanRequestId = created.data.id as string;
 
     const { lenderUser, lenderCompany } = await createTestLenderCompanyWithTwoFactor("91");
-    const lenderAuth = `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER" })}`;
+    const lenderAuth = `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER", roles: ["LENDER"] })}`;
 
     const targetResponse = await addTargetRoute(
       jsonRequest("POST", "http://localhost/x", { lenderCompanyId: lenderCompany.id }, { authorization: borrowerAuth }),

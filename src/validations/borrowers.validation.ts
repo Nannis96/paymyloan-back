@@ -4,15 +4,18 @@ import { phone } from "@/validations/users.validation";
 
 const name = z.string().trim().min(1, "Name is required").max(120);
 const email = z.email("Invalid email").trim().toLowerCase();
-const addressLine1 = z.string().trim().min(1).max(200).optional();
-const city = z.string().trim().min(1).max(120).optional();
-const state = z
+const addressLine1Required = z.string().trim().min(1).max(200);
+const cityRequired = z.string().trim().min(1).max(120);
+const stateRequired = z
   .string()
   .trim()
   .length(2, "State must be 2 letters")
-  .transform((value) => value.toUpperCase())
-  .optional();
-const postalCode = z.string().trim().min(1).max(20).optional();
+  .transform((value) => value.toUpperCase());
+const postalCodeRequired = z.string().trim().min(1).max(20);
+const addressLine1 = addressLine1Required.optional();
+const city = cityRequired.optional();
+const state = stateRequired.optional();
+const postalCode = postalCodeRequired.optional();
 
 // BE-045. `lenderCompanyId` es obligatorio solo si el Lender tiene más de
 // una LenderCompany — se valida en el service (D-P4-1), no acá, porque
@@ -32,6 +35,18 @@ export const updateBorrowerProfileSchema = z
   .object({ addressLine1, city, state, postalCode })
   .refine((data) => Object.keys(data).length > 0, { message: "Must include at least one field to update" });
 export type UpdateBorrowerProfileInput = z.infer<typeof updateBorrowerProfileSchema>;
+
+// D-P7-1. POST /api/lenders/me/become-borrower — a diferencia de la edición
+// de perfil de arriba (parcial, todo opcional), acá la dirección completa es
+// obligatoria: es la información mínima que le falta a un LENDER para
+// adquirir el rol BORROWER.
+export const becomeBorrowerSchema = z.object({
+  addressLine1: addressLine1Required,
+  city: cityRequired,
+  state: stateRequired,
+  postalCode: postalCodeRequired,
+});
+export type BecomeBorrowerInput = z.infer<typeof becomeBorrowerSchema>;
 
 // BE-046.
 export const listBorrowersQuerySchema = paginationQuerySchema;
