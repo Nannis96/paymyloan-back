@@ -13,5 +13,3 @@ export interface ApiErrorBody {
     code: string;
   };
 }
-
-export type ApiBody<T> = ApiSuccessBody<T> | ApiErrorBody;

@@ -1,4 +1,3 @@
-import bcrypt from "bcryptjs";
 import type { User } from "@prisma/client";
 import { generateOpaqueToken } from "@/auth/jwt";
 import { hashPassword } from "@/auth/password";
@@ -6,8 +5,6 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { activateUserAccount, deactivateUserAccount } from "@/services/userActivation.service";
 import type { CreateUserInput, UpdateMeInput, UpdateUserInput } from "@/validations/users.validation";
-
-const BCRYPT_COST = 12;
 
 export interface SafeUser {
   id: string;
@@ -135,7 +132,7 @@ export async function updateUser(id: string, input: UpdateUserInput, actorUserId
   // contraseña que el Admin fijó a mano (no generada), ya no hace falta que
   // el usuario la cambie.
   if (input.password !== undefined && temporaryPassword === undefined) {
-    data.password = await bcrypt.hash(input.password, BCRYPT_COST);
+    data.password = await hashPassword(input.password);
     data.mustChangePassword = false;
   }
 

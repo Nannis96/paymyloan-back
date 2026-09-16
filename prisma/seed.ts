@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+import { hashPassword } from "@/auth/password";
 import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 import { logAuditEvent } from "@/lib/audit";
@@ -20,7 +20,7 @@ async function main() {
     return;
   }
 
-  const password = await bcrypt.hash(DEV_PASSWORD, env.bcryptCost);
+  const password = await hashPassword(DEV_PASSWORD);
 
   // --- Admin ---------------------------------------------------------------
   const admin = await prisma.user.create({
