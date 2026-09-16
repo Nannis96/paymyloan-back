@@ -54,15 +54,10 @@ function readSecret(name: string, devFallback: string): string {
 export const env = {
   nodeEnv,
   isProduction,
-  isDevelopment: nodeEnv === "development",
   isTest: nodeEnv === "test",
-
-  port: Number(process.env.PORT ?? 4000),
-  databaseUrl: process.env.DATABASE_URL ?? "",
 
   // Auth (Fase 2)
   jwtAccessSecret: readSecret("JWT_ACCESS_SECRET", "dev-insecure-access-secret"),
-  jwtRefreshSecret: readSecret("JWT_REFRESH_SECRET", "dev-insecure-refresh-secret"),
   jwtAccessTtl: process.env.JWT_ACCESS_TTL ?? "15m",
   jwtRefreshTtl: process.env.JWT_REFRESH_TTL ?? "30d",
   bcryptCost: Number(process.env.BCRYPT_COST ?? 12),
