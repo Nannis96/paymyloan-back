@@ -79,22 +79,9 @@ export const env = {
   // 2FA obligatorio de verdad en el flujo de pruebas.
   requireTwoFactorForWrites: process.env.REQUIRE_TWO_FACTOR !== "false",
 
-  // Correo transaccional (BE-006) — proveedor concreto pendiente de
-  // confirmar (sección 15 del plan), Resend como placeholder.
-  emailProvider: process.env.EMAIL_PROVIDER ?? "resend",
+  // Correo transaccional (BE-006) — Resend, único proveedor implementado.
   emailApiKey: process.env.EMAIL_API_KEY ?? "",
   emailFrom: process.env.EMAIL_FROM ?? "servicing@paymyloan.ai",
-
-  // Stripe (Fase 7) — bloqueado por decisión Connect vs cuenta única.
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
-  stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? "",
-
-  // S3 (Fase 11 — Documentos)
-  s3Bucket: process.env.S3_BUCKET ?? "",
-  s3Region: process.env.S3_REGION ?? "",
-  s3AccessKeyId: process.env.S3_ACCESS_KEY_ID ?? "",
-  s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? "",
 
   // Rate limiting (BE-005)
   rateLimitLoginMax: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? 5),

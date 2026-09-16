@@ -10,7 +10,7 @@ describe("sendEmail (BE-006)", () => {
   it("envía vía Resend con el HTML de la plantilla y responde ok", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    vi.doMock("@/config/env", () => ({ env: { emailProvider: "resend", emailApiKey: "test-key", emailFrom: "servicing@paymyloan.ai" } }));
+    vi.doMock("@/config/env", () => ({ env: { emailApiKey: "test-key", emailFrom: "servicing@paymyloan.ai" } }));
     vi.resetModules();
 
     const { sendEmail } = await import("@/lib/email");
@@ -31,7 +31,7 @@ describe("sendEmail (BE-006)", () => {
 
   it("propaga el error si Resend responde con status no-ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("boom", { status: 500 })));
-    vi.doMock("@/config/env", () => ({ env: { emailProvider: "resend", emailApiKey: "test-key", emailFrom: "servicing@paymyloan.ai" } }));
+    vi.doMock("@/config/env", () => ({ env: { emailApiKey: "test-key", emailFrom: "servicing@paymyloan.ai" } }));
     vi.resetModules();
 
     const { sendEmail } = await import("@/lib/email");
@@ -45,20 +45,10 @@ describe("sendEmail (BE-006)", () => {
     ).rejects.toThrow(/Resend respondió 500/);
   });
 
-  it("lanza si EMAIL_PROVIDER no es soportado", async () => {
-    vi.doMock("@/config/env", () => ({ env: { emailProvider: "unsupported", emailApiKey: "test-key" } }));
-    vi.resetModules();
-
-    const { sendEmail } = await import("@/lib/email");
-    await expect(
-      sendEmail({ to: "x@example.com", subject: "x", template: "password-reset", data: { resetUrl: "x" } }),
-    ).rejects.toThrow(/no soportado/);
-  });
-
   it("con EMAIL_API_KEY vacío, loguea en vez de llamar a Resend (D-P2-1, modo dev)", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    vi.doMock("@/config/env", () => ({ env: { emailProvider: "resend", emailApiKey: "" } }));
+    vi.doMock("@/config/env", () => ({ env: { emailApiKey: "" } }));
     vi.resetModules();
 
     const { sendEmail } = await import("@/lib/email");
