@@ -231,6 +231,28 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 ---
 
+## ✅ Fase 8 — Testing (completa, verificada — transversal, cerrada 2026-09-16)
+
+> **Cerrada 2026-09-16**: `BE-073` (entorno de test) y `BE-074`..`BE-077` (unit de amortización/allocation, integración de contratos/pagos, suite HTTP de auth+2FA) ya venían resueltos en paralelo a cada fase, como marca la nota de [fase-08-testing.md](plan/fases/fase-08-testing.md) — nunca tuvieron checklist propio en este documento hasta ahora. Esta ronda cerró dos huecos reales: `BE-078`/`BE-079` no existían como suites propias (solo piezas sueltas dentro de `requireContractAccess.integration.test.ts`, `withRole.integration.test.ts`, `rateLimit.test.ts`, `jwt.test.ts`), y **22 endpoints HTTP activos no tenían ningún test a nivel de ruta real** — solo a nivel de service (bugs de wiring del route handler, parseo de body o mapeo de status code no los hubiera atrapado ninguna suite existente). Se armó un script de auditoría (`grep` por import de cada `route.ts` en `*.test.ts`, por método HTTP) para encontrar los 22 de forma exhaustiva, no a ojo.
+>
+> **`BE-078` corregido de alcance**: nunca hubo un middleware `withTenantScope` que envolver (`D-P6-1`) — la suite prueba que el patrón real (`lenderCompanyId` explícito + `requireContractAccess`) se sostiene en cada endpoint sensible a tenant, no un middleware único.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-073 | Entorno de test (`vitest` unit + integración, `db-test`, `pnpm test`/`test:integration`) | Resuelto desde Fase 0, adelantado — ver esa sección arriba |
+| ✅ BE-074 | Suite unit: amortización y allocation | `amortization.service.test.ts` (Fase 6), `payments.service.test.ts` (Fase 7) |
+| ✅ BE-075 | Suite integration: contratos + calendario | `contracts.service.integration.test.ts` + `contracts-routes.integration.test.ts` (Fase 6) |
+| ✅ BE-076 | Suite integration: pagos + waterfall + duplicados | `payments.service.integration.test.ts` + `payments-routes.integration.test.ts` (Fase 7) |
+| ✅ BE-077 | Suite API: auth + 2FA | `auth-routes.integration.test.ts` (Fase 2/3) + `auth-2fa-routes.integration.test.ts` (nuevo, HTTP real de `/2fa/setup`/`verify`/`disable`/`recovery-codes`) |
+| ✅ BE-078 | Suite multi-tenancy parametrizada (nuevo) | `src/middlewares/multiTenancy.integration.test.ts` — `it.each` sobre 11 endpoints de `/api/contracts/:id/**` (GET/PATCH/DELETE/cancel/schedule/balance/transactions/terms/fees/borrowers) contra un Lender de otra empresa, todos `404` nunca `403` (anti-enumeración); más `GET /api/lenders/me/borrowers/:id`, `PATCH /api/lenders/me/companies/:companyId`, y el par `GET /api/borrowers/me/loan-requests/:id` / `GET /api/marketplace/loan-requests/:id` para un `LoanRequest PRIVATE` no targeteado. 15 tests |
+| ✅ BE-079 | Suite de seguridad negativa (nuevo) | `src/middlewares/negativeSecurity.integration.test.ts` — rate limit real por HTTP en `/login`, `/login/2fa` (bucket independiente) y `/password/forgot`; JWT manipulado/expirado rechazado en una ruta protegida real (`GET /api/auth/me`, no solo en `withAuth.test.ts` aislado); el `pendingToken` de 2FA nunca sirve como access token; un recovery code reusado falla también a nivel HTTP; un usuario borrado con access token todavía vigente responde `404 USER_NOT_FOUND`. 8 tests |
+
+**Huecos de cobertura HTTP cerrados esta ronda** (servicio ya probado a fondo, pero el route handler nunca se había invocado directo): `auth/2fa/{setup,verify,disable,recovery-codes}`, `auth/{refresh,logout,logout-all}`, `auth/password/{forgot,reset}`, `admin/users/:id/deactivate` (`auth-2fa-routes.integration.test.ts` + `auth-session-routes.integration.test.ts`, nuevos) — `contracts/:id` `DELETE`, `contracts/:id/{cancel,borrowers,borrowers/:borrowerId}`, `contracts/:id/terms` (`GET`/`POST`), `contracts/:id/terms/:termsId/{reject,fees/:feeId}` (`contracts-lifecycle-routes.integration.test.ts`, nuevo) — `borrowers/me/loan-requests` (`GET` lista), `borrowers/me/loan-requests/:id` (`GET`/`PATCH`), `.../withdraw`, `.../targets/:lenderCompanyId` (`DELETE`), `marketplace/loan-requests/:id` (`GET`), `marketplace/loan-requests/:id/quotes` (`DELETE`, retirar cotización) (`loan-requests-detail-routes.integration.test.ts`, nuevo) — `lenders/me/borrowers/:id` (`GET`/`DELETE`, agregado a `lender-borrowers-routes.integration.test.ts`) — `health` (`health-route.test.ts`, nuevo, unit). También se agregó `auditLogs.service.integration.test.ts` (nuevo) — el servicio nunca había tenido test propio, solo se ejercitaba de paso en `payments-routes.integration.test.ts`; cubre el aislamiento por `lenderCompanyId` que `BE-078` no tocaba (un LENDER nunca ve auditoría de otra empresa) y los filtros `action`/`entityType`/paginación.
+
+**Verificado end-to-end**: `type-check`/`lint` limpios, 272 tests en total (54 unit — 1 nuevo: `health-route.test.ts` — + 218 de integración, 52 nuevos sobre los 166 previos, en 7 archivos nuevos + 2 extendidos), y un script de auditoría de cobertura (por método HTTP, no solo por archivo) confirma que **todo endpoint HTTP activo del backend tiene al menos un test que invoca su route handler real** — los únicos dos métodos que el script sigue señalando (`POST /api/lenders/me/borrowers`, `PATCH /api/lenders/me/borrowers/:id`) están comentados a propósito desde `D-P5-1` (deshabilitados, no borrados), no son un hueco real.
+
+---
+
 ## ⬜ Fase 11 — Documentos y generación de PDF
 
 | # | Ítem |

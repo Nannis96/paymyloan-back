@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/lenders/me/borrowers/route";
+import { GET as getBorrowerByIdRoute, DELETE as removeBorrowerRoute } from "@/app/api/lenders/me/borrowers/[id]/route";
 import { POST as changePasswordRoute } from "@/app/api/borrowers/me/password/route";
 import { GET as getOwnBorrowerRoute, PATCH as patchOwnBorrowerRoute } from "@/app/api/borrowers/me/route";
 import { createTestUserWithTwoFactor, issueAccessTokenFor, resetPhase1Tables } from "@/db/testFixtures";
@@ -99,5 +100,55 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
     expect(allowedPatch.status).toBe(200);
     const allowedBody = await allowedPatch.json();
     expect(allowedBody.data.borrowerProfile.addressLine1).toBe("1 Main St");
+  });
+
+  it("GET /api/lenders/me/borrowers/:id: el dueño lo ve, un Lender ajeno recibe 404 (BE-047); DELETE lo desvincula (BE-049)", async () => {
+    const { user: ownerLenderUser, secret: ownerSecret } = await createTestUserWithTwoFactor("LENDER", LENDER_PASSWORD);
+    const ownerLenderProfile = await prisma.lenderProfile.create({ data: { userId: ownerLenderUser.id, createdByAdminId: null } });
+    await prisma.lenderCompany.create({
+      data: {
+        lenderProfileId: ownerLenderProfile.id,
+        companyName: `Detail Owner Co ${Date.now()}`,
+        ein: `78-${Date.now().toString().slice(-7)}`,
+        addressLine1: "1 St",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        createdByUserId: ownerLenderUser.id,
+      },
+    });
+    const ownerAuth = `Bearer ${await issueAccessTokenFor(ownerLenderUser, LENDER_PASSWORD, ownerSecret)}`;
+
+    const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
+    const created = await lenderBorrowersService.createBorrower(ownerLenderUser.id, {
+      name: "Detail Borrower",
+      email: `detail-borrower-${Date.now()}@test.local`,
+    });
+    sendEmailSpy.mockRestore();
+    const borrowerId = created.borrower.id;
+
+    const ownerGetResponse = await getBorrowerByIdRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: ownerAuth }), {
+      params: Promise.resolve({ id: borrowerId }),
+    });
+    expect(ownerGetResponse.status).toBe(200);
+
+    const { user: strangerLenderUser, secret: strangerSecret } = await createTestUserWithTwoFactor("LENDER", LENDER_PASSWORD);
+    await prisma.lenderProfile.create({ data: { userId: strangerLenderUser.id, createdByAdminId: null } });
+    const strangerAuth = `Bearer ${await issueAccessTokenFor(strangerLenderUser, LENDER_PASSWORD, strangerSecret)}`;
+
+    const strangerGetResponse = await getBorrowerByIdRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: strangerAuth }), {
+      params: Promise.resolve({ id: borrowerId }),
+    });
+    expect(strangerGetResponse.status).toBe(404);
+
+    const removeResponse = await removeBorrowerRoute(jsonRequest("DELETE", "http://localhost/x", undefined, { authorization: ownerAuth }), {
+      params: Promise.resolve({ id: borrowerId }),
+    });
+    expect(removeResponse.status).toBe(200);
+
+    const getAfterRemoveResponse = await getBorrowerByIdRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: ownerAuth }), {
+      params: Promise.resolve({ id: borrowerId }),
+    });
+    expect(getAfterRemoveResponse.status).toBe(404);
   });
 });
