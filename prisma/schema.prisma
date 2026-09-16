@@ -197,9 +197,13 @@ enum WebhookEventStatus {
 // Identidad
 // -----------------------------------------------------------------------------
 
-// BE-008. El rol es fijo por persona (a diferencia del modelo simétrico que
-// descarta 00-contradicciones-y-decisiones.md, decisión D0-1) — pero el
-// tenant real ya no es esta tabla, ver LenderCompany (D-P1-3).
+// BE-008. `role` es el rol de registro, no el único rol activo: desde D-P7-1
+// un usuario puede tener LENDER y BORROWER a la vez (adquiere el segundo al
+// completar su perfil) — los roles activos se derivan en vivo de qué
+// perfiles (lenderProfile/borrowerProfile) existen, ver
+// userRoles.service.ts#getActiveRoles. ADMIN/BOOKKEEPER/INSURANCE_COMPANY
+// siguen siendo roles de staff, fijos y exclusivos. El tenant real no es
+// esta tabla, ver LenderCompany (D-P1-3).
 model User {
   id       String  @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name     String

@@ -24,7 +24,7 @@ describe("withAuth (BE-035)", () => {
   });
 
   it("un token con firma inválida lanza 401 INVALID_TOKEN", async () => {
-    const token = await signAccessToken({ sub: "user-1", role: "ADMIN" });
+    const token = await signAccessToken({ sub: "user-1", role: "ADMIN", roles: ["ADMIN"] });
     const tampered = `${token.slice(0, -4)}${token.slice(-4) === "AAAA" ? "BBBB" : "AAAA"}`;
 
     const error = await withAuth(requestWithAuth(`Bearer ${tampered}`)).catch((e) => e);
@@ -33,8 +33,17 @@ describe("withAuth (BE-035)", () => {
     expect((error as AppError).code).toBe("INVALID_TOKEN");
   });
 
-  it("un token válido devuelve la sesión { userId, role }", async () => {
-    const token = await signAccessToken({ sub: "user-1", role: "LENDER" });
-    await expect(withAuth(requestWithAuth(`Bearer ${token}`))).resolves.toEqual({ userId: "user-1", role: "LENDER" });
+  it("un token válido devuelve la sesión { userId, role, roles }", async () => {
+    const token = await signAccessToken({ sub: "user-1", role: "LENDER", roles: ["LENDER"] });
+    await expect(withAuth(requestWithAuth(`Bearer ${token}`))).resolves.toEqual({ userId: "user-1", role: "LENDER", roles: ["LENDER"] });
+  });
+
+  it("D-P7-1: un usuario dual devuelve la sesión con roles: [BORROWER, LENDER]", async () => {
+    const token = await signAccessToken({ sub: "user-1", role: "BORROWER", roles: ["BORROWER", "LENDER"] });
+    await expect(withAuth(requestWithAuth(`Bearer ${token}`))).resolves.toEqual({
+      userId: "user-1",
+      role: "BORROWER",
+      roles: ["BORROWER", "LENDER"],
+    });
   });
 });

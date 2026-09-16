@@ -147,7 +147,7 @@ describe("contracts.service (Fase 6)", () => {
     expect(activated.currentTerms?.status).toBe("ACCEPTED");
     expect(activated.activatedAt).not.toBeNull();
 
-    const schedule = await contractsService.getSchedule({ userId: lenderUser.id, role: "LENDER" }, contract.id);
+    const schedule = await contractsService.getSchedule({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contract.id);
     expect(schedule).toHaveLength(12);
     expect(schedule[schedule.length - 1].projectedRemainingBalance.toFixed(2)).toBe("0.00");
 
@@ -174,7 +174,7 @@ describe("contracts.service (Fase 6)", () => {
     await contractsService.acceptContractTerms(borrowerUser.id, contract.id, termsId, {});
     sendEmailSpy.mockRestore();
 
-    const balance = await contractsService.getBalance({ userId: lenderUser.id, role: "LENDER" }, contract.id);
+    const balance = await contractsService.getBalance({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contract.id);
     expect(balance.principalBalance.toFixed(2)).toBe("200000.00");
   });
 
@@ -200,5 +200,107 @@ describe("contracts.service (Fase 6)", () => {
     const doubleDecision = await contractsService.acceptContractTerms(borrowerA.user.id, contract.id, termsId, {}).catch((e) => e);
     expect(doubleDecision).toBeInstanceOf(AppError);
     expect((doubleDecision as AppError).code).toBe("ALREADY_DECIDED");
+  });
+
+  it("D-P7-1: listContracts devuelve la unión de contratos como LENDER y como BORROWER para un usuario dual, sin duplicados", async () => {
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
+    const otherBorrower = await createTestBorrower();
+    await linkBorrowerToLenderCompany(lenderCompany.id, otherBorrower.borrowerProfile.id, lenderUser.id);
+
+    // `lenderUser` presta dinero a un tercero.
+    const contractAsLender = await contractsService.createContract(lenderUser.id, {
+      property: property(),
+      terms: terms(),
+      borrowerProfileIds: [otherBorrower.borrowerProfile.id],
+    });
+
+    // El mismo `lenderUser` también adquirió el rol BORROWER (D-P7-1,
+    // become-borrower) y le pide dinero a otro Lender.
+    const dualUserBorrowerProfile = await prisma.borrowerProfile.create({
+      data: { userId: lenderUser.id, addressLine1: "1 Dual Way", city: "Austin", state: "TX", postalCode: "78701" },
+    });
+    const anotherLender = await createTestLenderCompany();
+    await linkBorrowerToLenderCompany(anotherLender.lenderCompany.id, dualUserBorrowerProfile.id, anotherLender.lenderUser.id);
+    const contractAsBorrower = await contractsService.createContract(anotherLender.lenderUser.id, {
+      property: property(),
+      terms: terms(),
+      borrowerProfileIds: [dualUserBorrowerProfile.id],
+    });
+
+    const result = await contractsService.listContracts(
+      { userId: lenderUser.id, role: "LENDER", roles: ["LENDER", "BORROWER"] },
+      { page: 1, pageSize: 20 },
+    );
+    const ids = result.items.map((item) => item.id);
+    expect(ids).toContain(contractAsLender.id);
+    expect(ids).toContain(contractAsBorrower.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("D-P7-3: createContract rechaza ofrecer como garantía una propiedad que el mismo usuario ya tiene financiada como Deudor", async () => {
+    const originalLender = await createTestLenderCompany();
+    const { user: dualUser, borrowerProfile: dualUserBorrowerProfile } = await createTestBorrower();
+    await linkBorrowerToLenderCompany(originalLender.lenderCompany.id, dualUserBorrowerProfile.id, originalLender.lenderUser.id);
+
+    const sharedProperty = property({ addressLine1: "77 Shared Rd" });
+    await contractsService.createContract(originalLender.lenderUser.id, {
+      property: sharedProperty,
+      terms: terms(),
+      borrowerProfileIds: [dualUserBorrowerProfile.id],
+    });
+
+    // `dualUser` adquiere el rol LENDER (D-P7-1, become-lender) con su
+    // propia empresa.
+    const dualUserLenderProfile = await prisma.lenderProfile.create({ data: { userId: dualUser.id, createdByAdminId: null } });
+    await prisma.lenderCompany.create({
+      data: {
+        lenderProfileId: dualUserLenderProfile.id,
+        companyName: "Dual User Capital",
+        ein: `ein-dp73-${Date.now()}`,
+        addressLine1: "1 Dual St",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        createdByUserId: dualUser.id,
+      },
+    });
+
+    const error = await contractsService
+      .createContract(dualUser.id, { property: sharedProperty, terms: terms() })
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).statusCode).toBe(409);
+    expect((error as AppError).code).toBe("PROPERTY_SELF_ENCUMBERED");
+  });
+
+  it("D-P7-3: se libera una vez que el contrato original está PAID_OFF", async () => {
+    const originalLender = await createTestLenderCompany();
+    const { user: dualUser, borrowerProfile: dualUserBorrowerProfile } = await createTestBorrower();
+    await linkBorrowerToLenderCompany(originalLender.lenderCompany.id, dualUserBorrowerProfile.id, originalLender.lenderUser.id);
+
+    const sharedProperty = property({ addressLine1: "88 Paid Off Ln" });
+    const originalContract = await contractsService.createContract(originalLender.lenderUser.id, {
+      property: sharedProperty,
+      terms: terms(),
+      borrowerProfileIds: [dualUserBorrowerProfile.id],
+    });
+    await prisma.contract.update({ where: { id: originalContract.id }, data: { status: "PAID_OFF", paidOffAt: new Date() } });
+
+    const dualUserLenderProfile = await prisma.lenderProfile.create({ data: { userId: dualUser.id, createdByAdminId: null } });
+    await prisma.lenderCompany.create({
+      data: {
+        lenderProfileId: dualUserLenderProfile.id,
+        companyName: "Dual User Capital 2",
+        ein: `ein-dp73b-${Date.now()}`,
+        addressLine1: "1 Dual St",
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        createdByUserId: dualUser.id,
+      },
+    });
+
+    const contract = await contractsService.createContract(dualUser.id, { property: sharedProperty, terms: terms() });
+    expect(contract.status).toBe("DRAFT");
   });
 });

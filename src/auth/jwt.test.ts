@@ -14,9 +14,21 @@ import { env } from "@/config/env";
 const signingKey = new TextEncoder().encode(env.jwtAccessSecret);
 
 describe("auth/jwt (BE-025)", () => {
-  it("signAccessToken/verifyAccessToken hacen round-trip con sub y role", async () => {
-    const token = await signAccessToken({ sub: "user-1", role: "ADMIN" });
-    await expect(verifyAccessToken(token)).resolves.toEqual({ sub: "user-1", role: "ADMIN" });
+  it("signAccessToken/verifyAccessToken hacen round-trip con sub, role y roles", async () => {
+    const token = await signAccessToken({ sub: "user-1", role: "ADMIN", roles: ["ADMIN"] });
+    await expect(verifyAccessToken(token)).resolves.toEqual({ sub: "user-1", role: "ADMIN", roles: ["ADMIN"] });
+  });
+
+  it("D-P7-1: un token viejo sin `roles` (compatibilidad) cae a roles: [role]", async () => {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const legacy = await new SignJWT({ role: "BORROWER" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("user-1")
+      .setIssuedAt(nowSeconds)
+      .setExpirationTime(nowSeconds + 900)
+      .sign(signingKey);
+
+    await expect(verifyAccessToken(legacy)).resolves.toEqual({ sub: "user-1", role: "BORROWER", roles: ["BORROWER"] });
   });
 
   it("un token expirado falla la verificación", async () => {
@@ -32,7 +44,7 @@ describe("auth/jwt (BE-025)", () => {
   });
 
   it("un token con la firma manipulada falla la verificación", async () => {
-    const token = await signAccessToken({ sub: "user-1", role: "ADMIN" });
+    const token = await signAccessToken({ sub: "user-1", role: "ADMIN", roles: ["ADMIN"] });
     const tampered = `${token.slice(0, -4)}${token.slice(-4) === "AAAA" ? "BBBB" : "AAAA"}`;
 
     await expect(verifyAccessToken(tampered)).rejects.toThrow();
@@ -45,7 +57,7 @@ describe("auth/jwt (BE-025)", () => {
 
   it("un pending token nunca es aceptado como access token, y viceversa", async () => {
     const pending = await signPendingToken("user-1");
-    const access = await signAccessToken({ sub: "user-1", role: "LENDER" });
+    const access = await signAccessToken({ sub: "user-1", role: "LENDER", roles: ["LENDER"] });
 
     await expect(verifyAccessToken(pending)).rejects.toThrow();
     await expect(verifyPendingToken(access)).rejects.toThrow();

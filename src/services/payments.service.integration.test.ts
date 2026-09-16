@@ -153,15 +153,15 @@ describe("payments.service (Fase 7)", () => {
     const { lenderUser, contract, schedule } = await activateContract();
     const transaction = await paymentsService.recordManualPayment(lenderUser.id, contract.id, { amount: schedule[0].totalDue.toNumber(), method: "MANUAL" });
 
-    const page = await paymentsService.listTransactions({ userId: lenderUser.id, role: "LENDER" }, contract.id, { page: 1, pageSize: 20 });
+    const page = await paymentsService.listTransactions({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, contract.id, { page: 1, pageSize: 20 });
     expect(page.total).toBe(1);
     expect(page.items[0].id).toBe(transaction.id);
 
-    const fetched = await paymentsService.getTransaction({ userId: lenderUser.id, role: "LENDER" }, transaction.id);
+    const fetched = await paymentsService.getTransaction({ userId: lenderUser.id, role: "LENDER", roles: ["LENDER"] }, transaction.id);
     expect(fetched.id).toBe(transaction.id);
 
     const stranger = await createTestLenderCompany();
-    const denied = await paymentsService.getTransaction({ userId: stranger.lenderUser.id, role: "LENDER" }, transaction.id).catch((e) => e);
+    const denied = await paymentsService.getTransaction({ userId: stranger.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, transaction.id).catch((e) => e);
     expect(denied).toBeInstanceOf(AppError);
     expect((denied as AppError).statusCode).toBe(404);
   });
@@ -204,13 +204,13 @@ describe("payments.service (Fase 7)", () => {
     const { contract } = await activateContract();
     const admin = await createTestAdmin();
 
-    const viaAdmin = await contractsService.getContract({ userId: admin.id, role: "ADMIN" }, contract.id);
+    const viaAdmin = await contractsService.getContract({ userId: admin.id, role: "ADMIN", roles: ["ADMIN"] }, contract.id);
     expect(viaAdmin.id).toBe(contract.id);
 
-    const list = await contractsService.listContracts({ userId: admin.id, role: "ADMIN" }, { page: 1, pageSize: 50 });
+    const list = await contractsService.listContracts({ userId: admin.id, role: "ADMIN", roles: ["ADMIN"] }, { page: 1, pageSize: 50 });
     expect(list.items.some((c) => c.id === contract.id)).toBe(true);
 
-    const updated = await contractsService.updateContract({ userId: admin.id, role: "ADMIN" }, contract.id, { property: { city: "Dallas" } });
+    const updated = await contractsService.updateContract({ userId: admin.id, role: "ADMIN", roles: ["ADMIN"] }, contract.id, { property: { city: "Dallas" } });
     expect(updated.property.city).toBe("Dallas");
   });
 
@@ -227,7 +227,7 @@ describe("payments.service (Fase 7)", () => {
       amortizationTermMonths: 3,
     });
 
-    const schedule = await contractsService.getSchedule({ userId: contract.createdByUserId, role: "LENDER" }, contract.id);
+    const schedule = await contractsService.getSchedule({ userId: contract.createdByUserId, role: "LENDER", roles: ["LENDER"] }, contract.id);
     expect(schedule[0].dueSoon).toBe(true);
     expect(schedule[schedule.length - 1].dueSoon).toBe(false);
   });
@@ -237,15 +237,15 @@ describe("payments.service (Fase 7)", () => {
     const second = await activateContract();
     const admin = await createTestAdmin();
 
-    const adminLogs = await auditLogsService.listAuditLogs({ userId: admin.id, role: "ADMIN" }, { page: 1, pageSize: 100 });
+    const adminLogs = await auditLogsService.listAuditLogs({ userId: admin.id, role: "ADMIN", roles: ["ADMIN"] }, { page: 1, pageSize: 100 });
     expect(adminLogs.items.some((log) => log.contractId === first.contract.id)).toBe(true);
     expect(adminLogs.items.some((log) => log.contractId === second.contract.id)).toBe(true);
 
-    const lenderLogs = await auditLogsService.listAuditLogs({ userId: first.lenderUser.id, role: "LENDER" }, { page: 1, pageSize: 100 });
+    const lenderLogs = await auditLogsService.listAuditLogs({ userId: first.lenderUser.id, role: "LENDER", roles: ["LENDER"] }, { page: 1, pageSize: 100 });
     expect(lenderLogs.items.every((log) => log.lenderCompanyId === first.lenderCompany.id)).toBe(true);
     expect(lenderLogs.items.some((log) => log.contractId === second.contract.id)).toBe(false);
 
-    const borrowerDenied = await auditLogsService.listAuditLogs({ userId: first.borrowerUser.id, role: "BORROWER" }, { page: 1, pageSize: 20 }).catch((e) => e);
+    const borrowerDenied = await auditLogsService.listAuditLogs({ userId: first.borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] }, { page: 1, pageSize: 20 }).catch((e) => e);
     expect(borrowerDenied).toBeInstanceOf(AppError);
     expect((borrowerDenied as AppError).code).toBe("FORBIDDEN");
   });

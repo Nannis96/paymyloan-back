@@ -80,7 +80,7 @@ describe("rutas HTTP de /api/auth/2fa/* (BE-033/034)", () => {
     const noAuthResponse = await setupRoute(jsonRequest("POST", "http://localhost/x"));
     expect(noAuthResponse.status).toBe(401);
 
-    const borrowerAuth = `Bearer ${await signAccessToken({ sub: "00000000-0000-0000-0000-000000000000", role: "BORROWER" })}`;
+    const borrowerAuth = `Bearer ${await signAccessToken({ sub: "00000000-0000-0000-0000-000000000000", role: "BORROWER", roles: ["BORROWER"] })}`;
     const forbiddenResponse = await setupRoute(jsonRequest("POST", "http://localhost/x", undefined, { authorization: borrowerAuth }));
     expect(forbiddenResponse.status).toBe(403);
   });

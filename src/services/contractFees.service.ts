@@ -26,7 +26,7 @@ export async function listFees(session: Session, contractId: string, termsId: st
 // propio servicio la inserta automáticamente (Fase 13, cuando
 // `Contract.originationSource` exista), nunca este endpoint manual.
 export async function addFee(userId: string, contractId: string, termsId: string, input: CreateFeeItemInput): Promise<ContractFeeItem> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   const terms = await requireContractTerms(contractId, termsId);
   if (terms.status !== "DRAFT") {
     throw new AppError("Fees can only be edited while the terms version is DRAFT", 409, "TERMS_NOT_EDITABLE");
@@ -63,7 +63,7 @@ export async function addFee(userId: string, contractId: string, termsId: string
 }
 
 export async function deleteFee(userId: string, contractId: string, termsId: string, feeId: string): Promise<void> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   const terms = await requireContractTerms(contractId, termsId);
   if (terms.status !== "DRAFT") {
     throw new AppError("Fees can only be edited while the terms version is DRAFT", 409, "TERMS_NOT_EDITABLE");

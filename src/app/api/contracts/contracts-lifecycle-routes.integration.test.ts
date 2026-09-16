@@ -58,7 +58,7 @@ async function setupLenderWithCompany(einPrefix: string) {
       createdByUserId: lenderUser.id,
     },
   });
-  const lenderAuth = `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER" })}`;
+  const lenderAuth = `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER", roles: ["LENDER"] })}`;
   return { lenderUser, secret, lenderCompany, lenderAuth };
 }
 
@@ -179,7 +179,7 @@ describe("rutas HTTP del ciclo de vida de /api/contracts/:id (BE-056/057/060/061
     const { lenderUser, lenderCompany, lenderAuth } = await setupLenderWithCompany("73");
     const { user: borrowerUser, borrowerProfile } = await createTestBorrower();
     await linkBorrowerToLenderCompany(lenderCompany.id, borrowerProfile.id, lenderUser.id);
-    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER" })}`;
+    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const createResponse = await createContractRoute(jsonRequest("POST", "http://localhost/api/contracts", contractPayload(borrowerProfile.id), { authorization: lenderAuth }));
     const created = await createResponse.json();
@@ -236,7 +236,7 @@ describe("rutas HTTP del ciclo de vida de /api/contracts/:id (BE-056/057/060/061
     const { lenderUser, lenderCompany, lenderAuth } = await setupLenderWithCompany("74");
     const { user: borrowerUser, borrowerProfile } = await createTestBorrower();
     await linkBorrowerToLenderCompany(lenderCompany.id, borrowerProfile.id, lenderUser.id);
-    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER" })}`;
+    const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const createResponse = await createContractRoute(jsonRequest("POST", "http://localhost/api/contracts", contractPayload(borrowerProfile.id), { authorization: lenderAuth }));
     const created = await createResponse.json();

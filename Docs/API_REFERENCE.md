@@ -381,12 +381,14 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
     "success": true,
     "data": {
       "user": /* SafeUser */ {},
-      // presente solo si role === "LENDER"
+      // roles activos (D-P7-1) — puede incluir LENDER y BORROWER a la vez
+      "roles": ["BORROWER", "LENDER"],
+      // presente si existe un LenderProfile (no depende de `user.role`)
       "lenderProfile": {
         "id": "...",
         "lenderCompanies": [ { "id": "...", "companyName": "...", "status": "ACTIVE", "isOpenToDeals": true } ]
       },
-      // presente solo si role === "BORROWER"
+      // presente si existe un BorrowerProfile (no depende de `user.role`)
       "borrowerProfile": {
         "id": "...",
         "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
@@ -717,6 +719,33 @@ Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`delete
 - **Response `200` (`DELETE`)**: `{ "success": true, "data": { "deleted": true } }` — soft-delete de esa sola empresa, no de todo el Lender ni sus otras empresas.
 - **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_COMPANY_NOT_FOUND` · `409 EIN_TAKEN` (`PATCH`) · `409 LENDER_HAS_ACTIVE_CONTRACTS` (`DELETE`, esa empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`).
 
+### `POST /api/lenders/me/become-borrower`
+
+**¿Para qué sirve?** Para que un Lender que también quiere pedir dinero (rol dual, `D-P7-1`) adquiera el rol BORROWER sin crear una cuenta nueva — completa la dirección que ese rol exige y listo.
+
+`D-P7-1`, nuevo. Crea el `BorrowerProfile` del usuario de la sesión (no existía) con la dirección enviada. Devuelve un `accessToken` nuevo con los `roles` actualizados — el anterior sigue siendo válido hasta que expire, pero no trae `BORROWER` en `roles`.
+
+- **Auth**: Autenticado, rol `LENDER` + 2FA activo (`D-P3-1`, escritura de negocio).
+- **Request body**: dirección completa, todos los campos obligatorios (a diferencia de `PATCH /api/borrowers/me`, acá el perfil no existe todavía).
+
+  ```json
+  { "addressLine1": "500 Lamar Blvd", "city": "Austin", "state": "TX", "postalCode": "78701" }
+  ```
+
+- **Response `201`**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      "user": /* SafeUser */ {},
+      "borrowerProfile": { "id": "...", "addressLine1": "...", "city": "...", "state": "...", "postalCode": "..." },
+      "lenderCompanies": [],
+      "accessToken": "..."
+    }
+  }
+  ```
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `409 BORROWER_PROFILE_ALREADY_EXISTS`.
+
 ### ~~`POST /api/lenders/me/borrowers`~~ — ⚠️ deshabilitado (`D-P5-1`, 2026-09-11)
 
 `BE-045`, comentado en `route.ts` a pedido explícito — responde `405` (ningún handler registrado para `POST` en esa ruta). Un `LENDER` ya no puede crear un Borrower directo. El código de servicio (`lenderBorrowersService.createBorrower`) sigue intacto; se documenta el shape original acá por si se reactiva.
@@ -801,6 +830,41 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
   ```
 
 - **Errores**: `400 VALIDATION_ERROR` (solo `PATCH`) · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 PASSWORD_CHANGE_REQUIRED` (solo `PATCH`) · `404 BORROWER_NOT_FOUND`.
+
+### `POST /api/borrowers/me/become-lender`
+
+**¿Para qué sirve?** Para que un Deudor que también quiere prestar dinero (rol dual, `D-P7-1`) adquiera el rol LENDER sin crear una cuenta nueva — completa los datos de su primera empresa y listo.
+
+`D-P7-1`, nuevo. Crea el `LenderProfile` del usuario de la sesión (no existía) junto con su primera `LenderCompany`, en la misma transacción — mismo body que [`POST /api/lenders/me/companies`](#post-apilendersmecompanies). Devuelve un `accessToken` nuevo con los `roles` actualizados.
+
+- **Auth**: Autenticado, rol `BORROWER` (sin exigir 2FA — todavía no es LENDER al momento de esta llamada).
+- **Request body**: igual que `POST /api/lenders/me/companies` (`companyName`/`ein`/`contactPhone`?/dirección).
+
+  ```json
+  {
+    "companyName": "Lone Star Capital LLC",
+    "ein": "12-3456789",
+    "contactPhone": "5125550100",
+    "addressLine1": "100 Congress Ave",
+    "addressLine2": "Suite 200",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78701"
+  }
+  ```
+
+- **Response `201`**:
+  ```jsonc
+  {
+    "success": true,
+    "data": {
+      "lenderProfileId": "...",
+      "company": /* LenderCompanySummary */ {},
+      "accessToken": "..."
+    }
+  }
+  ```
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `409 LENDER_PROFILE_ALREADY_EXISTS` · `409 EIN_TAKEN`.
 
 ### `POST /api/borrowers/me/password`
 
@@ -959,7 +1023,7 @@ Crea el contrato en un solo paso.
   Notas: `lenderCompanyId` solo hace falta si el Lender tiene más de una `LenderCompany`; `insuranceCompanyId` y `borrowerProfileIds` son opcionales; `prePayPenaltyType`/`prePayPenaltyAmount` viajan juntos o ninguno de los dos.
 
 - **Response `201`**: `Contract` completo (ver forma abajo), `status: "DRAFT"`, `currentTerms` con `versionNumber: 1` y `status: "DRAFT"`.
-- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId`/`insuranceCompanyId`/algún `borrowerProfileId` ajeno o no vinculado) · `409 NO_LENDER_COMPANY`.
+- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId`/`insuranceCompanyId`/algún `borrowerProfileId` ajeno o no vinculado) · `409 NO_LENDER_COMPANY` · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`) · `409 PROPERTY_SELF_ENCUMBERED` (`D-P7-3`).
 
 ### `GET /api/contracts`
 
@@ -1034,7 +1098,7 @@ Asocia/retira (soft) un `BorrowerProfile` — validado contra `LenderBorrower AC
   { "borrowerProfileId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5d", "isPrimary": true }
   ```
 
-- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (deudor no vinculado, o ya no asociado en el `DELETE`) · `409 ALREADY_ASSOCIATED`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (deudor no vinculado, o ya no asociado en el `DELETE`) · `409 ALREADY_ASSOCIATED` · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`, solo `POST`).
 
 ### `GET /api/contracts/:id/terms` / `POST /api/contracts/:id/terms`
 
@@ -1318,7 +1382,7 @@ Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
   { "lenderCompanyId": "01a0c1e2-3b4d-7e5f-8a9b-0c1d2e3f4a5b" }
   ```
 
-- **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 NOT_FOUND` (loan request ajeno, o `lenderCompanyId` inexistente) · `409 LOAN_REQUEST_NOT_TARGETABLE` · `409 ALREADY_TARGETED`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 NOT_FOUND` (loan request ajeno, o `lenderCompanyId` inexistente) · `409 LOAN_REQUEST_NOT_TARGETABLE` · `409 ALREADY_TARGETED` · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`).
 
 ### `GET /api/marketplace/loan-requests` / `GET /api/marketplace/loan-requests/:id`
 
@@ -1352,7 +1416,7 @@ Para `LENDER`: `PUBLIC` visibles a todos + `PRIVATE` donde su `LenderCompany` es
   ```
 
 - **Response `201`**: `LoanQuote`.
-- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (loan request no visible para este Lender) · `409 LOAN_REQUEST_ALREADY_MATCHED`.
+- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (loan request no visible para este Lender) · `409 LOAN_REQUEST_ALREADY_MATCHED` · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`, rechazo temprano — la comprobación que cuenta es en `.../select`).
 
 ### `GET /api/borrowers/me/loan-requests/:id/quotes`
 
@@ -1373,7 +1437,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 - **Auth**: Autenticado, rol `BORROWER`.
 - **Response `201`**: `{ "success": true, "data": { "contractId": "..." } }`.
-- **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_PUBLISHED` · `409 QUOTE_NOT_SUBMITTED` (ya `SELECTED`/`DECLINED`/`WITHDRAWN`/`EXPIRED`, o perdió la carrera contra otra selección).
+- **Errores**: `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_PUBLISHED` · `409 QUOTE_NOT_SUBMITTED` (ya `SELECTED`/`DECLINED`/`WITHDRAWN`/`EXPIRED`, o perdió la carrera contra otra selección) · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`).
 
 ---
 
@@ -1400,7 +1464,11 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente); mismo código en `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`) si `:companyId` no es del Lender de la sesión |
 | `BORROWER_NOT_FOUND` | 404 | El `User` autenticado en `/api/borrowers/me*` no tiene `BorrowerProfile` |
 | `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) con un correo que ya existe |
-| `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies`, `POST /api/lenders/me/companies`, o `PATCH /api/admin\|lenders/.../companies/:companyId` (incluido `D-P4-9`) con un `ein` que ya usa otra `LenderCompany` |
+| `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies`, `POST /api/lenders/me/companies`, `POST /api/borrowers/me/become-lender` (`D-P7-1`), o `PATCH /api/admin\|lenders/.../companies/:companyId` (incluido `D-P4-9`) con un `ein` que ya usa otra `LenderCompany` |
+| `LENDER_PROFILE_ALREADY_EXISTS` | 409 | `POST /api/borrowers/me/become-lender` (`D-P7-1`) — el usuario ya tiene un `LenderProfile` |
+| `BORROWER_PROFILE_ALREADY_EXISTS` | 409 | `POST /api/lenders/me/become-borrower` (`D-P7-1`) — el usuario ya tiene un `BorrowerProfile` |
+| `SELF_LENDING_NOT_ALLOWED` | 409 | `POST /api/contracts`, `POST /api/contracts/:id/borrowers`, `POST /api/marketplace/loan-requests/:id/quotes`, `.../quotes/:quoteId/select`, o `POST /api/borrowers/me/loan-requests/:id/targets` (`D-P7-2`) — el dueño de la `LenderCompany` y el del `BorrowerProfile` son el mismo usuario |
+| `PROPERTY_SELF_ENCUMBERED` | 409 | `POST /api/contracts` (`D-P7-3`) — la propiedad ya está financiada por ese mismo usuario actuando como Deudor (mismo `Contract` no `PAID_OFF`/`CANCELLED`, misma dirección normalizada) |
 | `LENDER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/admin/lenders/:id` (alguna de sus `LenderCompany` tiene un `Contract` `ACTIVE`/`DELINQUENT`) o `DELETE .../companies/:companyId` (esa empresa puntual lo tiene) — Admin o autoservicio (`D-P4-9`) |
 | `NO_LENDER_COMPANY` | 409 | `POST /api/marketplace/loan-requests/:id/quotes`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender todavía no tiene ninguna `LenderCompany` |
 | `BORROWER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/lenders/me/borrowers/:id` — el deudor tiene un `Contract` `ACTIVE`/`DELINQUENT` con alguna de las empresas de las que se lo está desvinculando |

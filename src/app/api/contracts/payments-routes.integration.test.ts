@@ -67,7 +67,7 @@ async function activateContractViaHttp(einPrefix: string) {
 
   const { user: borrowerUser, borrowerProfile } = await createTestBorrower();
   await linkBorrowerToLenderCompany(lenderCompany.id, borrowerProfile.id, lenderUser.id);
-  const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER" })}`;
+  const borrowerAuth = `Bearer ${await signAccessToken({ sub: borrowerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
   const createResponse = await createContractRoute(jsonRequest("POST", "http://localhost/api/contracts", contractPayload(borrowerProfile.id), { authorization: lenderAuth }));
   const created = await createResponse.json();

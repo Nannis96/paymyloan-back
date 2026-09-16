@@ -166,7 +166,7 @@ export async function applyTransaction(tx: TxClient, transactionId: string): Pro
 // asíncrono que esperar, a diferencia del ACH de BE-066) y se aplica en el
 // acto.
 export async function recordManualPayment(userId: string, contractId: string, input: CreateManualPaymentInput): Promise<TransactionDetail> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+  const contract = await requireContractAccess({ userId, role: "LENDER", roles: ["LENDER"] }, contractId);
   if (contract.status !== "ACTIVE" && contract.status !== "DELINQUENT") {
     throw new AppError("The contract has no active payment schedule to apply a payment to", 409, "CONTRACT_NOT_ACTIVE");
   }
@@ -259,7 +259,7 @@ export async function reverseTransaction(userId: string, transactionId: string, 
     throw new AppError("Only a SUCCEEDED transaction can be reversed", 409, "TRANSACTION_NOT_REVERSIBLE");
   }
 
-  const contract = await requireContractAccess({ userId, role: "ADMIN" }, transaction.contractId);
+  const contract = await requireContractAccess({ userId, role: "ADMIN", roles: ["ADMIN"] }, transaction.contractId);
 
   await prisma.$transaction(async (tx) => {
     const principalAndInterestByRow = new Map<string, Prisma.Decimal>();

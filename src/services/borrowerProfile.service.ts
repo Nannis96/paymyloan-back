@@ -3,7 +3,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
-import type { ChangePasswordInput, UpdateBorrowerProfileInput } from "@/validations/borrowers.validation";
+import type { BecomeBorrowerInput, ChangePasswordInput, UpdateBorrowerProfileInput } from "@/validations/borrowers.validation";
 
 export interface OwnBorrowerProfile {
   user: SafeUser;
@@ -57,6 +57,43 @@ export async function updateOwnProfile(userId: string, input: UpdateBorrowerProf
 
   await prisma.borrowerProfile.update({ where: { id: current.borrowerProfile.id }, data });
   await logAuditEvent({ action: "BORROWER_UPDATED", entityType: "BorrowerProfile", entityId: current.borrowerProfile.id, actorUserId: userId });
+
+  return loadOwnProfile(userId);
+}
+
+// D-P7-1. POST /api/lenders/me/become-borrower — la vía por la que un LENDER
+// adquiere el rol BORROWER además del que ya tiene, completando la dirección
+// que ese rol exige (a diferencia de updateOwnProfile, acá el perfil no
+// existe todavía).
+export async function becomeBorrower(userId: string, input: BecomeBorrowerInput): Promise<OwnBorrowerProfile> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.deletedAt) {
+    throw new AppError("User not found", 404, "USER_NOT_FOUND");
+  }
+
+  const existing = await prisma.borrowerProfile.findUnique({ where: { userId } });
+  if (existing) {
+    throw new AppError("You already have a borrower profile", 409, "BORROWER_PROFILE_ALREADY_EXISTS");
+  }
+
+  await prisma.borrowerProfile.create({
+    data: {
+      userId,
+      addressLine1: input.addressLine1,
+      city: input.city,
+      state: input.state,
+      postalCode: input.postalCode,
+      createdByUserId: null,
+    },
+  });
+
+  await logAuditEvent({
+    action: "BORROWER_CREATED",
+    entityType: "User",
+    entityId: userId,
+    actorUserId: userId,
+    metadata: { secondRole: true },
+  });
 
   return loadOwnProfile(userId);
 }

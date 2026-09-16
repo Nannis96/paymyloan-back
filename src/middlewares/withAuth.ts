@@ -7,6 +7,8 @@ import { AppError } from "@/errors/AppError";
 export interface Session {
   userId: string;
   role: UserRole;
+  // Roles activos (rol dual LENDER+BORROWER) — ver AccessTokenPayload.roles.
+  roles: UserRole[];
 }
 
 export async function withAuth(request: Request): Promise<Session> {
@@ -17,5 +19,5 @@ export async function withAuth(request: Request): Promise<Session> {
   }
 
   const payload = await verifyAccessToken(token);
-  return { userId: payload.sub, role: payload.role };
+  return { userId: payload.sub, role: payload.role, roles: payload.roles };
 }

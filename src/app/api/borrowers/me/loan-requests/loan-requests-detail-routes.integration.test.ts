@@ -46,7 +46,7 @@ async function createTestLenderCompany(einPrefix: string) {
       createdByUserId: lenderUser.id,
     },
   });
-  return { lenderUser, lenderCompany, lenderAuth: `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER" })}` };
+  return { lenderUser, lenderCompany, lenderAuth: `Bearer ${await signAccessToken({ sub: lenderUser.id, role: "LENDER", roles: ["LENDER"] })}` };
 }
 
 // PB-011/D-S2-22 a nivel HTTP — loanRequests.service.integration.test.ts ya
@@ -57,7 +57,7 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
 
   it("GET/PATCH de un loan request propio funcionan; de uno ajeno responden 404", async () => {
     const { user: ownerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const createResponse = await createLoanRequestRoute(
       jsonRequest("POST", "http://localhost/api/borrowers/me/loan-requests", loanRequestPayload("PRIVATE"), { authorization: ownerAuth }),
@@ -78,7 +78,7 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
     expect((await patchResponse.json()).data.purchasePrice).toBe("310000");
 
     const { user: strangerUser } = await createTestBorrower();
-    const strangerAuth = `Bearer ${await signAccessToken({ sub: strangerUser.id, role: "BORROWER" })}`;
+    const strangerAuth = `Bearer ${await signAccessToken({ sub: strangerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const strangerGetResponse = await getLoanRequestRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: strangerAuth }), {
       params: Promise.resolve({ id: loanRequestId }),
@@ -94,7 +94,7 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
 
   it("publicar -> editar responde 409; withdraw funciona una vez y la segunda responde 409", async () => {
     const { user: ownerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
 
     const createResponse = await createLoanRequestRoute(
       jsonRequest("POST", "http://localhost/x", loanRequestPayload("PUBLIC"), { authorization: ownerAuth }),
@@ -125,7 +125,7 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
 
   it("agregar y quitar un target por HTTP; un mismo target duplicado responde 409", async () => {
     const { user: ownerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     const { lenderCompany } = await createTestLenderCompany("60");
 
     const createResponse = await createLoanRequestRoute(
@@ -155,11 +155,11 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
 
   it("GET /api/marketplace/loan-requests/:id: PUBLIC visible a cualquier Lender, PRIVATE solo al targeteado", async () => {
     const { user: ownerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     const { lenderCompany: targetedCompany, lenderUser: targetedLenderUser } = await createTestLenderCompany("61");
     const { lenderUser: outsiderLenderUser } = await createTestLenderCompany("62");
-    const outsiderAuth = `Bearer ${await signAccessToken({ sub: outsiderLenderUser.id, role: "LENDER" })}`;
-    const targetedAuth = `Bearer ${await signAccessToken({ sub: targetedLenderUser.id, role: "LENDER" })}`;
+    const outsiderAuth = `Bearer ${await signAccessToken({ sub: outsiderLenderUser.id, role: "LENDER", roles: ["LENDER"] })}`;
+    const targetedAuth = `Bearer ${await signAccessToken({ sub: targetedLenderUser.id, role: "LENDER", roles: ["LENDER"] })}`;
 
     const createResponse = await createLoanRequestRoute(
       jsonRequest("POST", "http://localhost/x", loanRequestPayload("PRIVATE"), { authorization: ownerAuth }),
@@ -183,7 +183,7 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
 
   it("un Lender puede retirar su propia cotización (DELETE /api/marketplace/loan-requests/:id/quotes); retirarla de nuevo responde 404", async () => {
     const { user: ownerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     const { lenderAuth } = await createTestLenderCompany("63");
 
     const createResponse = await createLoanRequestRoute(
@@ -212,12 +212,12 @@ describe("rutas HTTP de detalle de /api/borrowers/me/loan-requests/:id y /api/ma
 
   it("GET /api/borrowers/me/loan-requests lista solo los propios, paginado", async () => {
     const { user: ownerUser } = await createTestBorrower();
-    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER" })}`;
+    const ownerAuth = `Bearer ${await signAccessToken({ sub: ownerUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     await createLoanRequestRoute(jsonRequest("POST", "http://localhost/x", loanRequestPayload("PRIVATE"), { authorization: ownerAuth }));
     await createLoanRequestRoute(jsonRequest("POST", "http://localhost/x", loanRequestPayload("PUBLIC"), { authorization: ownerAuth }));
 
     const { user: otherUser } = await createTestBorrower();
-    const otherAuth = `Bearer ${await signAccessToken({ sub: otherUser.id, role: "BORROWER" })}`;
+    const otherAuth = `Bearer ${await signAccessToken({ sub: otherUser.id, role: "BORROWER", roles: ["BORROWER"] })}`;
     await createLoanRequestRoute(jsonRequest("POST", "http://localhost/x", loanRequestPayload("PUBLIC"), { authorization: otherAuth }));
 
     const listResponse = await listLoanRequestsRoute(jsonRequest("GET", "http://localhost/api/borrowers/me/loan-requests", undefined, { authorization: ownerAuth }));
