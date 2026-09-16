@@ -206,16 +206,28 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 **Verificado end-to-end**: `type-check`/`lint` limpios, 182 tests en total (44 unit — 7 nuevos de `amortization.service.test.ts`, con casos contra referencia externa de amortización estándar — + 138 de integración, 14 nuevos de esta ronda: `contracts.service`, `contractFees.service`, los dos jobs, y la primera suite HTTP de este módulo), `next build` compila los 41 endpoints (28 previos + 13 nuevos de Fase 6) sin errores.
 
-## ⬜ Fase 7 — Pagos manuales
+## ✅ Fase 7 — Pagos manuales (completa, verificada — BE-065/066/070 siguen bloqueados)
 
-| # | Ítem |
-|---|---|
-| ⬜ BE-067 | `POST /api/contracts/:id/payments/manual` |
-| ⬜ BE-068 | Servicio `calculatePaymentAllocation` + `applyTransaction` (waterfall) |
-| ⬜ BE-069 | `GET /api/contracts/:id/transactions` y `GET /api/transactions/:id` |
-| ⬜ BE-071 | Servicio `reverseTransaction` + `POST /api/transactions/:id/reverse` |
-| ⬜ BE-072 | `GET /api/audit-logs` |
-| 🔒 BE-065/066/070 | Stripe (SetupIntent, ACH del deudor, webhook) — **bloqueado por decisión Connect vs cuenta única** |
+> **Implementada 2026-09-15**, contra el schema real (`ScheduledPayment`/`Transaction`/`TransactionAllocation` ya existían desde Fase 1, sin migración nueva). Pedido explícito de Spencer, tres decisiones fuera del backlog original:
+>
+> **"El primer pago se genera automáticamente al crear el contrato" — ya cubierto, sin cambios**: el calendario completo (incluida la primera fila) ya se generaba solo desde Fase 6 (`generateAmortizationSchedule`, `BE-059`), disparado por `acceptContractTerms` en cuanto el último deudor completa el quórum de aceptación — no al crear el `Contract` (`POST /api/contracts`, que nace `DRAFT` con términos todavía editables). Confirmado con Spencer antes de tocar nada: generar un calendario sobre términos que aún pueden cambiar en `DRAFT` habría sido incorrecto.
+>
+> **"Pagos que vencen en los próximos 7 días, con estatus pendiente/por vencer"**: se implementó como indicador **calculado**, no persistido — `dueSoon: boolean` agregado a cada fila de `GET /api/contracts/:id/schedule` (`isDueSoon()`, nuevo en `contracts.service.ts`), `true` cuando `status` es `PENDING`/`PARTIALLY_PAID` y `dueDate` cae dentro de los próximos 7 días desde `asOf`. Sin job nuevo ni valor nuevo en `ScheduledPaymentStatus` — decisión explícita de Spencer para no arrastrar un estado más que sincronizar.
+>
+> **"Contratos y pagos visibles/editables por el Admin"**: `requireContractAccess` (`BE-038`) gana una rama `ADMIN` sin restricción de tenant (antes devolvía `403 FORBIDDEN` a cualquier rol que no fuera LENDER/BORROWER). `contracts.service.ts#listContracts` gana la misma rama (ve todos los contratos, sin filtro de `lenderCompanyId`) y `updateContract` pasa a recibir la `Session` completa (antes solo `userId`, con el rol de `requireContractAccess` hardcodeado a `"LENDER"`) para poder autorizar también al Admin. En el controller, `requireContractReadSession` (antes `requireLenderOrBorrowerSession`) suma `ADMIN` a lecturas (contrato, lista, schedule, balance, fees — nunca exige 2FA) y `requireLenderOrAdminSession` (nuevo) cubre la escritura de `PATCH /api/contracts/:id` (sigue exigiendo 2FA, D-P3-1 — es una escritura de negocio). Alcance acotado a listar/ver/editar (`PATCH`) — `DELETE`/`cancel`/gestión de deudores/propuesta de términos siguen siendo exclusivas de LENDER, no pedidas para Admin.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ BE-067 | `POST /api/contracts/:id/payments/manual` | LENDER, en sus contratos (09-pagos.md §9.5); solo `ACTIVE`/`DELINQUENT` (`409 CONTRACT_NOT_ACTIVE`); nace `SUCCEEDED` directo (sin Stripe de por medio, es reconciliación manual) y se aplica en el acto |
+| ✅ BE-068 | `src/services/payments.service.ts` — `calculatePaymentAllocation` (pura, unit-testable) + `applyTransaction` | Waterfall mora→interés→capital, filas `PENDING`/`PARTIALLY_PAID` más antiguas primero (dueDate asc); lo "ya pagado" de cada balde se calcula sobre asignaciones de Transactions `SUCCEEDED` únicamente — así una reversión (`BE-071`) no necesita tocar `TransactionAllocation`, el próximo cálculo ya la ignora sola. Pago que excede el saldo total pendiente del contrato → `400 AMOUNT_EXCEEDS_BALANCE`, sin dejar ninguna `Transaction` a medias |
+| ✅ BE-069 | `GET /api/contracts/:id/transactions` y `GET /api/transactions/:id` | Paginado, vía `requireContractAccess` (LENDER/BORROWER/ADMIN) |
+| ✅ BE-071 | `reverseTransaction` + `POST /api/transactions/:id/reverse` | Solo ADMIN (09-pagos.md §9.5); revierte `amountPaid`/`status` de las filas afectadas y `Contract.currentPrincipalBalance`, deja la `Transaction` en `RETURNED` (nunca borra `TransactionAllocation`, historial append-only); solo reversible una vez (`409 TRANSACTION_NOT_REVERSIBLE`) |
+| ✅ BE-072 | `GET /api/audit-logs` | ADMIN ve todo; LENDER solo `lenderCompanyId IN (mis empresas)` (mismo criterio tenant-scoped que el resto, `withTenantScope` sigue descartado); BORROWER `403 FORBIDDEN` |
+| 🔒 BE-065/066/070 | Stripe (SetupIntent, ACH del deudor, webhook) — **sigue bloqueado por decisión Connect vs cuenta única** (sección 15) | |
+
+**Archivos nuevos**: `src/services/payments.service.ts` (+ `payments.service.test.ts` unitario del waterfall, `payments.service.integration.test.ts`), `src/services/auditLogs.service.ts`, `src/controllers/payments.controller.ts`, `src/controllers/auditLogs.controller.ts`, `src/validations/payments.validation.ts`, 5 rutas nuevas (`contracts/[id]/payments/manual`, `contracts/[id]/transactions`, `transactions/[id]`, `transactions/[id]/reverse`, `audit-logs`) + `contracts/payments-routes.integration.test.ts` (HTTP). **Cambios en archivos existentes**: `requireContractAccess.ts` (rama ADMIN), `contracts.service.ts` (`listContracts`/`updateContract` admin-aware, `getSchedule` con `dueSoon`, `isDueSoon` exportada), `contracts.controller.ts` (`requireContractReadSession`/`requireLenderOrAdminSession`). Códigos de error nuevos: `CONTRACT_NOT_ACTIVE`, `TRANSACTION_NOT_SUCCEEDED`, `AMOUNT_EXCEEDS_BALANCE`, `TRANSACTION_NOT_REVERSIBLE`. Sin `AuditAction` nuevas — `TRANSACTION_CREATED`/`SUCCEEDED`/`RETURNED` ya estaban reservadas en `src/lib/audit.ts` desde Fase 6.
+
+**Verificado end-to-end**: `type-check`/`lint` limpios, 219 tests en total (53 unit — 9 nuevos: waterfall + `isDueSoon` — + 166 de integración, 18 nuevos sobre la base de 148 que dejó Fase 13: `payments.service` de punta a punta incluyendo mora-antes-que-interés y reversión/reaplicación, la suite HTTP de pagos+Admin, y el ajuste del test de `requireContractAccess` que antes esperaba `403` para ADMIN), `next build` compila los 57 endpoints (52 previos + 5 nuevos) sin errores.
 
 ---
 

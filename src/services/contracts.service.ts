@@ -216,6 +216,10 @@ export async function listContracts(session: Session, query: ListContractsQuery)
     const borrowerProfile = await prisma.borrowerProfile.findUnique({ where: { userId: session.userId } });
     if (!borrowerProfile) return buildPaginatedResult([], 0, query);
     where = { deletedAt: null, borrowers: { some: { borrowerProfileId: borrowerProfile.id, removedAt: null } } };
+  } else if (session.role === "ADMIN") {
+    // Fase 7 (pedido explícito): el Admin ve todos los contratos, sin
+    // restricción de tenant — mismo criterio que GET /api/users.
+    where = { deletedAt: null };
   } else {
     throw new AppError("You do not have permission for this operation", 403, "FORBIDDEN");
   }
@@ -243,9 +247,12 @@ export async function getContract(session: Session, contractId: string): Promise
 
 // BE-054. `terms` solo aplica si la vigente está DRAFT; property/
 // insuranceCompanyId son editables en cualquier estado (08-contratos.md
-// §8.2).
-export async function updateContract(userId: string, contractId: string, input: UpdateContractInput): Promise<ContractDetail> {
-  const contract = await requireContractAccess({ userId, role: "LENDER" }, contractId);
+// §8.2). Recibe la `Session` completa (no solo `userId`) — Fase 7 extiende
+// esta edición al Admin (pedido explícito), que `requireContractAccess`
+// resuelve sin restricción de tenant.
+export async function updateContract(session: Session, contractId: string, input: UpdateContractInput): Promise<ContractDetail> {
+  const { userId } = session;
+  const contract = await requireContractAccess(session, contractId);
 
   if (input.terms) {
     if (!contract.currentTermsId) {
@@ -587,10 +594,20 @@ export async function listContractTermsHistory(session: Session, contractId: str
   return prisma.contractTerms.findMany({ where: { contractId }, orderBy: { versionNumber: "desc" }, include: { feeItems: true } });
 }
 
-// BE-062.
+// BE-062. `dueSoon` es un indicador calculado al vuelo (pedido explícito,
+// Fase 7) — nunca se persiste ni cambia el enum de estado: una fila PENDING/
+// PARTIALLY_PAID cuyo dueDate cae dentro de los próximos 7 días desde `asOf`.
 export async function getSchedule(session: Session, contractId: string) {
   await requireContractAccess(session, contractId);
-  return prisma.scheduledPayment.findMany({ where: { contractId }, orderBy: [{ dueDate: "asc" }, { sequenceNumber: "asc" }] });
+  const rows = await prisma.scheduledPayment.findMany({ where: { contractId }, orderBy: [{ dueDate: "asc" }, { sequenceNumber: "asc" }] });
+  return rows.map((row) => ({ ...row, dueSoon: isDueSoon(row, new Date()) }));
+}
+
+export function isDueSoon(row: { status: string; dueDate: Date }, asOf: Date): boolean {
+  if (row.status !== "PENDING" && row.status !== "PARTIALLY_PAID") return false;
+  const in7Days = new Date(asOf);
+  in7Days.setUTCDate(in7Days.getUTCDate() + 7);
+  return row.dueDate >= asOf && row.dueDate <= in7Days;
 }
 
 export interface ContractBalance {

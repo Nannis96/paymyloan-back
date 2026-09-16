@@ -31,9 +31,21 @@ async function requireBorrowerSession(request: Request) {
   return session;
 }
 
-async function requireLenderOrBorrowerSession(request: Request) {
+// Fase 7 (pedido explícito): el Admin también puede ver contratos/pagos —
+// mismo criterio anti-enumeración de requireContractAccess (404, no 403),
+// así que basta con dejarlo pasar acá; lecturas nunca exigen 2FA.
+async function requireContractReadSession(request: Request) {
   const session = await withAuth(request);
-  await withRole(session, ["LENDER", "BORROWER"], { requireTwoFactor: false });
+  await withRole(session, ["LENDER", "BORROWER", "ADMIN"], { requireTwoFactor: false });
+  return session;
+}
+
+// Fase 7 (pedido explícito): el Admin también puede editar cualquier
+// contrato — es una escritura de negocio, así que sigue exigiendo 2FA
+// (D-P3-1) igual que el resto de las escrituras de LENDER.
+async function requireLenderOrAdminSession(request: Request) {
+  const session = await withAuth(request);
+  await withRole(session, ["LENDER", "ADMIN"]);
   return session;
 }
 
@@ -46,22 +58,22 @@ export async function createContract(request: Request, body: unknown) {
 
 // BE-052.
 export async function listContracts(request: Request, query: unknown) {
-  const session = await requireLenderOrBorrowerSession(request);
+  const session = await requireContractReadSession(request);
   const input = parseOrThrow(listContractsQuerySchema, query);
   return contractsService.listContracts(session, input);
 }
 
 // BE-053.
 export async function getContract(request: Request, id: string) {
-  const session = await requireLenderOrBorrowerSession(request);
+  const session = await requireContractReadSession(request);
   return contractsService.getContract(session, id);
 }
 
-// BE-054.
+// BE-054. Fase 7 (pedido explícito): también editable por el Admin.
 export async function updateContract(request: Request, id: string, body: unknown) {
-  const session = await requireLenderSession(request);
+  const session = await requireLenderOrAdminSession(request);
   const input = parseOrThrow(updateContractSchema, body);
-  return contractsService.updateContract(session.userId, id, input);
+  return contractsService.updateContract(session, id, input);
 }
 
 // BE-055.
@@ -93,7 +105,7 @@ export async function removeContractBorrower(request: Request, id: string, borro
 
 // BE-060 (historial + crear).
 export async function listContractTerms(request: Request, id: string) {
-  const session = await requireLenderOrBorrowerSession(request);
+  const session = await requireContractReadSession(request);
   return contractsService.listContractTermsHistory(session, id);
 }
 
@@ -123,18 +135,18 @@ export async function rejectContractTerms(request: Request, id: string, termsId:
 
 // BE-062.
 export async function getSchedule(request: Request, id: string) {
-  const session = await requireLenderOrBorrowerSession(request);
+  const session = await requireContractReadSession(request);
   return contractsService.getSchedule(session, id);
 }
 
 export async function getBalance(request: Request, id: string) {
-  const session = await requireLenderOrBorrowerSession(request);
+  const session = await requireContractReadSession(request);
   return contractsService.getBalance(session, id);
 }
 
 // PB-020.
 export async function listFees(request: Request, id: string, termsId: string) {
-  const session = await requireLenderOrBorrowerSession(request);
+  const session = await requireContractReadSession(request);
   return contractFeesService.listFees(session, id, termsId);
 }
 

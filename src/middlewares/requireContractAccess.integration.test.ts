@@ -80,12 +80,24 @@ describe("requireContractAccess (BE-038/BE-039)", () => {
     expect((error as AppError).statusCode).toBe(404);
   });
 
-  it("un rol distinto de LENDER/BORROWER (p.ej. ADMIN) responde 403 FORBIDDEN", async () => {
+  // Fase 7 (pedido explícito de Spencer): el Admin ve/edita cualquier
+  // contrato, sin restricción de tenant — a diferencia de LENDER/BORROWER,
+  // no necesita "ser dueño" de nada.
+  it("ADMIN accede a cualquier contrato, sin restricción de tenant", async () => {
     const { lenderUser, lenderCompany } = await createTestLenderCompany();
     const property = await createTestProperty(lenderCompany.id, lenderUser.id);
     const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
 
-    const error = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "ADMIN" }, contract.id).catch((e) => e);
+    const result = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "ADMIN" }, contract.id);
+    expect(result.id).toBe(contract.id);
+  });
+
+  it("un rol distinto de LENDER/BORROWER/ADMIN (p.ej. BOOKKEEPER) responde 403 FORBIDDEN", async () => {
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
+    const property = await createTestProperty(lenderCompany.id, lenderUser.id);
+    const contract = await createTestContract({ lenderCompanyId: lenderCompany.id, propertyId: property.id, createdByUserId: lenderUser.id });
+
+    const error = await requireContractAccess({ userId: "00000000-0000-0000-0000-000000000000", role: "BOOKKEEPER" }, contract.id).catch((e) => e);
     expect(error).toBeInstanceOf(AppError);
     expect((error as AppError).statusCode).toBe(403);
     expect((error as AppError).code).toBe("FORBIDDEN");

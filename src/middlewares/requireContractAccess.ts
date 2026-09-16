@@ -6,9 +6,10 @@ import { logAuditEvent } from "@/lib/audit";
 
 // BE-038. Resuelve si `session` puede acceder a `contractId`, para LENDER
 // (dueño de la LenderCompany del contrato) y BORROWER (asociado vía
-// ContractBorrower activo) — usado por todo el módulo de contratos y pagos
-// (Fase 6, todavía no construido). El modelo de acceso de ADMIN a contratos
-// puntuales no está definido todavía — se decide en Fase 6.
+// ContractBorrower activo) — usado por todo el módulo de contratos y pagos.
+// ADMIN (Fase 7, pedido explícito de Spencer: contratos y pagos visibles/
+// editables por el Admin) no tiene restricción de tenant — ve y opera sobre
+// cualquier contrato, igual que ya puede listar cualquier usuario/Lender.
 //
 // Siempre 404 (nunca 403) cuando el contrato existe pero no pertenece a la
 // sesión — mismo criterio anti-enumeración que el resto de §7.5: no le
@@ -18,6 +19,10 @@ export async function requireContractAccess(session: Session, contractId: string
   const contract = await prisma.contract.findUnique({ where: { id: contractId } });
   if (!contract || contract.deletedAt) {
     throw new AppError("Contract not found", 404, "NOT_FOUND");
+  }
+
+  if (session.role === "ADMIN") {
+    return contract;
   }
 
   if (session.role === "LENDER") {
