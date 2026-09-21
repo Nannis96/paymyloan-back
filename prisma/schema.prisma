@@ -208,7 +208,7 @@ model User {
   id       String  @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name     String
   email    String  @unique
-  phone    String? @db.VarChar(10) // D-P2-4: 10 dígitos, validado en Zod — cuenta/identidad, distinto del contactPhone de LenderProfile (empresa) o el phone de BorrowerProfile
+  phone    String? @unique @db.VarChar(10) // D-P2-4: 10 dígitos, validado en Zod — cuenta/identidad, distinto del contactPhone de LenderProfile (empresa) o el phone de BorrowerProfile
   password String // hash bcrypt, nunca texto plano
 
   role     UserRole

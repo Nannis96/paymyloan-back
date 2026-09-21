@@ -57,6 +57,12 @@ export async function createUser(input: CreateUserInput, actorUserId: string): P
   if (existing) {
     throw new AppError("A user with that email already exists", 409, "EMAIL_TAKEN");
   }
+  if (input.phone) {
+    const existingPhone = await prisma.user.findUnique({ where: { phone: input.phone } });
+    if (existingPhone) {
+      throw new AppError("A user with that phone already exists", 409, "PHONE_TAKEN");
+    }
+  }
 
   const placeholderPassword = await hashPassword(generateOpaqueToken());
   const user = await prisma.user.create({
@@ -107,6 +113,12 @@ export async function updateUser(id: string, input: UpdateUserInput, actorUserId
       throw new AppError("A user with that email already exists", 409, "EMAIL_TAKEN");
     }
   }
+  if (input.phone) {
+    const existingPhone = await prisma.user.findUnique({ where: { phone: input.phone } });
+    if (existingPhone && existingPhone.id !== id) {
+      throw new AppError("A user with that phone already exists", 409, "PHONE_TAKEN");
+    }
+  }
 
   let temporaryPassword: string | undefined;
   let emailSent: boolean | undefined;
@@ -148,6 +160,13 @@ export async function updateUser(id: string, input: UpdateUserInput, actorUserId
 // teléfono. Nunca email/password/role/isActive desde acá.
 export async function updateOwnProfile(id: string, input: UpdateMeInput): Promise<SafeUser> {
   await findActiveUserOrThrow(id);
+
+  if (input.phone) {
+    const existingPhone = await prisma.user.findUnique({ where: { phone: input.phone } });
+    if (existingPhone && existingPhone.id !== id) {
+      throw new AppError("A user with that phone already exists", 409, "PHONE_TAKEN");
+    }
+  }
 
   const data: { name?: string; phone?: string } = {};
   if (input.name !== undefined) data.name = input.name;

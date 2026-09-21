@@ -1,4 +1,3 @@
-import { UserRole } from "@prisma/client";
 import { z } from "zod";
 
 // bcrypt ignora silenciosamente todo lo que exceda 72 bytes: se topa acá
@@ -14,11 +13,13 @@ export const phone = z
   .trim()
   .regex(/^\d{10}$/, "Phone must be 10 digits")
   .optional();
-// BE-008: el rol es obligatorio y explícito en cada alta, sin default — ver
-// Docs/plan/04-base-de-datos.md §4.3 (User). Los flujos de alta específicos
-// por rol (Admin crea Lender, Lender crea Borrower, etc.) llegan en fases
-// posteriores; este endpoint genérico de Fase 0 solo exige que se declare.
-const role = z.enum(UserRole);
+// D-P4-5/D-P2-1: LENDER y BORROWER solo nacen por auto-registro
+// (`POST /api/auth/register`), que crea User+LenderProfile/BorrowerProfile
+// en una misma transacción — este CRUD genérico de Admin nunca crea esos
+// perfiles, así que dejarlo aceptar esos roles deja un User sin su perfil
+// (p.ej. invisible para `/api/admin/lenders/*`, que busca por LenderProfile).
+// Acá solo quedan los roles de staff, que no tienen ese flujo dedicado.
+const role = z.enum(["ADMIN", "BOOKKEEPER", "INSURANCE_COMPANY"]);
 // D-P2-4: el Admin puede fijar el estado al crear/editar (antes solo lo
 // tocaba /api/admin/users/:id/activate|deactivate). Sin default acá porque
 // si no viene, updateUser/createUser no debe tocar el valor existente (o
