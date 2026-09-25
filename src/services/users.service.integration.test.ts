@@ -102,7 +102,7 @@ describe("users.service — CRUD de Fase 0 con phone/isActive/sin password (D-P2
     expect(result.name).toBe("Ya Activo (editado)");
   });
 
-  it("updateOwnProfile solo toca name/phone, nunca email/password/role/isActive", async () => {
+  it("updateOwnProfile solo toca name/phone si no se manda email — nunca password/role/isActive (D-P2-4)", async () => {
     const admin = await createTestAdmin();
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const user = await usersService.createUser(
@@ -119,5 +119,64 @@ describe("users.service — CRUD de Fase 0 con phone/isActive/sin password (D-P2
     const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(stored.role).toBe("BORROWER");
     expect(stored.isActive).toBe(true);
+  });
+
+  it("updateOwnProfile cambia el email con currentPassword correcta, revoca los refresh tokens vigentes y audita (D-P2-7)", async () => {
+    const PLAIN_PASSWORD = "ClaveOriginal123!";
+    const user = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+    const session = await authService.login({ email: user.email, password: PLAIN_PASSWORD });
+    if (session.requiresTwoFactor) throw new Error("unreachable");
+
+    const newEmail = `nuevo-correo-${Date.now()}@test.local`;
+    const updated = await usersService.updateOwnProfile(user.id, { email: newEmail, currentPassword: PLAIN_PASSWORD });
+    expect(updated.email).toBe(newEmail);
+
+    // La sesión previa a cambiar el correo queda revocada — no solo el
+    // acceso, la posibilidad de renovarlo (D-P2-7, mismo criterio que
+    // changeOwnPassword/resetPassword).
+    const refreshAttempt = await authService.refresh({ refreshToken: session.refreshToken }).catch((e) => e);
+    expect(refreshAttempt).toBeInstanceOf(AppError);
+
+    const loginWithNewEmail = await authService.login({ email: newEmail, password: PLAIN_PASSWORD });
+    expect(loginWithNewEmail.requiresTwoFactor).toBe(false);
+
+    const auditEntry = await prisma.auditLog.findFirst({ where: { entityId: user.id, action: "USER_EMAIL_CHANGED" } });
+    expect(auditEntry?.metadata).toMatchObject({ oldEmail: user.email, newEmail });
+  });
+
+  it("updateOwnProfile con currentPassword incorrecta al cambiar el email responde 401 y no toca nada", async () => {
+    const PLAIN_PASSWORD = "ClaveOriginal123!";
+    const user = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+
+    const attempt = await usersService
+      .updateOwnProfile(user.id, { email: `otro-${Date.now()}@test.local`, currentPassword: "incorrecta1" })
+      .catch((e) => e);
+    expect(attempt).toBeInstanceOf(AppError);
+    expect((attempt as AppError).statusCode).toBe(401);
+    expect((attempt as AppError).code).toBe("INVALID_CREDENTIALS");
+
+    const stored = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(stored.email).toBe(user.email);
+  });
+
+  it("updateOwnProfile sin currentPassword al mandar email responde 400 (defensa aparte de la validación de Zod)", async () => {
+    const PLAIN_PASSWORD = "ClaveOriginal123!";
+    const user = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+
+    const attempt = await usersService.updateOwnProfile(user.id, { email: `sin-password-${Date.now()}@test.local` }).catch((e) => e);
+    expect(attempt).toBeInstanceOf(AppError);
+    expect((attempt as AppError).statusCode).toBe(400);
+  });
+
+  it("updateOwnProfile rechaza un email ya tomado por otro usuario (409 EMAIL_TAKEN)", async () => {
+    const PLAIN_PASSWORD = "ClaveOriginal123!";
+    const taken = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+    const user = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+
+    const attempt = await usersService
+      .updateOwnProfile(user.id, { email: taken.email, currentPassword: PLAIN_PASSWORD })
+      .catch((e) => e);
+    expect(attempt).toBeInstanceOf(AppError);
+    expect((attempt as AppError).code).toBe("EMAIL_TAKEN");
   });
 });

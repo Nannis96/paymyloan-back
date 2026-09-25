@@ -317,20 +317,21 @@ export async function reissueAccessToken(userId: string): Promise<{ accessToken:
 }
 
 const REGISTER_RESPONSE_MESSAGE =
-  "If the information provided is valid, your account will remain pending activation. " +
-  "Once an administrator activates your account, you will receive an email with your temporary password.";
+  "If the information provided is valid, your account will remain pending activation " +
+  "until an administrator approves it.";
 
 // PB-013 / D-P2-1. LENDER y BORROWER pueden auto-registrarse (D-P1-10);
-// nacen `isActive=false` y sin contraseña utilizable — el registro nunca la
-// pide. La respuesta es siempre el mismo mensaje genérico, exista o no el
-// correo (misma postura anti-enumeración que password/forgot, §7.3).
+// nacen `isActive=false` pero con la contraseña que el propio usuario define
+// en el registro (ya no se genera una provisional). La respuesta es siempre
+// el mismo mensaje genérico, exista o no el correo (misma postura
+// anti-enumeración que password/forgot, §7.3).
 export async function register(input: RegisterInput): Promise<{ message: string }> {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
     return { message: REGISTER_RESPONSE_MESSAGE };
   }
 
-  const placeholderPassword = await hashPassword(generateOpaqueToken());
+  const password = await hashPassword(input.password);
 
   let createdUserId: string;
   try {
@@ -341,7 +342,7 @@ export async function register(input: RegisterInput): Promise<{ message: string 
           email: input.email,
           phone: input.phone,
           role: input.role,
-          password: placeholderPassword,
+          password,
           isActive: false,
         },
       });

@@ -10,14 +10,14 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 
 | Método | Ruta | Rol | Notas |
 |---|---|---|---|
-| POST | `/api/auth/register` | Público | `D-P2-1`, nuevo — auto-registro de LENDER/BORROWER (`D-P1-10`), sin contraseña; siempre 202 con el mismo mensaje, ver [§7.7](07-autenticacion-y-autorizacion.md#77-auto-registro-y-activación-d-p2-1-nuevo-2026-09-06) |
+| POST | `/api/auth/register` | Público | `D-P2-1`, nuevo — auto-registro de LENDER/BORROWER (`D-P1-10`); pide contraseña propia (`D-P2-6`); siempre 202 con el mismo mensaje, ver [§7.7](07-autenticacion-y-autorizacion.md#77-auto-registro-y-activación-d-p2-1-nuevo-2026-09-06) |
 | POST | `/api/auth/login` | Público | paso 1: credenciales; si `isTwoFactorEnabled`, responde `2FA_REQUIRED` sin emitir tokens |
 | POST | `/api/auth/login/2fa` | Público (con token temporal de paso 1) | paso 2: código TOTP |
 | POST | `/api/auth/refresh` | Público (con refresh token) | rota el refresh token |
 | POST | `/api/auth/logout` | Autenticado | revoca el refresh token actual |
 | POST | `/api/auth/logout-all` | Autenticado | revoca todos los refresh tokens del usuario |
 | GET | `/api/auth/me` | Autenticado | perfil propio + perfil de rol (`LenderProfile`/`BorrowerProfile`) |
-| PATCH | `/api/auth/me` | Autenticado | `BE-099`, nuevo (`D-P2-4`) — autoservicio, solo `name`/`phone` |
+| PATCH | `/api/auth/me` | Autenticado | `BE-099`, nuevo (`D-P2-4`) — autoservicio, `name`/`phone`/`email`; cambiar `email` exige `currentPassword` (`D-P2-7`) |
 | POST | `/api/auth/password/forgot` | Público | siempre responde 200 (no filtra si el email existe) |
 | POST | `/api/auth/password/reset` | Público (con token) | |
 | POST | `/api/auth/2fa/setup` | ADMIN, LENDER | genera secreto + QR, no activa todavía |
@@ -41,7 +41,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | PATCH | `/api/admin/lenders/:id/companies/:companyId` | ADMIN | `D-P4-8`, nuevo — edita cualquier campo de una empresa puntual (incluido `status`/`isOpenToDeals`); `:companyId` validado contra `:id` |
 | DELETE | `/api/admin/lenders/:id/companies/:companyId` | ADMIN | `D-P4-8`, nuevo — soft-delete de una sola empresa, bloqueado con contratos `ACTIVE`/`DELINQUENT` |
 | DELETE | `/api/admin/lenders/:id` | ADMIN | N/A — soft delete de `User`+`LenderProfile`+todas sus `LenderCompany`, bloqueado si alguna tiene contratos `ACTIVE`/`DELINQUENT` |
-| POST | `/api/admin/users/:id/activate` | ADMIN | `BE-097`, nuevo (`D-P2-1`) — primera activación genera y envía contraseña temporal; reactivación solo reabre acceso |
+| POST | `/api/admin/users/:id/activate` | ADMIN | `BE-097`, nuevo (`D-P2-1`) — genera y envía contraseña temporal solo si la cuenta nació sin contraseña propia (creada por Admin/Lender); un auto-registrado (`D-P2-6`) o una reactivación solo reabren acceso |
 | POST | `/api/admin/users/:id/deactivate` | ADMIN | `BE-097`, nuevo — además revoca los refresh tokens vigentes del usuario |
 
 ## 6.3 Lenders (perfil propio y borrowers)

@@ -4,6 +4,8 @@
 
 # 17. Fase 2 — Authentication (plan actualizado e implementado, 2026-09-07)
 
+> **Actualizado 2026-09-24 (`D-P2-6`)**: el punto 3 de abajo ("el registro no pide contraseña") quedó revertido — ver [00 § Decisiones 2026-09-24](00-contradicciones-y-decisiones.md#decisiones-2026-09-24-ronda-registro-con-contraseña-propia). El resto de esta fase (2, JWT, 2FA, refresh tokens, etc.) no cambió.
+
 > **Reemplaza** a [fases/fase-02-authentication.md](fases/fase-02-authentication.md) (histórico, no editado, con aviso al inicio) en lo que respecta a `PB-013` y agrega un ticket nuevo (`BE-097`) que no existía en ningún backlog. Los 11 tickets originales (`BE-024`..`BE-034`) **no cambiaron** de alcance — se implementaron tal cual estaban especificados.
 >
 > **Estado**: implementado y verificado. Ver [IMPLEMENTATION_PROGRESS.md](../IMPLEMENTATION_PROGRESS.md) para el detalle de verificación end-to-end.
@@ -16,7 +18,7 @@ Spencer confirmó tres decisiones en esta ronda que no estaban resueltas (o esta
 
 1. **Roles que pueden auto-registrarse vía `POST /api/auth/register`**: `LENDER` y `BORROWER`, ambos — no solo `BORROWER`. Esto resuelve una contradicción real: [IMPLEMENTATION_PROGRESS.md](../IMPLEMENTATION_PROGRESS.md) (antes de esta ronda) tenía `PB-013` como "alta propia del deudor, rol BORROWER", mientras que [00-contradicciones-y-decisiones.md § D-P1-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-04-ronda-fase-1) ya decía ambos roles. Este documento y el resto de la actualización de abajo dejan una única fuente de verdad: **ambos roles**.
 2. **Un auto-registro nace inactivo** (`isActive=false`) y requiere activación por un Admin — resuelve el riesgo #20 (antes abierto en [15](15-riesgos-y-decisiones-pendientes.md)). Esto exige un endpoint de activación que no existía en ningún backlog: **`BE-097`**.
-3. **El registro no pide contraseña.** El formulario de auto-registro es solo `{ name, email, role }` — sin contraseña. La cuenta nace sin credencial utilizable; al activarla, `BE-097` genera una contraseña temporal y la envía por correo (plantilla `account-activated`, `src/lib/email.ts`). Esto también resuelve el riesgo #21 (¿el registro pide la empresa en el mismo paso? — no, ni siquiera pide contraseña; la empresa (`LenderCompany`) se da de alta después, en Fase 4, como ya prevía el schema al permitir un `LenderProfile` sin ninguna `LenderCompany` todavía).
+3. ~~**El registro no pide contraseña.** El formulario de auto-registro es solo `{ name, email, role }` — sin contraseña. La cuenta nace sin credencial utilizable; al activarla, `BE-097` genera una contraseña temporal y la envía por correo (plantilla `account-activated`, `src/lib/email.ts`).~~ **Revertido 2026-09-24 (`D-P2-6`)**: el registro sí pide contraseña propia (`{ name, email, phone?, password, role }`); ya no se genera una provisional para este camino, y activar una cuenta auto-registrada ya no genera ni envía ninguna contraseña. El resto de este punto sigue vigente: la empresa (`LenderCompany`) se da de alta después, en Fase 4 (resolvía el riesgo #21 junto con la contraseña, ver [15](15-riesgos-y-decisiones-pendientes.md)).
 
 Ningún ticket original se elimina. `BE-097` es nuevo, adelantado desde donde naturalmente viviría (Fase 4, gestión de usuarios) porque sin él el auto-registro es un callejón sin salida — un usuario que se auto-registra nunca podría iniciar sesión.
 

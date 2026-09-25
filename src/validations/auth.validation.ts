@@ -9,12 +9,17 @@ const name = z.string().trim().min(1, "Name is required").max(120);
 const newPassword = z.string().min(8, "Password must be at least 8 characters").max(72);
 const totpCode = z.string().trim().min(1, "Code is required").max(64);
 
-// PB-013 / D-P2-1: solo LENDER y BORROWER pueden auto-registrarse
-// (D-P1-10) — sin contraseña, se genera y se envía por correo al activar.
+const registerPassword = newPassword
+  .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+  .regex(/[0-9]/, "Password must contain at least one number");
+
+// PB-013 / D-P2-1: solo LENDER y BORROWER pueden auto-registrarse (D-P1-10).
+// El usuario define su propia contraseña — ya no se genera una provisional.
 export const registerSchema = z.object({
   name,
   email,
   phone,
+  password: registerPassword,
   role: z.enum(["LENDER", "BORROWER"]),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;

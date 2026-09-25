@@ -251,9 +251,9 @@ JWT propio (access + refresh), sin NextAuth ni cookies — ver [plan/07 §7.1](p
 
 ### `POST /api/auth/register`
 
-**¿Para qué sirve?** Para que una persona (futuro Lender o Borrower) cree su propia cuenta sin que nadie la haya dado de alta antes. Queda inactiva hasta que un Admin la active.
+**¿Para qué sirve?** Para que una persona (futuro Lender o Borrower) cree su propia cuenta sin que nadie la haya dado de alta antes, definiendo ella misma su contraseña. Queda inactiva hasta que un Admin la active.
 
-Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin que un Admin/Lender lo haya dado de alta antes (`D-P1-10`). **No pide contraseña.** La cuenta nace `isActive=false`; solo un Admin puede activarla (`POST /api/admin/users/:id/activate`, más abajo), momento en el que recién se genera una contraseña y se envía por correo.
+Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin que un Admin/Lender lo haya dado de alta antes (`D-P1-10`). **Pide contraseña propia** (`D-P2-6` — ya no se genera una provisional para este camino). La cuenta nace `isActive=false`; solo un Admin puede activarla (`POST /api/admin/users/:id/activate`, más abajo), pero esa activación ya no genera ni envía ninguna contraseña — el usuario entra con la que eligió en el registro.
 
 - **Auth**: Público.
 - **Request body**:
@@ -263,6 +263,7 @@ Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin
   | `name` | string | 1–120 caracteres |
   | `email` | string | formato email, se normaliza a minúsculas |
   | `phone` | string | opcional — exactamente 10 dígitos (`^\d{10}$`) |
+  | `password` | string | 8–72 caracteres, al menos 1 mayúscula y 1 número (`D-P2-6`) |
   | `role` | string | **solo** `LENDER` o `BORROWER` — `ADMIN`/`BOOKKEEPER`/`INSURANCE_COMPANY` no pueden auto-registrarse |
 
   ```json
@@ -270,16 +271,17 @@ Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin
     "name": "Jane Cooper",
     "email": "jane.cooper@example.com",
     "phone": "5125550100",
+    "password": "ClaveSegura123",
     "role": "BORROWER"
   }
   ```
 
 - **Response `202`** (siempre, exista o no ya el correo — anti-enumeración, misma postura que `password/forgot`):
   ```json
-  { "success": true, "data": { "message": "Si los datos son válidos, tu cuenta quedará pendiente de activación. Una vez que un administrador la active, recibirás un correo con tu contraseña temporal." } }
+  { "success": true, "data": { "message": "Si los datos son válidos, tu cuenta quedará pendiente de activación hasta que un administrador la apruebe." } }
   ```
-- **Errores**: `400 VALIDATION_ERROR` (rol inválido, campos faltantes).
-- **Qué pasa por dentro**: crea `User(isActive=false, password=hash de un valor aleatorio que nadie conoce)` + `LenderProfile(createdByAdminId=null)` o `BorrowerProfile(createdByUserId=null)`, en una transacción. Si el correo ya existe, no hace nada — responde igual.
+- **Errores**: `400 VALIDATION_ERROR` (rol inválido, contraseña que no cumple las reglas, campos faltantes).
+- **Qué pasa por dentro**: crea `User(isActive=false, password=hash de la contraseña recibida)` + `LenderProfile(createdByAdminId=null)` o `BorrowerProfile(createdByUserId=null)`, en una transacción. Si el correo ya existe, no hace nada — responde igual.
 
 ### `POST /api/auth/login`
 
@@ -400,22 +402,27 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
 
 ### `PATCH /api/auth/me`
 
-**¿Para qué sirve?** Para que cualquier usuario logueado (de cualquier rol) edite su propio nombre o teléfono, sin depender de un Admin.
+**¿Para qué sirve?** Para que cualquier usuario logueado (de cualquier rol) edite su propio nombre, teléfono o correo, sin depender de un Admin.
 
-Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información de contacto. Deliberadamente **no** acepta `email`/`password`/`role`/`isActive` — un campo fuera de este schema se descarta en vez de aplicarse, así que no hay forma de colarlos en el mismo body.
+Autoservicio (`BE-099`, nuevo `D-P2-4`): el usuario edita su propia información de contacto (`name`/`phone`/`email`). Deliberadamente **no** acepta `password`/`role`/`isActive` — un campo fuera de este schema se descarta en vez de aplicarse, así que no hay forma de colarlos en el mismo body.
+
+Cambiar `email` es distinto de `name`/`phone`: es también la credencial de login y el canal de recuperación de cuenta, así que exige `currentPassword` en el mismo body (`D-P2-7`, 2026-09-24) — mismo criterio de step-up que `changePasswordSchema`/`twoFactorStepUpSchema`, evita que una sesión robada por sí sola secuestre la cuenta cambiándole el correo. Al cambiar `email`: valida `currentPassword` contra el hash actual (`401 INVALID_CREDENTIALS` si no coincide), verifica que el nuevo correo no esté tomado (`409 EMAIL_TAKEN`), revoca todos los refresh tokens vigentes del usuario (fuerza re-login en todos los dispositivos, igual que un reset de contraseña) y audita el cambio (`USER_EMAIL_CHANGED`, con el correo viejo y el nuevo en `metadata`). Si `email` no viene en el body, `currentPassword` tampoco hace falta.
 
 - **Auth**: Autenticado. Sin restricción de rol — cualquiera edita lo suyo.
-- **Request body**: `{ "name"?: string, "phone"?: string }` — al menos uno de los dos, `phone` con el mismo formato de 10 dígitos que el resto de la API.
+- **Request body**: `{ "name"?: string, "phone"?: string, "email"?: string, "currentPassword"?: string }` — al menos uno de `name`/`phone`/`email`. `currentPassword` es **obligatorio si y solo si** viene `email`.
 
   ```json
   { "name": "Jane Cooper", "phone": "5125550100" }
+  ```
+  ```json
+  { "email": "jane.new@example.com", "currentPassword": "SuperSecreta123!" }
   ```
 
 - **Response `200`**:
   ```json
   { "success": true, "data": { "user": /* SafeUser actualizado */ {} } }
   ```
-- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `400 VALIDATION_ERROR` (body vacío o `phone` inválido).
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `401 INVALID_CREDENTIALS` (`currentPassword` incorrecta al cambiar `email`) · `409 EMAIL_TAKEN` · `400 VALIDATION_ERROR` (body vacío, `phone`/`email` inválido, o `email` sin `currentPassword`).
 
 ### `POST /api/auth/password/forgot`
 
@@ -524,7 +531,7 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
 
 ### `POST /api/admin/users/:id/activate`
 
-**¿Para qué sirve?** Habilitar el acceso de una cuenta que nació inactiva (auto-registro, o creada con `isActive:false`). Si el usuario nunca inició sesión, además le genera y envía una contraseña temporal — es el paso que "destraba" a alguien recién auto-registrado.
+**¿Para qué sirve?** Habilitar el acceso de una cuenta que nació inactiva (auto-registro, o creada con `isActive:false`). Si la cuenta fue creada por un Admin sin contraseña propia y nunca inició sesión, además le genera y envía una contraseña temporal — es el paso que "destraba" a alguien dado de alta así. Un auto-registrado (`D-P2-6`) ya trae su propia contraseña desde el registro, así que activar su cuenta **no** genera ni envía ninguna.
 
 - **Auth**: Autenticado, rol `ADMIN` + 2FA activo (`D-P3-1`, es una escritura de negocio).
 - **Response `200`**:
@@ -540,10 +547,10 @@ Adelantados desde Fase 4 (`BE-097`, ver [D-P2-1](plan/00-contradicciones-y-decis
   }
   ```
 - **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (no es ADMIN) · `403 TWO_FACTOR_REQUIRED` (es ADMIN, pero sin 2FA activo) · `404 USER_NOT_FOUND`.
-- **Comportamiento según el historial del usuario**:
-  - **Primera activación** (`lastLoginAt` nulo — nunca inició sesión, típicamente recién auto-registrado): genera una contraseña temporal, la guarda hasheada (bcrypt), intenta enviarla por correo (plantilla `account-activated`, ver [variables de entorno](#variables-de-entorno) — sin `EMAIL_API_KEY`, el correo se loguea en vez de enviarse de verdad) **y la devuelve también en `temporaryPassword`** (`D-P2-4` — mientras no haya un proveedor de correo real conectado, es la forma confiable de que el Admin la tenga a mano). `emailSent` indica si el envío tuvo éxito, independientemente de que `temporaryPassword` siempre esté presente en este caso.
-  - **Reactivación** (el usuario ya había iniciado sesión alguna vez): solo pone `isActive=true`, **no** toca la contraseña ni reenvía correo — `emailSent` viene `false` y `temporaryPassword` no viene en la respuesta.
-  - Si el correo de la primera activación falla, el reintento es: `deactivate` → `activate` de nuevo (vuelve a contar como "primera activación" porque `lastLoginAt` sigue nulo, así que regenera y reenvía).
+- **Comportamiento según si la contraseña en disco sigue siendo un placeholder** (`mustChangePassword && lastLoginAt` nulo — nunca inició sesión con una contraseña real; `D-P2-6` corrigió esto para que ya no dependa solo de `lastLoginAt`, porque un auto-registrado también lo tiene nulo antes de su primer login pero **sí** tiene contraseña propia):
+  - **Necesita contraseña temporal** (típicamente un usuario creado por un Admin sin contraseña propia, `D-P2-5`, o un Borrower creado directo por un Lender, `BE-045` — nunca un auto-registrado): genera una contraseña temporal, la guarda hasheada (bcrypt), intenta enviarla por correo (plantilla `account-activated`, ver [variables de entorno](#variables-de-entorno) — sin `EMAIL_API_KEY`, el correo se loguea en vez de enviarse de verdad) **y la devuelve también en `temporaryPassword`** (`D-P2-4` — mientras no haya un proveedor de correo real conectado, es la forma confiable de que el Admin la tenga a mano). `emailSent` indica si el envío tuvo éxito, independientemente de que `temporaryPassword` siempre esté presente en este caso.
+  - **No la necesita** (auto-registrado con su propia contraseña, o reactivación de alguien que ya inició sesión antes): solo pone `isActive=true`, **no** toca la contraseña ni envía correo — `emailSent` viene `false` y `temporaryPassword` no viene en la respuesta.
+  - Si el correo de la primera activación falla, el reintento es: `deactivate` → `activate` de nuevo (sigue sin haber logueado, así que regenera y reenvía).
   - El mismo comportamiento (con la misma forma de respuesta) se dispara también desde `PATCH /api/users/:id` con `{ "isActive": true }` — ver [esa sección](#patch-apiusersid).
 
 ### `POST /api/admin/users/:id/deactivate`

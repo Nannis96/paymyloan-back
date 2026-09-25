@@ -1,8 +1,9 @@
 import type { User } from "@prisma/client";
 import { generateOpaqueToken } from "@/auth/jwt";
-import { hashPassword } from "@/auth/password";
+import { hashPassword, verifyPassword } from "@/auth/password";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
+import { logAuditEvent } from "@/lib/audit";
 import { activateUserAccount, deactivateUserAccount } from "@/services/userActivation.service";
 import type { CreateUserInput, UpdateMeInput, UpdateUserInput } from "@/validations/users.validation";
 
@@ -73,6 +74,10 @@ export async function createUser(input: CreateUserInput, actorUserId: string): P
       password: placeholderPassword,
       role: input.role,
       isActive: false,
+      // Marca que la contraseña en disco es un placeholder inservible, no
+      // una elegida por el usuario — es la señal que usa activateUserAccount
+      // para decidir si debe generar y enviar una temporal (ver ese archivo).
+      mustChangePassword: true,
     },
   });
 
@@ -156,10 +161,15 @@ export async function updateUser(id: string, input: UpdateUserInput, actorUserId
   return { ...toSafeUser(user), temporaryPassword, emailSent };
 }
 
-// Autoservicio (`PATCH /api/auth/me`): un usuario edita su propio nombre y
-// teléfono. Nunca email/password/role/isActive desde acá.
+// Autoservicio (`PATCH /api/auth/me`): un usuario edita su propio nombre,
+// teléfono y — `D-P2-7` — email. Nunca password/role/isActive desde acá.
+// Cambiar el email exige `currentPassword` (validado por `updateMeSchema`,
+// pero se revalida acá igual: es la propiedad que importa, no el mensaje de
+// error) y revoca todos los refresh tokens del usuario, mismo criterio que
+// `changeOwnPassword`/`resetPassword` — una sesión robada no puede
+// secuestrar la cuenta cambiándole el correo de login sin la contraseña.
 export async function updateOwnProfile(id: string, input: UpdateMeInput): Promise<SafeUser> {
-  await findActiveUserOrThrow(id);
+  const current = await findActiveUserOrThrow(id);
 
   if (input.phone) {
     const existingPhone = await prisma.user.findUnique({ where: { phone: input.phone } });
@@ -168,11 +178,45 @@ export async function updateOwnProfile(id: string, input: UpdateMeInput): Promis
     }
   }
 
-  const data: { name?: string; phone?: string } = {};
+  if (input.email !== undefined) {
+    if (!input.currentPassword) {
+      throw new AppError("Current password is required to change email", 400, "VALIDATION_ERROR");
+    }
+    const currentPasswordOk = await verifyPassword(input.currentPassword, current.password);
+    if (!currentPasswordOk) {
+      throw new AppError("Current password is incorrect", 401, "INVALID_CREDENTIALS");
+    }
+    const existingEmail = await prisma.user.findUnique({ where: { email: input.email } });
+    if (existingEmail && existingEmail.id !== id) {
+      throw new AppError("A user with that email already exists", 409, "EMAIL_TAKEN");
+    }
+  }
+
+  const data: { name?: string; phone?: string; email?: string } = {};
   if (input.name !== undefined) data.name = input.name;
   if (input.phone !== undefined) data.phone = input.phone;
+  if (input.email !== undefined) data.email = input.email;
 
-  const user = await prisma.user.update({ where: { id }, data });
+  const isEmailChange = input.email !== undefined;
+  const user = isEmailChange
+    ? (
+        await prisma.$transaction([
+          prisma.user.update({ where: { id }, data }),
+          prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
+        ])
+      )[0]
+    : await prisma.user.update({ where: { id }, data });
+
+  if (isEmailChange) {
+    await logAuditEvent({
+      action: "USER_EMAIL_CHANGED",
+      entityType: "User",
+      entityId: id,
+      actorUserId: id,
+      metadata: { oldEmail: current.email, newEmail: input.email },
+    });
+  }
+
   return toSafeUser(user);
 }
 

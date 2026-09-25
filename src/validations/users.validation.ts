@@ -41,14 +41,27 @@ export const updateUserSchema = z
   });
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
-// Autoservicio (`PATCH /api/auth/me`): un usuario solo puede tocar sus
-// propios datos de contacto — nunca `email`/`password`/`role`/`isActive`
-// desde acá (esos tienen flujos propios con sus propias reglas de
-// seguridad: cambio de correo, reset de contraseña, activación por Admin).
+// Autoservicio (`PATCH /api/auth/me`): un usuario edita su nombre, teléfono
+// y — desde `D-P2-7` — su propio email. Nunca `password`/`role`/`isActive`
+// desde acá (esos siguen con sus flujos propios: reset de contraseña,
+// activación por Admin). Cambiar el email es el único campo de este
+// endpoint que es también la credencial de login y el canal de
+// recuperación de cuenta — por eso exige `currentPassword` (mismo criterio
+// de step-up que `twoFactorStepUpSchema`/`changePasswordSchema`: una sesión
+// robada, sola, no puede secuestrar la cuenta cambiándole el correo).
 export const updateMeSchema = z
-  .object({ name, phone })
+  .object({
+    name,
+    phone,
+    email,
+    currentPassword: z.string().min(1, "Current password is required").max(72),
+  })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
     message: "Must include at least one field to update",
+  })
+  .refine((data) => data.email === undefined || data.currentPassword !== undefined, {
+    message: "currentPassword is required to change email",
+    path: ["currentPassword"],
   });
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;

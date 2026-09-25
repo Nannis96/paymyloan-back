@@ -136,17 +136,26 @@ describe("auth.service — login/refresh/logout/me/register (BE-027..031, PB-013
     expect(me.lenderProfile?.lenderCompanies.map((c) => c.id)).toContain(lenderCompany.id);
   });
 
-  it("register crea un usuario inactivo sin contraseña utilizable, y responde igual si el correo ya existe (PB-013/D-P2-1)", async () => {
+  it("register crea un usuario inactivo con la contraseña elegida, y responde igual si el correo ya existe (PB-013/D-P2-1)", async () => {
     const email = `self-register-${Date.now()}@test.local`;
-    const first = await authService.register({ name: "Nueva Lender", email, role: "LENDER" });
-    const second = await authService.register({ name: "Nueva Lender", email, role: "LENDER" });
+    const first = await authService.register({ name: "Nueva Lender", email, role: "LENDER", password: PLAIN_PASSWORD });
+    const second = await authService.register({ name: "Nueva Lender", email, role: "LENDER", password: PLAIN_PASSWORD });
     expect(first.message).toBe(second.message);
 
     const created = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(created.isActive).toBe(false);
+    expect(created.mustChangePassword).toBe(false);
 
-    const loginAttempt = await authService.login({ email, password: "cualquiera1" }).catch((e) => e);
-    expect(loginAttempt).toBeInstanceOf(AppError);
+    // La cuenta está inactiva, así que ni con la contraseña correcta se
+    // puede iniciar sesión todavía (D-P1-2) — pero el 401 con una
+    // contraseña incorrecta confirma que sí guardó una utilizable.
+    const wrongPassword = await authService.login({ email, password: "cualquiera1" }).catch((e) => e);
+    expect(wrongPassword).toBeInstanceOf(AppError);
+    expect((wrongPassword as AppError).code).toBe("INVALID_CREDENTIALS");
+
+    const correctPasswordInactive = await authService.login({ email, password: PLAIN_PASSWORD }).catch((e) => e);
+    expect(correctPasswordInactive).toBeInstanceOf(AppError);
+    expect((correctPasswordInactive as AppError).code).toBe("ACCOUNT_INACTIVE");
 
     const lenderProfile = await prisma.lenderProfile.findUnique({ where: { userId: created.id } });
     expect(lenderProfile?.createdByAdminId).toBeNull();
@@ -159,7 +168,7 @@ describe("auth.service — login/refresh/logout/me/register (BE-027..031, PB-013
 
   it("register con rol BORROWER crea un BorrowerProfile sin createdByUserId (D-P1-10)", async () => {
     const email = `self-register-borrower-${Date.now()}@test.local`;
-    await authService.register({ name: "Nuevo Borrower", email, role: "BORROWER" });
+    await authService.register({ name: "Nuevo Borrower", email, role: "BORROWER", password: PLAIN_PASSWORD });
 
     const created = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(created.isActive).toBe(false);

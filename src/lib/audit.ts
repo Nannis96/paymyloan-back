@@ -13,6 +13,7 @@ export type AuditAction =
   | "USER_2FA_ENABLED"
   | "USER_2FA_DISABLED"
   | "USER_PASSWORD_CHANGED"
+  | "USER_EMAIL_CHANGED"
   | "USER_ACTIVATED"
   | "USER_DEACTIVATED"
   // Prestamistas / empresas

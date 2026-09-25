@@ -13,9 +13,10 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/users — alta de usuario por un Admin (identidad + contraseña +
-// rol, opcionalmente teléfono e isActive). Solo ADMIN (D-P2-4). No confundir
-// con el auto-registro (POST /api/auth/register), que no pide contraseña.
+// POST /api/users — alta de usuario por un Admin (identidad + rol,
+// opcionalmente teléfono e isActive; sin contraseña, D-P2-5). Solo ADMIN
+// (D-P2-4). No confundir con el auto-registro (POST /api/auth/register),
+// que sí pide contraseña propia (D-P2-6).
 export async function POST(request: Request) {
   let body: unknown;
   try {

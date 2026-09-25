@@ -65,7 +65,7 @@
 ## PB-019 — `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints
 - **Objetivo**: implementar `D-S2-3`.
 - **Prioridad/Complejidad/Dependencias**: P2 / M / ninguna (tabla independiente), cobro real bloqueado por `A-3`
-- **Implementación**: `BorrowerSubscription` se crea automáticamente al activar la cuenta del Deudor (mismo punto que ya dispara la contraseña temporal, `userActivation.service.ts`), en `TRIALING` con `trialEndsAt=createdAt+7d`. Un job (`src/jobs/expireTrials.ts`, nuevo) pasa `TRIALING → PAST_DUE` si vence sin `stripeSubscriptionId` activo — **no bloquea el uso de la plataforma** en esta fase (el documento fuente no especifica qué pasa si no se paga; no se inventa una suspensión sin confirmarlo con Spencer).
+- **Implementación**: `BorrowerSubscription` se crea automáticamente al activar la cuenta del Deudor (`activateUserAccount`, `userActivation.service.ts` — independiente de si esa activación además genera una contraseña temporal, `D-P2-6`), en `TRIALING` con `trialEndsAt=createdAt+7d`. Un job (`src/jobs/expireTrials.ts`, nuevo) pasa `TRIALING → PAST_DUE` si vence sin `stripeSubscriptionId` activo — **no bloquea el uso de la plataforma** en esta fase (el documento fuente no especifica qué pasa si no se paga; no se inventa una suspensión sin confirmarlo con Spencer).
 - **Decisión pendiente**: ¿qué pasa si el Deudor no paga tras el trial — se suspende la cuenta, se limita a solo-lectura, o no pasa nada hasta que el negocio lo decida? No confirmado por ningún documento fuente — se deja como pregunta abierta, no se asume.
 
 ---

@@ -71,20 +71,27 @@ async function requireExistingUser(id: string): Promise<User> {
   return user;
 }
 
-// Si el usuario nunca inició sesión (`lastLoginAt` nulo — típicamente recién
-// auto-registrado), genera una contraseña temporal, la guarda hasheada y la
-// envía por correo. Si ya había iniciado sesión antes (reactivación), solo
-// reabre el acceso sin tocar la contraseña — así este mismo camino sirve de
-// reintento si el correo de la primera activación falló (desactivar y
-// volver a activar cuenta otra vez como "primera activación").
+// Genera y envía una contraseña temporal solo si la contraseña en disco
+// sigue siendo la placeholder generada por el sistema (`mustChangePassword`
+// — típicamente un usuario creado por un Admin sin contraseña propia) Y
+// nunca se logueó todavía (`lastLoginAt` nulo). Ambas condiciones hacen
+// falta: `mustChangePassword` sola no basta porque no se apaga con un login
+// (solo al cambiar la contraseña de verdad, D-P4-2) y regeneraría la
+// temporal de nuevo en cada reactivación; `lastLoginAt` sola no basta porque
+// un auto-registrado con contraseña propia también la tiene nula antes de
+// su primer login, y regenerarle la contraseña al activar le pisaría la que
+// él mismo eligió.
+// Cuando NO hace falta generar una temporal, activar solo reabre el acceso
+// sin tocar la contraseña — así este mismo camino sirve de reintento si el
+// correo de la primera activación falló (desactivar y volver a activar).
 export async function activateUserAccount(id: string, actorUserId: string): Promise<ActivationResult> {
   const user = await requireExistingUser(id);
 
-  const isFirstActivation = user.lastLoginAt === null;
+  const needsTemporaryPassword = user.mustChangePassword && user.lastLoginAt === null;
   let emailSent = false;
   let temporaryPassword: string | undefined;
 
-  if (isFirstActivation) {
+  if (needsTemporaryPassword) {
     const issued = await issueTemporaryPassword(user, { isActive: true });
     temporaryPassword = issued.temporaryPassword;
     emailSent = issued.emailSent;
@@ -97,7 +104,7 @@ export async function activateUserAccount(id: string, actorUserId: string): Prom
     entityType: "User",
     entityId: id,
     actorUserId,
-    metadata: { firstActivation: isFirstActivation, emailSent },
+    metadata: { firstActivation: needsTemporaryPassword, emailSent },
   });
 
   const updated = await prisma.user.findUniqueOrThrow({ where: { id } });

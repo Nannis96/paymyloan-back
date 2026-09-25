@@ -7,7 +7,7 @@ backend (BE-024..034) y el backlog vigente en
 
 | Archivo | Qué hace |
 |---|---|
-| `password.ts` | Hashing bcrypt (`hashPassword`/`verifyPassword`), comparación dummy contra timing attacks (`verifyDummyPassword`) y generación de contraseñas temporales (`generateTemporaryPassword`, usada al activar una cuenta auto-registrada). |
+| `password.ts` | Hashing bcrypt (`hashPassword`/`verifyPassword`), comparación dummy contra timing attacks (`verifyDummyPassword`) y generación de contraseñas temporales (`generateTemporaryPassword`, usada al activar una cuenta creada sin contraseña propia por un Admin o por un Lender — no en el auto-registro, que desde `D-P2-6` ya trae la suya). |
 | `jwt.ts` | Access token JWT (`signAccessToken`/`verifyAccessToken`, payload `{ sub, role }` — sin `lenderId`, ver D-P2-2), pending token de 2FA (`signPendingToken`/`verifyPendingToken`), y tokens opacos + su hash SHA-256 (`generateOpaqueToken`/`hashOpaqueToken`) para refresh tokens, reset de contraseña y recovery codes. |
 | `totp.ts` | Wrapper de `otplib` para 2FA: `generateSecret`, `verifyCode` (ventana ±1 step), `buildOtpAuthUrl`. |
 

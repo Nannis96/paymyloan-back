@@ -8,7 +8,7 @@ Convención de cada ítem: **Objetivo**, **Archivos/componentes afectados**, **D
 
 > **Fase 1 reescrita 2026-09-04**: [fases/fase-01-database.md](fases/fase-01-database.md) quedó superado por el nuevo contexto funcional (roles `BOOKKEEPER`/`INSURANCE_COMPANY`, `LenderCompany`, `Property`). El backlog vigente de Fase 1 es **[16. Fase 1 — plan actualizado](16-fase-1-actualizada.md)**.
 >
-> **Fase 2 reescrita 2026-09-06/07**: [fases/fase-02-authentication.md](fases/fase-02-authentication.md) quedó superado por la corrección de `PB-013` (auto-registro de `LENDER`/`BORROWER`, sin contraseña) y el ticket nuevo `BE-097` (activación por Admin). El backlog vigente de Fase 2 es **[17. Fase 2 — plan actualizado](17-fase-2-actualizada.md)**.
+> **Fase 2 reescrita 2026-09-06/07**: [fases/fase-02-authentication.md](fases/fase-02-authentication.md) quedó superado por la corrección de `PB-013` (auto-registro de `LENDER`/`BORROWER`) y el ticket nuevo `BE-097` (activación por Admin). El backlog vigente de Fase 2 es **[17. Fase 2 — plan actualizado](17-fase-2-actualizada.md)** — pide contraseña propia desde `D-P2-6` (2026-09-24, ver [00](00-contradicciones-y-decisiones.md#decisiones-2026-09-24-ronda-registro-con-contraseña-propia)).
 >
 > **Fase 3 implementada 2026-09-08** tal cual [fases/fase-03-authorization.md](fases/fase-03-authorization.md) especifica, **salvo `BE-037`** (`withTenantScope`): diferido a Fase 4 por falta de un endpoint consumidor real (`D-P3-2`), y finalmente **descartado 2026-09-10** al llegar a Fase 6 sin que ningún módulo intermedio lo necesitara (`D-P6-1`, ver [00](00-contradicciones-y-decisiones.md#decisión-2026-09-10-ronda-fase-6--arranque-d-p6-1-withtenantscope-descartado) y riesgo #18, resuelto, en [15](15-riesgos-y-decisiones-pendientes.md)). `BE-036` (`withRole`) además acota el alcance de la regla de 2FA obligatorio de §7.4 a endpoints de negocio, no autoservicio (`D-P3-1`).
 >
@@ -63,6 +63,8 @@ Dos tickets nuevos, fuera de la numeración de fase por fase — surgieron de un
 - **Criterios de aceptación**: sin `Authorization`, cualquiera de los 4 endpoints responde `401 UNAUTHENTICATED`; con una sesión que no es ADMIN, `403 FORBIDDEN`; `POST /api/users` con `phone` de menos de 10 dígitos responde `400 VALIDATION_ERROR`; `POST /api/users` sin `isActive` (o con `isActive:true`) responde `temporaryPassword` de 8 dígitos numéricos y esa contraseña permite loguear; `PATCH /api/users/:id` con `{isActive:true}` sobre un usuario que nunca inició sesión responde igual.
 
 ### BE-099 — `PATCH /api/auth/me` (autoservicio de perfil propio)
+
+> **Ampliado 2026-09-24 (`D-P2-7`)**: ahora también acepta `email` (con `currentPassword` obligatorio) — ver [00 § Decisiones 2026-09-24](00-contradicciones-y-decisiones.md#decisiones-2026-09-24-ronda-email-propio-en-el-autoservicio-de-perfil). Los bullets de abajo describen el alcance original (`D-P2-4`), ya superado en la parte de `email`.
 
 - **Prioridad/Complejidad/Dependencias**: P1 / S / BE-031 (`GET /api/auth/me`)
 - **Objetivo**: que cualquier usuario autenticado pueda editar su propia información de contacto, sin pasar por el Admin.

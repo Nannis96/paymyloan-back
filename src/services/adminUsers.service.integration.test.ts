@@ -1,10 +1,10 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createTestAdmin, resetPhase1Tables } from "@/db/testFixtures";
-import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import * as emailLib from "@/lib/email";
 import * as adminUsersService from "@/services/adminUsers.service";
 import * as authService from "@/services/auth.service";
+import * as usersService from "@/services/users.service";
 
 describe("adminUsers.service — activate/deactivate (BE-097, D-P2-1/riesgo #20)", () => {
   afterAll(resetPhase1Tables);
@@ -12,8 +12,10 @@ describe("adminUsers.service — activate/deactivate (BE-097, D-P2-1/riesgo #20)
   it("activar por primera vez genera y envía una contraseña temporal que sirve para loguear", async () => {
     const admin = await createTestAdmin();
     const email = `activation-${Date.now()}@test.local`;
-    await authService.register({ name: "Nuevo Lender", email, role: "LENDER" });
-    const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+    // Creado por un Admin sin contraseña propia — es este camino, no el
+    // auto-registro (que ya trae su propia contraseña), el que sigue
+    // necesitando una temporal al activar.
+    const created = await usersService.createUser({ name: "Nuevo Bookkeeper", email, role: "BOOKKEEPER", isActive: false }, admin.id);
 
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const result = await adminUsersService.activateUser(created.id, admin.id);
@@ -34,8 +36,7 @@ describe("adminUsers.service — activate/deactivate (BE-097, D-P2-1/riesgo #20)
   it("reactivar a alguien que ya inició sesión no toca la contraseña ni reenvía correo", async () => {
     const admin = await createTestAdmin();
     const email = `reactivate-${Date.now()}@test.local`;
-    await authService.register({ name: "Otro Lender", email, role: "LENDER" });
-    const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const created = await usersService.createUser({ name: "Otro Bookkeeper", email, role: "BOOKKEEPER", isActive: false }, admin.id);
 
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     await adminUsersService.activateUser(created.id, admin.id);
@@ -57,8 +58,7 @@ describe("adminUsers.service — activate/deactivate (BE-097, D-P2-1/riesgo #20)
   it("deactivate revoca los refresh tokens vigentes del usuario", async () => {
     const admin = await createTestAdmin();
     const email = `deactivate-${Date.now()}@test.local`;
-    await authService.register({ name: "Lender a desactivar", email, role: "LENDER" });
-    const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const created = await usersService.createUser({ name: "Bookkeeper a desactivar", email, role: "BOOKKEEPER", isActive: false }, admin.id);
 
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     await adminUsersService.activateUser(created.id, admin.id);

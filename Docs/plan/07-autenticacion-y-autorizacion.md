@@ -94,29 +94,36 @@ Este es el requisito de seguridad más importante del encargo. Mecanismo, en cap
 
 ## 7.7 Auto-registro y activación (`D-P2-1`, nuevo 2026-09-06)
 
+> Actualizado 2026-09-24 (`D-P2-6`): el registro ahora pide contraseña propia — ver más abajo.
+
 `LENDER` y `BORROWER` pueden auto-registrarse — adicional a los flujos existentes (Admin crea Lender, Lender crea/vincula Borrower), no en reemplazo (`D-P1-10`). `ADMIN`, `BOOKKEEPER` e `INSURANCE_COMPANY` no tienen este endpoint.
 
 ```
 POST /api/auth/register  (Público)
-  body: { name, email, role }   — role ∈ { LENDER, BORROWER }, sin contraseña
-  → crea User(isActive=false, password=hash de un valor aleatorio que nadie conoce)
+  body: { name, email, phone?, password, role }   — role ∈ { LENDER, BORROWER }
+    password: 8-72 chars, ≥1 mayúscula, ≥1 número (D-P2-6)
+  → crea User(isActive=false, password=hash de la contraseña recibida)
     + LenderProfile(createdByAdminId=null) o BorrowerProfile(createdByUserId=null)
   → responde 202 siempre con el mismo mensaje genérico, exista o no ya el correo
     (misma postura anti-enumeración que password/forgot)
 
 POST /api/admin/users/:id/activate   (ADMIN)
-  → si el usuario nunca inició sesión (lastLoginAt=null): genera una contraseña
-    temporal, la guarda hasheada (bcrypt) y la envía por correo (plantilla
-    account-activated); responde { user, emailSent }
-  → si ya había iniciado sesión antes (reactivación): solo isActive=true, no
-    toca la contraseña ni reenvía correo — este mismo endpoint es el
+  → si la contraseña en disco sigue siendo un placeholder del sistema y el
+    usuario nunca inició sesión (mustChangePassword=true && lastLoginAt=null
+    — usuario creado por un Admin sin contraseña propia, D-P2-5, o Borrower
+    creado directo por un Lender, BE-045; NUNCA un auto-registrado desde
+    D-P2-6): genera una contraseña temporal, la guarda hasheada (bcrypt) y la
+    envía por correo (plantilla account-activated); responde { user, emailSent }
+  → en cualquier otro caso (auto-registrado con su propia contraseña, o
+    reactivación de alguien que ya inició sesión antes): solo isActive=true,
+    no toca la contraseña ni envía correo — este mismo endpoint es el
     reintento si el primer envío falló (desactivar + activar de nuevo)
 
 POST /api/admin/users/:id/deactivate   (ADMIN)
   → isActive=false + revoca todos los refresh tokens vigentes del usuario
 ```
 
-La cuenta nace inactiva porque el negocio quiere poder revisarla antes de dejarla operar (riesgo #20, resuelto). El registro no pide contraseña porque nadie la va a escribir en ese momento — se genera recién al activar, y se entrega por el único canal que en ese punto ya se verificó que el usuario controla: su correo.
+La cuenta nace inactiva porque el negocio quiere poder revisarla antes de dejarla operar (riesgo #20, resuelto) — eso no cambió. Lo que sí cambió (`D-P2-6`) es que el registro ahora pide la contraseña directamente al usuario, así que activar una cuenta auto-registrada ya no genera ni entrega ninguna: el correo con contraseña temporal queda reservado a las cuentas que un Admin (o un Lender, para sus Borrowers) crea sin que la persona haya definido la suya.
 
 ---
 

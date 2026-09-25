@@ -3,6 +3,7 @@ import { POST as activateRoute } from "@/app/api/admin/users/[id]/activate/route
 import { GET as meRoute, PATCH as updateMeRoute } from "@/app/api/auth/me/route";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { POST as loginTwoFactorRoute } from "@/app/api/auth/login/2fa/route";
+import { POST as refreshRoute } from "@/app/api/auth/refresh/route";
 import { POST as registerRoute } from "@/app/api/auth/register/route";
 import { generateCodeForTesting } from "@/auth/totp";
 import { prisma } from "@/db/prisma";
@@ -30,12 +31,25 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
   it("POST /api/auth/register responde 202 con un mensaje genérico", async () => {
     const email = `http-register-${Date.now()}@test.local`;
     const response = await registerRoute(
-      jsonRequest("http://localhost/api/auth/register", { name: "HTTP Lender", email, role: "LENDER" }),
+      jsonRequest("http://localhost/api/auth/register", { name: "HTTP Lender", email, role: "LENDER", password: PLAIN_PASSWORD }),
     );
     expect(response.status).toBe(202);
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data.message).toEqual(expect.any(String));
+  });
+
+  it("POST /api/auth/register sin contraseña, o con una que no cumple las reglas, falla la validación", async () => {
+    const email = `http-register-badpwd-${Date.now()}@test.local`;
+    const withoutPassword = await registerRoute(
+      jsonRequest("http://localhost/api/auth/register", { name: "Sin Password", email, role: "LENDER" }),
+    );
+    expect(withoutPassword.status).toBe(400);
+
+    const tooWeak = await registerRoute(
+      jsonRequest("http://localhost/api/auth/register", { name: "Password Débil", email, role: "LENDER", password: "sinnumeromayus" }),
+    );
+    expect(tooWeak.status).toBe(400);
   });
 
   it("POST /api/auth/register con un rol no auto-registrable falla la validación", async () => {
@@ -44,6 +58,7 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
         name: "Admin Falso",
         email: `http-register-admin-${Date.now()}@test.local`,
         role: "ADMIN",
+        password: PLAIN_PASSWORD,
       }),
     );
     expect(response.status).toBe(400);
@@ -100,7 +115,7 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
     expect(body.error.code).toBe("RATE_LIMITED");
   });
 
-  it("camino dorado: registro → activación por Admin → login con la contraseña emitida por correo → /me (D-P2-1)", async () => {
+  it("camino dorado: registro con contraseña propia → activación por Admin → login con esa misma contraseña → /me (D-P2-1)", async () => {
     // D-P3-1: activar un usuario es una escritura de negocio ADMIN-only, así
     // que este Admin necesita 2FA activo — login en dos pasos.
     const { user: admin, secret: adminSecret } = await createTestUserWithTwoFactor("ADMIN", PLAIN_PASSWORD);
@@ -128,7 +143,12 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
 
     const lenderEmail = `http-golden-${Date.now()}@test.local`;
     const registerResponse = await registerRoute(
-      jsonRequest("http://localhost/api/auth/register", { name: "Golden Lender", email: lenderEmail, role: "LENDER" }),
+      jsonRequest("http://localhost/api/auth/register", {
+        name: "Golden Lender",
+        email: lenderEmail,
+        role: "LENDER",
+        password: PLAIN_PASSWORD,
+      }),
     );
     expect(registerResponse.status).toBe(202);
     const created = await prisma.user.findUniqueOrThrow({ where: { email: lenderEmail } });
@@ -145,6 +165,8 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
     );
     expect(loginBeforeActivation.status).toBe(401);
 
+    // Ya tiene una contraseña propia (elegida en el registro), así que
+    // activar no debe generar ni enviar ninguna temporal.
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const activateResponse = await activateRoute(
       new Request(`http://localhost/api/admin/users/${created.id}/activate`, {
@@ -155,15 +177,14 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
     );
     expect(activateResponse.status).toBe(200);
     const activateBody = await activateResponse.json();
-    expect(activateBody.data.emailSent).toBe(true);
-
-    const temporaryPassword = sendEmailSpy.mock.calls[0][0].data.temporaryPassword as string;
+    expect(activateBody.data.emailSent).toBe(false);
+    expect(sendEmailSpy).not.toHaveBeenCalled();
     sendEmailSpy.mockRestore();
 
     const lenderLoginResponse = await loginRoute(
       jsonRequest(
         "http://localhost/api/auth/login",
-        { email: lenderEmail, password: temporaryPassword },
+        { email: lenderEmail, password: PLAIN_PASSWORD },
         { "x-forwarded-for": "10.0.2.2" },
       ),
     );
@@ -207,7 +228,7 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
     expect(withoutAuth.status).toBe(401);
   });
 
-  it("PATCH /api/auth/me edita nombre/teléfono propios, nunca email/role/isActive (D-P2-4)", async () => {
+  it("PATCH /api/auth/me edita nombre/teléfono propios sin tocar el email (D-P2-4)", async () => {
     const borrower = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
     const loginResponse = await loginRoute(
       jsonRequest(
@@ -240,5 +261,66 @@ describe("rutas HTTP de /api/auth y /api/admin/users (BE-027..032, BE-097)", () 
     expect(body.data.user.name).toBe("Nombre Nuevo");
     expect(body.data.user.phone).toBe("5512345678");
     expect(body.data.user.email).toBe(borrower.email);
+  });
+
+  it("PATCH /api/auth/me cambia el email con currentPassword correcta y revoca la sesión previa (D-P2-7)", async () => {
+    const borrower = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+    const loginResponse = await loginRoute(
+      jsonRequest("http://localhost/api/auth/login", { email: borrower.email, password: PLAIN_PASSWORD }, { "x-forwarded-for": "10.0.5.1" }),
+    );
+    const loginBody = await loginResponse.json();
+    const accessToken = loginBody.data.accessToken as string;
+    const refreshToken = loginBody.data.refreshToken as string;
+
+    const newEmail = `http-new-email-${Date.now()}@test.local`;
+    const response = await updateMeRoute(
+      new Request("http://localhost/api/auth/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ email: newEmail, currentPassword: PLAIN_PASSWORD }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.user.email).toBe(newEmail);
+
+    const refreshAttempt = await refreshRoute(jsonRequest("http://localhost/api/auth/refresh", { refreshToken }));
+    expect(refreshAttempt.status).toBe(401);
+
+    const loginWithNewEmail = await loginRoute(
+      jsonRequest("http://localhost/api/auth/login", { email: newEmail, password: PLAIN_PASSWORD }, { "x-forwarded-for": "10.0.5.2" }),
+    );
+    expect(loginWithNewEmail.status).toBe(200);
+  });
+
+  it("PATCH /api/auth/me rechaza cambiar el email sin currentPassword, o con una incorrecta (D-P2-7)", async () => {
+    const borrower = await createTestUserWithPassword("BORROWER", PLAIN_PASSWORD);
+    const loginResponse = await loginRoute(
+      jsonRequest("http://localhost/api/auth/login", { email: borrower.email, password: PLAIN_PASSWORD }, { "x-forwarded-for": "10.0.5.3" }),
+    );
+    const loginBody = await loginResponse.json();
+    const accessToken = loginBody.data.accessToken as string;
+
+    const withoutPassword = await updateMeRoute(
+      new Request("http://localhost/api/auth/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ email: `no-debe-aplicar-${Date.now()}@test.local` }),
+      }),
+    );
+    expect(withoutPassword.status).toBe(400);
+
+    const wrongPassword = await updateMeRoute(
+      new Request("http://localhost/api/auth/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ email: `no-debe-aplicar-${Date.now()}@test.local`, currentPassword: "incorrecta1" }),
+      }),
+    );
+    expect(wrongPassword.status).toBe(401);
+
+    const meResponse = await meRoute(new Request("http://localhost/api/auth/me", { headers: { authorization: `Bearer ${accessToken}` } }));
+    const meBody = await meResponse.json();
+    expect(meBody.data.user.email).toBe(borrower.email);
   });
 });

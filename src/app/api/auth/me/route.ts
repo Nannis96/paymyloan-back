@@ -15,7 +15,8 @@ export async function GET(request: Request) {
 }
 
 // PATCH /api/auth/me — el usuario autenticado edita su propia información
-// personal (nombre, teléfono). Nunca email/password/role/isActive (D-P2-4).
+// personal (nombre, teléfono, email — este último exige currentPassword,
+// D-P2-7). Nunca password/role/isActive desde acá (D-P2-4).
 export async function PATCH(request: Request) {
   let body: unknown;
   try {

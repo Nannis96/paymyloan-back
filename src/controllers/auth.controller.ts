@@ -62,8 +62,9 @@ export async function me(request: Request) {
 }
 
 // PATCH /api/auth/me — el usuario edita su propia información personal
-// (nombre, teléfono). Nunca email/password/role/isActive desde acá — esos
-// tienen flujos propios (D-P2-4).
+// (nombre, teléfono, email — este último exige currentPassword, D-P2-7).
+// Nunca password/role/isActive desde acá — esos tienen flujos propios
+// (D-P2-4).
 export async function updateMe(request: Request, body: unknown) {
   const session = await withAuth(request);
   const input = parseOrThrow(updateMeSchema, body);
