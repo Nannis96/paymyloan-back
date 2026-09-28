@@ -1582,6 +1582,45 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 ---
 
+## Ratings Lender ↔ Borrower (`src/app/api/contracts/[id]/reviews`, `src/app/api/{lenders,borrowers}/:id/rating`, `src/app/api/me/reviews/pending`)
+
+`PB-031`..`PB-034` ([Fase 18](plan/fases/fase-18-ratings-lender-borrower.md), 2026-09-29). Cada parte de un `Contract` en `ACTIVE`/`DELINQUENT`/`PAID_OFF` califica a la contraparte con 1–5 estrellas y un comentario opcional (máx. 1000). Una reseña por contrato + deudor + sentido; no se edita ni se borra. Promedios siempre derivados (`AVG`), nunca guardados. Ningún endpoint exige 2FA.
+
+### `POST /api/contracts/:id/reviews`
+
+**¿Para qué sirve?** Que el Lender (dueño de la `LenderCompany` del contrato) o un Borrower activo del contrato califique a la contraparte. El sentido (`LENDER_TO_BORROWER` / `BORROWER_TO_LENDER`) se infiere del lado del usuario **en ese contrato**, no de `User.role`.
+
+- **Auth**: Autenticado, rol `LENDER` o `BORROWER`.
+- **Body**: `{ "rating": 1-5 (entero), "comment"?: string (≤1000, se recorta; vacío → null), "borrowerProfileId"?: uuid }` — `borrowerProfileId` es **obligatorio solo si califica el Lender** (a qué co-deudor); el Borrower no lo manda, el calificado es la `LenderCompany` del contrato.
+- **Response `201`**: la `Review` creada (`id`, `contractId`, `lenderCompanyId`, `borrowerProfileId`, `direction`, `reviewerUserId`, `rating`, `comment`, `createdAt`).
+- **Errores**: `400 VALIDATION_ERROR` · `400 BORROWER_PROFILE_REQUIRED` · `401` · `403 REVIEW_NOT_ALLOWED` (contrato en `DRAFT`/`PENDING_ACCEPTANCE`/`CANCELLED`) · `404 NOT_FOUND` (no es parte del contrato, co-deudor removido o `borrowerProfileId` ajeno) · `409 REVIEW_ALREADY_EXISTS` · `409 SELF_REVIEW_NOT_ALLOWED`.
+
+### `GET /api/contracts/:id/reviews`
+
+**¿Para qué sirve?** Ver las reseñas del contrato (las dos direcciones) y si el usuario actual todavía puede calificar.
+
+- **Auth**: Autenticado, `LENDER`/`BORROWER` del contrato o `ADMIN`.
+- **Response `200`**: `{ "reviews": [{ id, rating, comment, createdAt, direction, borrowerProfileId }], "canReview": boolean, "pendingBorrowerProfileIds": [uuid] }` — `pendingBorrowerProfileIds` lista a quién le falta calificar (varios si el Lender tiene co-deudores). Admin: siempre `canReview=false`.
+- **Errores**: `401` · `404 NOT_FOUND`.
+
+### `GET /api/lenders/:lenderCompanyId/rating` / `GET /api/borrowers/:borrowerProfileId/rating`
+
+**¿Para qué sirve?** Promedio, conteo, distribución 1–5 y reseñas paginadas (`?page`, `?pageSize`) de una `LenderCompany` o un Borrower. El del Borrower comparte path con `PB-009`: cuando exista el score calculado se le agrega un campo sin romper este contrato.
+
+- **Auth**: Autenticado, `LENDER`/`BORROWER`/`ADMIN`.
+- **Response `200`**: `{ "average": number|null, "count": n, "distribution": {"1":n,…,"5":n}, "reviews": { items: [{ id, rating, comment, createdAt }], page, pageSize, total, totalPages } | null }`. No se expone quién reseñó.
+- **Visibilidad (`R5`)**: los comentarios de una `LenderCompany` son visibles para cualquier autenticado. Del Borrower: promedio y conteo los ve cualquier Lender, Admin y él mismo; **`reviews` solo** el propio Borrower, Admin y un Lender con contrato con él (para el resto viaja `null`). Otro Borrower recibe `404`.
+- **Errores**: `401` · `404 NOT_FOUND`.
+
+### `GET /api/me/reviews/pending`
+
+**¿Para qué sirve?** Contratos elegibles donde el usuario todavía no calificó a la contraparte (ambos lados en una lista; tope 100 por lado).
+
+- **Auth**: Autenticado, `LENDER` o `BORROWER`.
+- **Response `200`**: `[{ contractId, contractNumber, direction, lenderCompanyId, borrowerProfileId, counterpartName }]`.
+
+---
+
 ## Catálogo de códigos de error
 
 `code` es estable entre versiones; `message` es texto en **inglés** (convención fijada 2026-09-08 — toda respuesta de la API, éxito o error, va en inglés; el resto del código/documentación sigue en español) pensado para mostrarse tal cual, no para parsearse.
@@ -1600,6 +1639,10 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`), `DELETE /api/lenders/me/borrowers/:id` (`POST`/`PATCH` de ese mismo módulo deshabilitados, `D-P5-1`), todo endpoint de escritura de `LENDER` bajo `/api/contracts/**` (crear/editar/borrar/cancelar contrato, borrowers, terms, fees — nunca `accept`/`reject`, esos son `BORROWER`), `PATCH /api/contracts/:id` también para `ADMIN` (Fase 7), `POST /api/contracts/:id/payments/manual`, `POST /api/transactions/:id/reverse`, y `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes` (Fase 13). No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | `PATCH /api/borrowers/me` con `mustChangePassword=true` (`D-P4-2`) — el Deudor todavía no cambió la contraseña temporal que se le generó al crearlo |
 | `MESSAGING_NOT_ALLOWED` | 403 | `POST /api/lenders/me/messages` o `POST /api/borrowers/me/messages` (Fase 17) — no hay ninguna `LoanQuote` `SUBMITTED` en negociación ni ningún `Contract` fuera de `DRAFT` entre esa `LenderCompany` y ese `BorrowerProfile` |
+| `REVIEW_NOT_ALLOWED` | 403 | `POST /api/contracts/:id/reviews` (Fase 18) — el contrato está en `DRAFT`, `PENDING_ACCEPTANCE` o `CANCELLED` (solo `ACTIVE`/`DELINQUENT`/`PAID_OFF` se pueden calificar) |
+| `BORROWER_PROFILE_REQUIRED` | 400 | `POST /api/contracts/:id/reviews` (Fase 18) — el Lender no indicó a qué co-deudor califica |
+| `REVIEW_ALREADY_EXISTS` | 409 | `POST /api/contracts/:id/reviews` (Fase 18) — ya calificó a esa contraparte en ese contrato |
+| `SELF_REVIEW_NOT_ALLOWED` | 409 | `POST /api/contracts/:id/reviews` (Fase 18) — el usuario es ambas partes del mismo contrato |
 | `USER_NOT_FOUND` | 404 | `:id` no corresponde a ningún usuario (o está borrado lógicamente) |
 | `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, usado por todo el módulo de Contratos y Pagos): el contrato no existe, o existe pero no pertenece a la sesión (`ADMIN` nunca cae acá, Fase 7). También (mientras estuvo activo) `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender (`D-P5-1`, deshabilitado), `POST /api/contracts` con un `insuranceCompanyId`/`borrowerProfileId` ajeno, `POST /api/contracts/:id/borrowers` con un deudor no vinculado, `.../terms/:termsId*` con un `termsId` que no es de ese contrato, `.../fees/:feeId` con un fee que no es de esa versión, `GET /api/transactions/:id` o `POST .../reverse` con un `:id` que no corresponde a ninguna `Transaction`. También en el módulo de marketplace (Fase 13): un `LoanRequest` ajeno o inexistente, un `lenderCompanyId` inexistente en `.../targets`, un `LoanRequest` `PRIVATE` que el Lender no puede ver (sin `target`/no `PUBLISHED`), una `LoanQuote` que no es de ese `LoanRequest`. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
 | `LENDER_NOT_FOUND` | 404 | `:id` de `/api/admin/lenders*` no corresponde a ningún `LenderProfile` ni `User.id` de un Lender (o está borrado lógicamente, `D-P4-7`); o el `User` autenticado en `/api/lenders/me*` no tiene `LenderProfile` |

@@ -259,6 +259,8 @@ model User {
 
   messagesSent Message[] @relation("MessageSender")
 
+  reviewsWritten Review[] @relation("ReviewAuthor")
+
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
   refreshTokens          RefreshToken[]
@@ -336,6 +338,7 @@ model LenderCompany {
 
   verificationRequests VerificationRequest[]
   messages             Message[]
+  reviews              Review[]
 
   @@index([lenderProfileId])
   @@index([status])
@@ -373,6 +376,7 @@ model BorrowerProfile {
 
   verificationRequests VerificationRequest[]
   messages             Message[]
+  reviews              Review[]
 
   @@map("borrower_profiles")
 }
@@ -578,6 +582,7 @@ model Contract {
 
   termsVersions     ContractTerms[]    @relation("ContractTermsVersions")
   borrowers         ContractBorrower[]
+  reviews           Review[]
   scheduledPayments ScheduledPayment[]
   transactions      Transaction[]
   autopays          Autopay[]
@@ -951,6 +956,49 @@ model Message {
   @@index([lenderCompanyId, borrowerProfileId, createdAt])
   @@index([borrowerProfileId, readAt])
   @@map("messages")
+}
+
+// -----------------------------------------------------------------------------
+// Ratings Lender <-> Borrower (Fase 18, PB-031..034 —
+// Docs/plan/fases/fase-18-ratings-lender-borrower.md). La elegibilidad vive en
+// reviews.service.ts#canReview, no acá.
+// -----------------------------------------------------------------------------
+
+enum ReviewDirection {
+  LENDER_TO_BORROWER
+  BORROWER_TO_LENDER
+}
+
+// De solo inserción (R6) — nunca se edita ni se borra, mismo criterio que
+// Message/AuditLog. El promedio se deriva con AVG(rating), nunca se guarda
+// (D-S2-11/D-S2-13). `rating` 1..5 lo garantiza además un CHECK en la
+// migración. El "calificado" es lenderCompany o borrowerProfile según
+// `direction`.
+model Review {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  contractId String   @db.Uuid
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Restrict)
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id], onDelete: Restrict)
+
+  direction      ReviewDirection
+  reviewerUserId String          @db.Uuid
+  reviewerUser   User            @relation("ReviewAuthor", fields: [reviewerUserId], references: [id])
+
+  rating  Int
+  comment String? @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+
+  @@unique([contractId, borrowerProfileId, direction])
+  @@index([lenderCompanyId, direction])
+  @@index([borrowerProfileId, direction])
+  @@map("reviews")
 }
 
 // -----------------------------------------------------------------------------

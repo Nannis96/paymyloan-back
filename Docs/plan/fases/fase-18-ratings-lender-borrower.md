@@ -4,10 +4,14 @@
 
 # Fase 18 — Puntuación entre Lender y Borrower (Ratings)
 
-> **📝 PROPUESTA 2026-09-28 — pendiente de aprobación. No hay código.** Este
-> documento es el análisis y el plan de acción; nada se implementa hasta que
-> se apruebe (y se resuelvan las decisiones de la sección
-> [Decisiones a confirmar](#decisiones-a-confirmar)).
+> **✅ Implementada 2026-09-29** (`PB-031` → `PB-034`). Propuesta del
+> 2026-09-28, **aprobada con todas las recomendaciones `R1`–`R10`** de la
+> sección [Decisiones a confirmar](#decisiones-a-confirmar). Detalles que el
+> plan dejaba abiertos y se resolvieron al implementar: las reseñas
+> públicas **no exponen quién reseñó**; `GET /api/borrowers/:id/rating`
+> devuelve `reviews: null` (no un error) cuando el que consulta puede ver el
+> promedio pero no los comentarios; `/api/me/reviews/pending` tiene tope de
+> 100 por lado. Request/response en [API_REFERENCE](../../API_REFERENCE.md).
 
 ## 1. Qué se pide
 
@@ -235,10 +239,10 @@ implementan las recomendadas.
 
 | ID | Título | Prioridad | Complejidad | Estado |
 |---|---|---|---|---|
-| PB-031 | Modelo `Review` + migración + `canReview` en `reviews.service.ts` (absorbe `PB-023`) | P1 | M | ⏳ propuesta |
-| PB-032 | `POST` / `GET /api/contracts/:id/reviews` | P1 | M | ⏳ propuesta |
-| PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` (promedio, distribución, reseñas; reserva el path de `PB-009`) | P1 | M | ⏳ propuesta |
-| PB-034 | `GET /api/me/reviews/pending` | P2 | S | ⏳ propuesta |
+| PB-031 | Modelo `Review` + migración + `canReview` en `reviews.service.ts` (absorbe `PB-023`) | P1 | M | ✅ |
+| PB-032 | `POST` / `GET /api/contracts/:id/reviews` | P1 | M | ✅ |
+| PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` (promedio, distribución, reseñas; reserva el path de `PB-009`) | P1 | M | ✅ |
+| PB-034 | `GET /api/me/reviews/pending` | P2 | S | ✅ |
 
 ---
 

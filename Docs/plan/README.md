@@ -56,6 +56,7 @@ repartido y se convirtieron las referencias cruzadas en enlaces navegables.
 | 15 | [Exports contables](fases/fase-15-exports-reporting.md) | PB-015 |
 | 16 | [Admin Overview](fases/fase-16-admin-overview.md) | AD-001 → AD-011 |
 | 17 | [Mensajería Lender ↔ Borrower](fases/fase-17-messaging.md) | PB-027 → PB-030 |
+| 18 | [Ratings Lender ↔ Borrower](fases/fase-18-ratings-lender-borrower.md) | PB-031 → PB-034 (absorbe `PB-023`) |
 
 ## Cómo leerlo
 

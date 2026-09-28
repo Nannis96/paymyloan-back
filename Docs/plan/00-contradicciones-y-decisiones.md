@@ -343,6 +343,12 @@ Se entregó la vista `pml_v4/admin/admin-panel.html` (dashboard del Admin). Se c
 
 **Impacto**: `src/services/adminOverview.service.ts`, `src/controllers/adminOverview.controller.ts`, `src/app/api/admin/overview/route.ts` (+ su test de integración), `src/jobs/scheduler.ts`, `src/instrumentation.ts`, `package.json` (`node-cron`), `prisma/schema.prisma` (`VerificationRequest`, migración `20260926001016_ad003_verification_requests`), `src/services/verifications.service.ts`, `src/controllers/verifications.controller.ts`, 5 rutas nuevas bajo `src/app/api/{admin/verifications,borrowers/me/verification,lenders/me/companies/:companyId/verification}`, `src/lib/audit.ts` (`VERIFICATION_SUBMITTED`/`_APPROVED`/`_REJECTED`), `Docs/API_REFERENCE.md`, [06-api-endpoints.md §6.16](06-api-endpoints.md#616-admin-overview-nuevo-2026-09-25-fase-16), `Docs/IMPLEMENTATION_PROGRESS.md` (Fase 16), [fases/fase-16-admin-overview.md](fases/fase-16-admin-overview.md), [15-riesgos-y-decisiones-pendientes.md](15-riesgos-y-decisiones-pendientes.md) (#30–34). **No cambia**: ningún endpoint existente, ninguna regla de negocio previa.
 
+## Decisiones 2026-09-29 (ronda Ratings Lender ↔ Borrower)
+
+| ID | Situación previa | Decisión |
+|---|---|---|
+| `D-S2-13b` | `D-S2-13` planeaba `LenderReview` (solo Deudor → Prestamista, `PB-023`) | **Una sola tabla `Review` bidireccional** (`ReviewDirection`), anclada a un `Contract` en `ACTIVE`/`DELINQUENT`/`PAID_OFF`; una reseña por contrato + deudor + sentido; inmutable; promedio siempre derivado (`D-S2-11`). `PB-023` queda absorbido. El sentido se infiere del lado del usuario en el contrato, no de `User.role`. Comentarios de un Prestamista públicos; los de un Deudor solo para él, Admin y Prestamistas con contrato. El score calculado (pagos a tiempo / respuesta) sigue siendo `PB-009`, mismo path. Detalle y `R1`–`R10` en [fase-18](fases/fase-18-ratings-lender-borrower.md) |
+
 ---
 
 [← Índice del plan](README.md)  ·  [Siguiente: 1. Resumen de arquitectura propuesta](01-resumen-arquitectura.md)

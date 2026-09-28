@@ -20,6 +20,8 @@
 - **Implementación**: `activeLoans`, `completedLoans`, `totalDeployed` (derivado, `D-S2-11`), `averageRating` (derivado de `LenderReview`, `PB-023`), preferencias públicas (`ratePreferenceMinPercent`/`MaxPercent`, `loanTypePreferences`, `geographicAreaStates` — todos ya en `LenderCompany`, `D-S2-11`).
 
 ## PB-023 — `LenderReview` (el Deudor califica al Prestamista)
+
+> **Absorbido 2026-09-29 por [Fase 18](fase-18-ratings-lender-borrower.md)** (`PB-031`..`PB-034`): en vez de `LenderReview` (solo Deudor → Prestamista) hay una tabla `Review` bidireccional. Lo de abajo queda como histórico; ya no se implementa por separado.
 - **Objetivo**: implementar `D-S2-13`.
 - **Prioridad/Complejidad/Dependencias**: P2 / M / Contract `PAID_OFF` o `ACTIVE` (a confirmar si se permite calificar antes de terminar el préstamo)
 - **Archivos afectados**: `prisma/schema.prisma` (tabla `LenderReview`), rutas de §6.14.

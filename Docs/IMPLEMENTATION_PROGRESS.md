@@ -333,6 +333,23 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 **Verificado end-to-end**: `type-check` y `lint` limpios; 6 tests de integración nuevos contra Postgres real (camino dorado con envío/threads/lectura en ambos sentidos, D4 — la cotización se retira y el envío se bloquea pero el historial se sigue leyendo, D2 — `Contract` fuera de `DRAFT` habilita y `PAID_OFF`/`CANCELLED` no lo apaga, `DRAFT` no habilita, multi-empresa del Lender, y control de acceso — rol equivocado, sin token, contraparte sin mensajes, validación del body); suite completa sin regresiones (`pnpm run test:integration`: 40 archivos, 249 tests en verde).
 
+---
+
+## ✅ Fase 18 — Ratings Lender ↔ Borrower (completa, verificada)
+
+> **Implementado 2026-09-29**, plan aprobado con todas las recomendaciones `R1`–`R10` de [fase-18-ratings-lender-borrower.md](plan/fases/fase-18-ratings-lender-borrower.md). Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` real. **Absorbe `PB-023`** (`LenderReview`, `D-S2-13`): una sola tabla `Review` bidireccional en vez de una solo-Lender. El score calculado (pagos a tiempo / respuesta) sigue siendo `PB-009`.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ PB-031 | Modelo `Review` + migración + `canReview` | Tabla de solo inserción (migración `20260929000000_pb031_reviews`), `CHECK rating BETWEEN 1 AND 5`, `@@unique([contractId, borrowerProfileId, direction])`. Elegibilidad en `reviews.service.ts` (contrato `ACTIVE`/`DELINQUENT`/`PAID_OFF`; sentido inferido del lado del contrato, no de `User.role`) |
+| ✅ PB-032 | `POST` / `GET /api/contracts/:id/reviews` | `403 REVIEW_NOT_ALLOWED`, `409 REVIEW_ALREADY_EXISTS`/`SELF_REVIEW_NOT_ALLOWED`; el `GET` trae `canReview` |
+| ✅ PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` | Promedio derivado + distribución + reseñas paginadas; visibilidad de comentarios según `R5`; el del Borrower reserva el path de `PB-009` |
+| ✅ PB-034 | `GET /api/me/reviews/pending` | Contratos donde falta calificar, ambos lados |
+
+**Archivos nuevos**: `prisma/schema.prisma` (`Review`, `ReviewDirection`) + la migración; `src/validations/reviews.validation.ts`; `src/services/reviews.service.ts`; `src/controllers/reviews.controller.ts`; 4 rutas; `src/app/api/reviews-routes.integration.test.ts`.
+
+**Verificado end-to-end**: `type-check` y `lint` limpios; 9 tests de integración nuevos contra Postgres real (camino dorado con visibilidad `R5`, duplicado, estados `R2`, acceso/co-deudor removido, co-deudores, rol dual + autocalificación, validaciones, `CHECK` de BD, ratings vacíos) y la suite completa sin regresiones (`pnpm run test:integration`).
+
 ## ⬜ Fase 9 — Docker / Deployment (cierre)
 
 | # | Ítem |

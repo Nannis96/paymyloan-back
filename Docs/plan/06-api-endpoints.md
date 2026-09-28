@@ -222,6 +222,18 @@ Chat directo Lender ↔ Borrower, habilitado solo si hay una `LoanQuote` `SUBMIT
 | POST | `/api/lenders/me/messages/threads/:borrowerProfileId/read` | LENDER | **Implementado (`PB-030`)**. Marca `readAt` en los mensajes recibidos de ese Borrower |
 | POST | `/api/borrowers/me/messages/threads/:lenderCompanyId/read` | BORROWER | **Implementado (`PB-030`)**. Ídem |
 
+## 6.18 Ratings Lender ↔ Borrower (nuevo, 2026-09-29, [Fase 18](fases/fase-18-ratings-lender-borrower.md))
+
+Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` `ACTIVE`/`DELINQUENT`/`PAID_OFF` (`reviews.service.ts`, la elegibilidad vive en un solo lugar). Request/response completos en [API_REFERENCE](../API_REFERENCE.md).
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| POST | `/api/contracts/:id/reviews` | LENDER / BORROWER del contrato | **Implementado (`PB-032`)**. Body `{ rating, comment?, borrowerProfileId? }` (lo manda el Lender; el Borrower no). El sentido se infiere del lado del contrato. `403 REVIEW_NOT_ALLOWED` · `409 REVIEW_ALREADY_EXISTS` |
+| GET | `/api/contracts/:id/reviews` | LENDER / BORROWER / ADMIN | **Implementado (`PB-032`)**. Reseñas del contrato + `canReview` + `pendingBorrowerProfileIds` |
+| GET | `/api/lenders/:lenderCompanyId/rating` | Autenticado | **Implementado (`PB-033`)**. `average`, `count`, `distribution`, reseñas paginadas (públicas) |
+| GET | `/api/borrowers/:borrowerProfileId/rating` | LENDER / BORROWER (él) / ADMIN | **Implementado (`PB-033`)**. Mismo shape; `reviews` solo para él, Admin y un Lender con contrato (R5). Mismo path que `PB-009` |
+| GET | `/api/me/reviews/pending` | LENDER / BORROWER | **Implementado (`PB-034`)**. Contratos donde aún falta calificar |
+
 Fuera de alcance en v1: adjuntos (sin `Document`/S3 todavía), tiempo real (REST + polling del cliente alcanza al volumen actual), notificaciones por email (depende de `Notification`/`PB-022`, Fase 11), Bookkeeper/Admin/Insurance Company como participantes, hilos grupales entre co-deudores.
 
 ---
