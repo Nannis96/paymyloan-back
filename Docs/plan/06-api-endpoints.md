@@ -207,6 +207,23 @@ No agrega rutas propias — reutiliza el flujo ya existente de `ContractTerms` (
 
 Ver [`D-A9`](00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview) — solo el tier *Business Verified* (entidad + EIN); el tier *Fully Verified* (identidad) sigue siendo `BorrowerApplication`/`PB-018` (§6.11), sin implementar.
 
+## 6.17 Mensajería (nuevo, 2026-09-28, [Fase 17](fases/fase-17-messaging.md))
+
+Chat directo Lender ↔ Borrower, habilitado solo si hay una `LoanQuote` `SUBMITTED` en negociación o un `Contract` fuera de `DRAFT` entre ambos (`messaging.service.ts#canMessage`, único lugar que decide la regla). Una vez habilitado, no se vuelve a apagar por cambio de estado del contrato. Sin `Conversation` propia: el "hilo" es todo `Message` de un mismo `(lenderCompanyId, borrowerProfileId)`. Ningún endpoint exige 2FA (no es una escritura de negocio en el sentido de `D-P3-1`).
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| POST | `/api/lenders/me/messages` | LENDER | **Implementado (`PB-028`)**. Body `{ borrowerProfileId, lenderCompanyId?, body }` — `lenderCompanyId` obligatorio solo si el Lender tiene más de una empresa. `403 MESSAGING_NOT_ALLOWED` si no hay oferta en negociación ni préstamo |
+| POST | `/api/borrowers/me/messages` | BORROWER | **Implementado (`PB-028`)**. Body `{ lenderCompanyId, body }` |
+| GET | `/api/lenders/me/messages/threads` | LENDER | **Implementado (`PB-029`)**. Borrowers con al menos un mensaje, con `lastMessage` + `unreadCount` |
+| GET | `/api/borrowers/me/messages/threads` | BORROWER | **Implementado (`PB-029`)**. Ídem, del lado del Deudor |
+| GET | `/api/lenders/me/messages/threads/:borrowerProfileId` | LENDER | **Implementado (`PB-029`)**. Historial paginado; `?lenderCompanyId=` si tiene más de una empresa. `404 THREAD_NOT_FOUND` si nunca hubo mensajes — el historial se lee aunque la elegibilidad para escribir ya no se cumpla |
+| GET | `/api/borrowers/me/messages/threads/:lenderCompanyId` | BORROWER | **Implementado (`PB-029`)**. Ídem |
+| POST | `/api/lenders/me/messages/threads/:borrowerProfileId/read` | LENDER | **Implementado (`PB-030`)**. Marca `readAt` en los mensajes recibidos de ese Borrower |
+| POST | `/api/borrowers/me/messages/threads/:lenderCompanyId/read` | BORROWER | **Implementado (`PB-030`)**. Ídem |
+
+Fuera de alcance en v1: adjuntos (sin `Document`/S3 todavía), tiempo real (REST + polling del cliente alcanza al volumen actual), notificaciones por email (depende de `Notification`/`PB-022`, Fase 11), Bookkeeper/Admin/Insurance Company como participantes, hilos grupales entre co-deudores.
+
 ---
 
 [← Índice del plan](README.md)  ·  [Anterior: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)  ·  [Siguiente: 7. Autenticación y autorización](07-autenticacion-y-autorizacion.md)

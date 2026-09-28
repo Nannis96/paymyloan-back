@@ -257,6 +257,8 @@ model User {
   verificationRequestsSubmitted VerificationRequest[] @relation("VerificationRequestSubmittedBy")
   verificationRequestsReviewed  VerificationRequest[] @relation("VerificationRequestReviewedBy")
 
+  messagesSent Message[] @relation("MessageSender")
+
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
   refreshTokens          RefreshToken[]
@@ -333,6 +335,7 @@ model LenderCompany {
   matchedLoanRequests LoanRequest[]             @relation("LoanRequestMatchedLender")
 
   verificationRequests VerificationRequest[]
+  messages             Message[]
 
   @@index([lenderProfileId])
   @@index([status])
@@ -369,6 +372,7 @@ model BorrowerProfile {
   loanRequests        LoanRequest[]
 
   verificationRequests VerificationRequest[]
+  messages             Message[]
 
   @@map("borrower_profiles")
 }
@@ -907,6 +911,46 @@ model VerificationRequest {
   @@index([lenderCompanyId])
   @@index([borrowerProfileId])
   @@map("verification_requests")
+}
+
+// -----------------------------------------------------------------------------
+// Mensajería (Fase 17, PB-027) — chat directo Lender <-> Borrower. Habilitado
+// solo si hay una LoanQuote SUBMITTED o un Contract entre ambos (regla en
+// messaging.service.ts#canMessage, no acá — D-A ver
+// Docs/plan/fases/fase-17-messaging.md). Sin Conversation propia: el "hilo"
+// es todo Message de un mismo (lenderCompanyId, borrowerProfileId).
+// -----------------------------------------------------------------------------
+
+enum MessageSenderRole {
+  LENDER
+  BORROWER
+}
+
+// De solo inserción — nunca se edita ni se borra, mismo criterio que
+// AuditLog/ContractTermsAcceptance. Sin adjuntos (no existe Document/S3
+// todavía, Fase 11) y sin evento propio en AuditLog (alto volumen, bajo
+// valor de auditoría frente a contratos/pagos — D7 de fase-17-messaging.md).
+model Message {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  lenderCompanyId String        @db.Uuid
+  lenderCompany   LenderCompany @relation(fields: [lenderCompanyId], references: [id], onDelete: Restrict)
+
+  borrowerProfileId String          @db.Uuid
+  borrowerProfile   BorrowerProfile @relation(fields: [borrowerProfileId], references: [id], onDelete: Restrict)
+
+  senderUserId String            @db.Uuid
+  senderUser   User              @relation("MessageSender", fields: [senderUserId], references: [id])
+  senderRole   MessageSenderRole
+
+  body String @db.VarChar(4000)
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([lenderCompanyId, borrowerProfileId, createdAt])
+  @@index([borrowerProfileId, readAt])
+  @@map("messages")
 }
 
 // -----------------------------------------------------------------------------

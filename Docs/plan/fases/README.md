@@ -34,6 +34,7 @@ bloqueada por la decisión de Stripe Connect.
 | 14 | [Dashboards y Ratings](fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 | Nueva 2026-09-10 |
 | 15 | [Exports contables](fase-15-exports-reporting.md) | PB-015 | Formalizada 2026-09-10 |
 | 16 | [Admin Overview](fase-16-admin-overview.md) | AD-001 → AD-011 | Nueva 2026-09-25 — `AD-001`, `AD-002` y `AD-003` implementados, el resto pendiente |
+| 17 | [Mensajería Lender ↔ Borrower](fase-17-messaging.md) | PB-027 → PB-030 | Nueva 2026-09-28 — completa |
 
 ---
 
@@ -170,6 +171,10 @@ esta tabla dice en qué documento vive cada uno.
 | [AD-009](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Promo codes | P3 | M |
 | [AD-010](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Listados admin del sidebar (`GET /api/admin/borrowers`, paginar `GET /api/users`) | P2 | M |
 | [AD-011](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Acciones de la vista ("Send lender alert", "Clear all") | P3 | M |
+| [PB-027](fase-17-messaging.md#tickets) | Modelo `Message` + `canMessage` en `messaging.service.ts` | P1 | M |
+| [PB-028](fase-17-messaging.md#tickets) | `POST /api/lenders/me/messages` y `/api/borrowers/me/messages` | P1 | S |
+| [PB-029](fase-17-messaging.md#tickets) | `GET .../messages/threads` y `.../messages/threads/:counterpartId` (Lender + Borrower) | P1 | M |
+| [PB-030](fase-17-messaging.md#tickets) | `POST .../messages/threads/:counterpartId/read` (Lender + Borrower) | P2 | S |
 
 ---
 

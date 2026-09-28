@@ -29,6 +29,7 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Admin — Overview](#admin--overview-srcappapiadminoverview)
 - [Verificación de entidad](#verificación-de-entidad-srcappapiadminverificationsborrowersmeverificationlendersmecompaniescompanyidverification)
 - [Marketplace / Loan Requests](#marketplace--loan-requests-srcappapiborrowersmeloan-requests-srcappapimarketplaceloan-requests)
+- [Mensajería](#mensajería-srcappapilendersmemessages-srcappapiborrowersmemessages)
 - [Catálogo de códigos de error](#catálogo-de-códigos-de-error)
 
 ---
@@ -1542,6 +1543,45 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 ---
 
+## Mensajería (`src/app/api/lenders/me/messages`, `src/app/api/borrowers/me/messages`)
+
+`PB-027`..`PB-030` ([Fase 17](plan/fases/fase-17-messaging.md), 2026-09-28). Chat directo Lender ↔ Borrower, habilitado solo si hay una `LoanQuote` `SUBMITTED` en negociación o un `Contract` fuera de `DRAFT` entre ambos (`messaging.service.ts#canMessage` — único lugar que decide la regla; puede cambiar sin tocar los endpoints). Una vez habilitado, no se vuelve a apagar por cambio de estado del contrato — leer el historial nunca depende de esta regla, solo mandar mensajes nuevos. Sin `Conversation` propia: el "hilo" es todo `Message` de un mismo `(lenderCompanyId, borrowerProfileId)`. Ningún endpoint exige 2FA (no es una escritura de negocio en el sentido de `D-P3-1`).
+
+### `POST /api/lenders/me/messages` / `POST /api/borrowers/me/messages`
+
+**¿Para qué sirve?** Mandar un mensaje a la contraparte de una negociación u préstamo activo.
+
+- **Auth**: Autenticado, rol `LENDER` o `BORROWER` según la ruta.
+- **Request body (Lender)**: `{ "borrowerProfileId": "...", "lenderCompanyId": "...", "body": "..." }` — `lenderCompanyId` opcional (auto-resuelve si tiene una sola empresa, obligatorio si tiene más de una).
+- **Request body (Borrower)**: `{ "lenderCompanyId": "...", "body": "..." }`.
+- **Response `201`**: `data` = el `Message` creado.
+- **Errores**: `400 VALIDATION_ERROR` (body vacío o >4000 caracteres) · `400 LENDER_COMPANY_REQUIRED` · `403 MESSAGING_NOT_ALLOWED` (no hay oferta en negociación ni préstamo) · `404 NOT_FOUND`/`LENDER_NOT_FOUND`/`BORROWER_NOT_FOUND`.
+
+### `GET /api/lenders/me/messages/threads` / `GET /api/borrowers/me/messages/threads`
+
+**¿Para qué sirve?** La bandeja de entrada: con quién hay al menos un mensaje, para armar la lista de conversaciones.
+
+- **Auth**: Autenticado, rol `LENDER` o `BORROWER` según la ruta.
+- **Response `200`**: `data` = array de `{ borrowerProfile | lenderCompany, lastMessage, unreadCount }`, ordenado por el mensaje más reciente primero. Solo contrapartes con al menos un mensaje enviado o recibido (no lista relaciones elegibles todavía sin mensajes).
+
+### `GET /api/lenders/me/messages/threads/:borrowerProfileId` / `GET /api/borrowers/me/messages/threads/:lenderCompanyId`
+
+**¿Para qué sirve?** El historial completo con una contraparte puntual.
+
+- **Auth**: Autenticado, rol correspondiente.
+- **Query params**: `page`, `pageSize`; el lado Lender además acepta `lenderCompanyId` (obligatorio si tiene más de una empresa).
+- **Response `200`**: `data` = [resultado paginado](#convenciones) de `Message`, orden cronológico ascendente.
+- **Errores**: `400 LENDER_COMPANY_REQUIRED` · `404 THREAD_NOT_FOUND` (nunca hubo mensajes con esa contraparte — se puede leer el historial aunque la elegibilidad para escribir ya no se cumpla, D4).
+
+### `POST /api/lenders/me/messages/threads/:borrowerProfileId/read` / `POST /api/borrowers/me/messages/threads/:lenderCompanyId/read`
+
+**¿Para qué sirve?** Marcar como leídos los mensajes recibidos de esa contraparte (baja el `unreadCount` de `GET .../threads`).
+
+- **Auth**: Autenticado, rol correspondiente.
+- **Response `200`**: `{ "success": true, "data": { "success": true } }`.
+
+---
+
 ## Catálogo de códigos de error
 
 `code` es estable entre versiones; `message` es texto en **inglés** (convención fijada 2026-09-08 — toda respuesta de la API, éxito o error, va en inglés; el resto del código/documentación sigue en español) pensado para mostrarse tal cual, no para parsearse.
@@ -1550,7 +1590,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 |---|---|---|
 | `INVALID_JSON` | 400 | El body no es JSON válido |
 | `VALIDATION_ERROR` | 400 | El body no cumple el schema Zod del endpoint (primer error de validación) |
-| `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/marketplace/loan-requests/:id/quotes`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
+| `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/marketplace/loan-requests/:id/quotes`, `POST /api/lenders/me/messages` y `GET /api/lenders/me/messages/threads/:borrowerProfileId` (Fase 17), y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
 | `INVALID_TOKEN` | 400 o 401 | Refresh token / pending token / access token / token de reset: inválido, manipulado o expirado. `password/reset` usa 400 (es un dato del body); el resto usa 401 |
 | `UNAUTHENTICATED` | 401 | Falta el header `Authorization: Bearer` en un endpoint que lo exige |
 | `INVALID_CREDENTIALS` | 401 | Login: correo inexistente o contraseña incorrecta (mismo código para ambos). También: 2FA con sesión de verificación inválida, o `disable`/`recovery-codes` con password/código incorrectos |
@@ -1559,12 +1599,14 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `FORBIDDEN` | 403 | Sesión válida pero el rol no tiene permiso para el endpoint (p.ej. un BORROWER llamando a `/2fa/setup`, un LENDER llamando a `/admin/users/:id/activate`, o un LENDER llamando a `POST /api/transactions/:id/reverse`, ADMIN-only); también `requireContractAccess` para un rol sin modelo de acceso a contratos (ni LENDER/BORROWER/ADMIN — p.ej. BOOKKEEPER) |
 | `TWO_FACTOR_REQUIRED` | 403 | ADMIN/LENDER sin 2FA activo intenta una escritura de negocio (`D-P3-1`) — hoy: `POST`/`PATCH`/`DELETE /api/users`, `POST /api/admin/users/:id/activate\|deactivate`, `POST /api/admin/lenders/:id/companies`, `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId`, `DELETE /api/admin/lenders/:id`, `POST /api/lenders/me/companies`, `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`), `DELETE /api/lenders/me/borrowers/:id` (`POST`/`PATCH` de ese mismo módulo deshabilitados, `D-P5-1`), todo endpoint de escritura de `LENDER` bajo `/api/contracts/**` (crear/editar/borrar/cancelar contrato, borrowers, terms, fees — nunca `accept`/`reject`, esos son `BORROWER`), `PATCH /api/contracts/:id` también para `ADMIN` (Fase 7), `POST /api/contracts/:id/payments/manual`, `POST /api/transactions/:id/reverse`, y `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes` (Fase 13). No aplica a lecturas, autoservicio sin rol específico, ni a `/api/auth/2fa/*`. Puede desactivarse temporalmente con `REQUIRE_TWO_FACTOR=false` (`D-P4-4`, ver [Variables de entorno](#variables-de-entorno)) |
 | `PASSWORD_CHANGE_REQUIRED` | 403 | `PATCH /api/borrowers/me` con `mustChangePassword=true` (`D-P4-2`) — el Deudor todavía no cambió la contraseña temporal que se le generó al crearlo |
+| `MESSAGING_NOT_ALLOWED` | 403 | `POST /api/lenders/me/messages` o `POST /api/borrowers/me/messages` (Fase 17) — no hay ninguna `LoanQuote` `SUBMITTED` en negociación ni ningún `Contract` fuera de `DRAFT` entre esa `LenderCompany` y ese `BorrowerProfile` |
 | `USER_NOT_FOUND` | 404 | `:id` no corresponde a ningún usuario (o está borrado lógicamente) |
 | `NOT_FOUND` | 404 | `requireContractAccess` (`BE-038`, usado por todo el módulo de Contratos y Pagos): el contrato no existe, o existe pero no pertenece a la sesión (`ADMIN` nunca cae acá, Fase 7). También (mientras estuvo activo) `POST /api/lenders/me/borrowers` con un `lenderCompanyId` que no es del Lender (`D-P5-1`, deshabilitado), `POST /api/contracts` con un `insuranceCompanyId`/`borrowerProfileId` ajeno, `POST /api/contracts/:id/borrowers` con un deudor no vinculado, `.../terms/:termsId*` con un `termsId` que no es de ese contrato, `.../fees/:feeId` con un fee que no es de esa versión, `GET /api/transactions/:id` o `POST .../reverse` con un `:id` que no corresponde a ninguna `Transaction`. También en el módulo de marketplace (Fase 13): un `LoanRequest` ajeno o inexistente, un `lenderCompanyId` inexistente en `.../targets`, un `LoanRequest` `PRIVATE` que el Lender no puede ver (sin `target`/no `PUBLISHED`), una `LoanQuote` que no es de ese `LoanRequest`. Mismo código para "no existe" y "existe pero no es tuyo" a propósito (anti-enumeración, §7.5); los casos de tenant mismatch además quedan auditados (`AuditLog.action=ACCESS_DENIED`, `BE-039`) |
 | `LENDER_NOT_FOUND` | 404 | `:id` de `/api/admin/lenders*` no corresponde a ningún `LenderProfile` ni `User.id` de un Lender (o está borrado lógicamente, `D-P4-7`); o el `User` autenticado en `/api/lenders/me*` no tiene `LenderProfile` |
 | `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente); mismo código en `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`) si `:companyId` no es del Lender de la sesión |
 | `BORROWER_NOT_FOUND` | 404 | El `User` autenticado en `/api/borrowers/me*` no tiene `BorrowerProfile` |
 | `VERIFICATION_NOT_FOUND` | 404 | `POST /api/admin/verifications/:id/approve\|reject` — `:id` no corresponde a ninguna `VerificationRequest` (`AD-003`) |
+| `THREAD_NOT_FOUND` | 404 | `GET /api/lenders/me/messages/threads/:borrowerProfileId` o `GET /api/borrowers/me/messages/threads/:lenderCompanyId` (Fase 17) — nunca hubo ningún `Message` con esa contraparte |
 | `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) con un correo que ya existe |
 | `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies`, `POST /api/lenders/me/companies`, `POST /api/borrowers/me/become-lender` (`D-P7-1`), o `PATCH /api/admin\|lenders/.../companies/:companyId` (incluido `D-P4-9`) con un `ein` que ya usa otra `LenderCompany` |
 | `LENDER_PROFILE_ALREADY_EXISTS` | 409 | `POST /api/borrowers/me/become-lender` (`D-P7-1`) — el usuario ya tiene un `LenderProfile` |
