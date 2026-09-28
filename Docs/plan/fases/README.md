@@ -33,6 +33,7 @@ bloqueada por la decisión de Stripe Connect.
 | 13 | [Marketplace / Loan Requests / Vetting](fase-13-rating-loan-requests.md) | PB-011, PB-012, PB-016 → PB-019 | Formalizada y ampliada 2026-09-10 (marketplace, RentCast, vetting) |
 | 14 | [Dashboards y Ratings](fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 | Nueva 2026-09-10 |
 | 15 | [Exports contables](fase-15-exports-reporting.md) | PB-015 | Formalizada 2026-09-10 |
+| 16 | [Admin Overview](fase-16-admin-overview.md) | AD-001 → AD-011 | Nueva 2026-09-25 — `AD-001`, `AD-002` y `AD-003` implementados, el resto pendiente |
 
 ---
 
@@ -158,6 +159,17 @@ esta tabla dice en qué documento vive cada uno.
 | [PB-023](fase-14-dashboards-ratings.md#pb-023--lenderreview-el-deudor-califica-al-prestamista) | `LenderReview` (el Deudor califica al Prestamista) | P2 | M |
 | [PB-024](fase-14-dashboards-ratings.md#pb-024--dashboards-de-borrower-y-lender) | Dashboards de Borrower y Lender | P1 | L |
 | [PB-015](fase-15-exports-reporting.md#pb-015--export-csv--reporte-fiscal--envío-automático-a-cpabookkeepers) | Export CSV + reporte fiscal + envío automático a CPA/Bookkeepers | P2 | M |
+| [AD-001](fase-16-admin-overview.md#ad-001--get-apiadminoverview-) | `GET /api/admin/overview` (implementado) | P1 | M |
+| [AD-002](fase-16-admin-overview.md#ad-002--programar-el-job-de-mora-) | Programar el job de mora (`recomputeContractDelinquencyStatus`) (implementado) | P0 | S |
+| [AD-003](fase-16-admin-overview.md#ad-003--verificación-de-entidad-business-) | Verificación de entidad (`VerificationRequest`, tier Business) (implementado) | P1 | L |
+| [AD-004](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Confirmación del PML fee (`Contract.platformFeeConfirmedAt`) | P2 | S |
+| [AD-005](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | `BorrowerProfile.entityName` (nombre de entidad del borrower) | P2 | S |
+| [AD-006](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Líneas de ingreso restantes (suscripciones, interest share, net, MRR) | P2 | L |
+| [AD-007](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Afiliados (referidos, comisiones, payouts) | P3 | L |
+| [AD-008](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Draw requests (alerta de admin) | P3 | M |
+| [AD-009](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Promo codes | P3 | M |
+| [AD-010](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Listados admin del sidebar (`GET /api/admin/borrowers`, paginar `GET /api/users`) | P2 | M |
+| [AD-011](fase-16-admin-overview.md#lo-que-falta-pendiente-en-orden-sugerido) | Acciones de la vista ("Send lender alert", "Clear all") | P3 | M |
 
 ---
 

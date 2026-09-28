@@ -21,6 +21,9 @@ function jsonRequest(method: string, url: string, body?: unknown, headers: Recor
   });
 }
 
+// D-P4-5: POST /api/users solo crea roles de staff — LENDER/BORROWER nacen por
+// auto-registro. Los tests usan BOOKKEEPER, el rol no importa para lo que se
+// prueba acá.
 describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 2FA obligatorio en escrituras)", () => {
   afterAll(resetPhase1Tables);
 
@@ -46,7 +49,7 @@ describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 
       jsonRequest(
         "POST",
         "http://localhost/api/users",
-        { name: "Bloqueado sin 2FA", email: `blocked-${Date.now()}@test.local`, role: "BORROWER" },
+        { name: "Bloqueado sin 2FA", email: `blocked-${Date.now()}@test.local`, role: "BOOKKEEPER" },
         { authorization: adminAuth },
       ),
     );
@@ -64,7 +67,7 @@ describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 
 
     const email = `http-users-${Date.now()}@test.local`;
     const createResponse = await POST(
-      jsonRequest("POST", "http://localhost/api/users", { name: "HTTP User", email, phone: "5512345678", role: "BORROWER" }, { authorization: adminAuth }),
+      jsonRequest("POST", "http://localhost/api/users", { name: "HTTP User", email, phone: "5512345678", role: "BOOKKEEPER" }, { authorization: adminAuth }),
     );
     expect(createResponse.status).toBe(201);
     const created = await createResponse.json();
@@ -92,6 +95,19 @@ describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 
     expect(deleted.deletedAt).not.toBeNull();
   });
 
+  it("POST /api/users rechaza los roles LENDER y BORROWER — solo nacen por auto-registro (D-P4-5)", async () => {
+    const { user: admin, secret } = await createTestUserWithTwoFactor("ADMIN", ADMIN_PASSWORD);
+    const adminAuth = `Bearer ${await issueAccessTokenFor(admin, ADMIN_PASSWORD, secret)}`;
+
+    for (const role of ["LENDER", "BORROWER"]) {
+      const response = await POST(
+        jsonRequest("POST", "http://localhost/api/users", { name: "Rol no permitido", email: `${role.toLowerCase()}-${Date.now()}@test.local`, role }, { authorization: adminAuth }),
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe("VALIDATION_ERROR");
+    }
+  });
+
   it("POST /api/users rechaza un teléfono que no tiene exactamente 10 dígitos", async () => {
     const { user: admin, secret } = await createTestUserWithTwoFactor("ADMIN", ADMIN_PASSWORD);
     const adminAuth = `Bearer ${await issueAccessTokenFor(admin, ADMIN_PASSWORD, secret)}`;
@@ -100,7 +116,7 @@ describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 
       jsonRequest(
         "POST",
         "http://localhost/api/users",
-        { name: "Teléfono Malo", email: `bad-phone-${Date.now()}@test.local`, phone: "12345", role: "BORROWER" },
+        { name: "Teléfono Malo", email: `bad-phone-${Date.now()}@test.local`, phone: "12345", role: "BOOKKEEPER" },
         { authorization: adminAuth },
       ),
     );
@@ -116,7 +132,7 @@ describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 
       jsonRequest(
         "POST",
         "http://localhost/api/users",
-        { name: "Para Activar", email, role: "BORROWER", isActive: false },
+        { name: "Para Activar", email, role: "BOOKKEEPER", isActive: false },
         { authorization: adminAuth },
       ),
     );

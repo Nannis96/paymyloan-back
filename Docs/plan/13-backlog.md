@@ -39,6 +39,7 @@ Los ítems originales viven en un documento por fase, bajo [`fases/`](fases/) �
 | 13 | [Marketplace / Loan Requests / Vetting](fases/fase-13-rating-loan-requests.md) | PB-011, PB-012, PB-016 → PB-019, PB-026 |
 | 14 | [Dashboards y Ratings](fases/fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 |
 | 15 | [Exports contables](fases/fase-15-exports-reporting.md) | PB-015 |
+| 16 | [Admin Overview](fases/fase-16-admin-overview.md) | AD-001 → AD-011 |
 
 > **Fases 11–15 formalizadas 2026-09-10**: antes solo existían como una fila suelta en [IMPLEMENTATION_PROGRESS.md](../IMPLEMENTATION_PROGRESS.md) (tickets `PB-001`..`PB-015`), sin ningún documento de plan detrás — mismo defecto que ya se había corregido una vez para Fase 1 (decisiones `C-1`/`M-1` nunca integradas). Esta ronda las trae a `Docs/plan/` como fuente única, y las extiende con los requisitos de [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf)/[pml_commitment_letter_spec 1.1.pdf](../pml_commitment_letter_spec%201.1.pdf) — ver [00 — Decisiones 2026-09-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec). Fase 14 es nueva (el número estaba libre — `IMPLEMENTATION_PROGRESS.md` saltaba de 13 a 15).
 >

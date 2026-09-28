@@ -254,6 +254,9 @@ model User {
   loanRequestLenderTargetsInvited LoanRequestLenderTarget[] @relation("LoanRequestLenderTargetInvitedBy")
   loanQuotesSubmitted             LoanQuote[]               @relation("LoanQuoteSubmittedBy")
 
+  verificationRequestsSubmitted VerificationRequest[] @relation("VerificationRequestSubmittedBy")
+  verificationRequestsReviewed  VerificationRequest[] @relation("VerificationRequestReviewedBy")
+
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
   refreshTokens          RefreshToken[]
@@ -329,6 +332,8 @@ model LenderCompany {
   loanQuotes          LoanQuote[]
   matchedLoanRequests LoanRequest[]             @relation("LoanRequestMatchedLender")
 
+  verificationRequests VerificationRequest[]
+
   @@index([lenderProfileId])
   @@index([status])
   @@map("lender_companies")
@@ -362,6 +367,8 @@ model BorrowerProfile {
   contractAcceptances ContractTermsAcceptance[]
   autopays            Autopay[]
   loanRequests        LoanRequest[]
+
+  verificationRequests VerificationRequest[]
 
   @@map("borrower_profiles")
 }
@@ -833,6 +840,73 @@ model LoanQuote {
 
   @@unique([loanRequestId, lenderCompanyId])
   @@map("loan_quotes")
+}
+
+// -----------------------------------------------------------------------------
+// Verificación de entidades (Fase 16, AD-003) — tier "Business" del roadmap:
+// entidad + EIN, para Prestamistas y Deudores. La verificación de identidad
+// (SSN + ID + background check) NO vive acá: es BorrowerApplication (PB-018).
+// Docs/plan/fases/fase-16-admin-overview.md, D-A9..D-A12.
+// -----------------------------------------------------------------------------
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Une las opciones de lender/verification.html (LLC/Corporation/LP/Trust/
+// Individual) y borrower/onboarding.html (LLC/Corporation/Land trust/
+// Personal name/Other).
+enum EntityType {
+  LLC
+  CORPORATION
+  LP
+  TRUST
+  INDIVIDUAL
+  OTHER
+}
+
+// Solo datos, sin archivos (no existe Document/S3 todavía, Fase 11) y sin
+// SSN/ID: el Admin revisa a mano. Foto de lo que se envió, no una referencia
+// viva: `entityName`/`ein` no se reescriben si después cambia la empresa.
+// Exactamente uno de lenderCompanyId/borrowerProfileId (regla de servicio,
+// mismo criterio que Document en D-S2-8). Una solicitud PENDING por sujeto a
+// la vez, también a nivel de servicio. "Verificado" = tiene una APPROVED —
+// no hay columna en LenderCompany/BorrowerProfile que se pueda desincronizar.
+model VerificationRequest {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  lenderCompanyId String?        @db.Uuid
+  lenderCompany   LenderCompany? @relation(fields: [lenderCompanyId], references: [id], onDelete: Cascade)
+
+  borrowerProfileId String?          @db.Uuid
+  borrowerProfile   BorrowerProfile? @relation(fields: [borrowerProfileId], references: [id], onDelete: Restrict)
+
+  status VerificationStatus @default(PENDING)
+
+  entityName       String
+  entityType       EntityType
+  ein              String // formato XX-XXXXXXX, validado en Zod
+  stateOfFormation String     @db.VarChar(2)
+  signatoryName    String?
+  signatoryTitle   String?
+
+  submittedByUserId String @db.Uuid
+  submittedByUser   User   @relation("VerificationRequestSubmittedBy", fields: [submittedByUserId], references: [id])
+
+  reviewedByUserId String?   @db.Uuid
+  reviewedByUser   User?     @relation("VerificationRequestReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+  rejectionReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([lenderCompanyId])
+  @@index([borrowerProfileId])
+  @@map("verification_requests")
 }
 
 // -----------------------------------------------------------------------------

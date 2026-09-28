@@ -66,7 +66,7 @@
 
 ## BE-063 — Job `recomputeContractDelinquencyStatus`
 - **Prioridad/Complejidad/Dependencias**: P2 / M / BE-059
-- **Implementación**: `src/jobs/recomputeContractDelinquency.ts`, corre diario (cron externo o `node-cron` dentro del contenedor — decisión de implementación, no bloqueante para el resto).
+- **Implementación**: `src/jobs/recomputeContractDelinquency.ts`, corre diario — programado en [`AD-002`](fase-16-admin-overview.md) con `node-cron` dentro del proceso (`src/jobs/scheduler.ts`, 02:00 UTC + corrida al arrancar).
 
 ## BE-064 — Job `assessLateFee`
 - **Prioridad/Complejidad/Dependencias**: P2 / M / BE-059, BE-063

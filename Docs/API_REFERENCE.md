@@ -26,6 +26,8 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Contratos](#contratos-srcappapicontracts)
 - [Pagos](#pagos-srcappapicontractsidpayments-srcappapitransactions)
 - [Auditoría](#auditoría-srcappapiaudit-logs)
+- [Admin — Overview](#admin--overview-srcappapiadminoverview)
+- [Verificación de entidad](#verificación-de-entidad-srcappapiadminverificationsborrowersmeverificationlendersmecompaniescompanyidverification)
 - [Marketplace / Loan Requests](#marketplace--loan-requests-srcappapiborrowersmeloan-requests-srcappapimarketplaceloan-requests)
 - [Catálogo de códigos de error](#catálogo-de-códigos-de-error)
 
@@ -136,7 +138,7 @@ Alta de usuario por un Admin (identidad + rol, opcionalmente teléfono e `isActi
   | `name` | string | 1–120 caracteres, se recorta (`trim`) |
   | `email` | string | formato email, se normaliza a minúsculas |
   | `phone` | string | opcional — **exactamente 10 dígitos** (`^\d{10}$`), sin espacios/guiones/`+` |
-  | `role` | string | uno de `ADMIN`, `LENDER`, `BORROWER`, `BOOKKEEPER`, `INSURANCE_COMPANY` — obligatorio, sin default |
+  | `role` | string | uno de `ADMIN`, `BOOKKEEPER`, `INSURANCE_COMPANY` — obligatorio, sin default. `LENDER`/`BORROWER` responden `400 VALIDATION_ERROR`: solo nacen por auto-registro (`D-P4-5`) |
   | `isActive` | boolean | opcional — sin este campo, nace **activo** (mismo default que la tabla) |
 
   ```json
@@ -1272,6 +1274,98 @@ Revierte `ScheduledPayment.amountPaid`/`status` de las filas que ese pago había
 
 ---
 
+## Admin — Overview (`src/app/api/admin/overview/`)
+
+`AD-001` ([Fase 16](plan/fases/fase-16-admin-overview.md), 2026-09-25). Agregación pura para la vista `pml_v4/admin/admin-panel.html` — sin tablas propias, todo se deriva en el momento de la consulta.
+
+### `GET /api/admin/overview`
+
+**¿Para qué sirve?** Para que el Admin vea de un vistazo el estado de la plataforma: cuántos deals hay activos, cuánto se fondeó, cuánto ingresó por closing fees, qué contratos están en mora y quién se registró recién — todo en una sola llamada, sin armar las métricas en el cliente.
+
+- **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
+- **Query params**: ninguno.
+- **Response `200`**: `data` =
+
+```jsonc
+{
+  "kpis": {
+    "activeDeals": { "count": 34, "addedLast7d": 3 },  // Contract ACTIVE + DELINQUENT; addedLast7d = activados en los últimos 7 días
+    "totalFunded": "3800000",                          // suma de principalAmount de los términos vigentes de contratos ACTIVE/DELINQUENT/PAID_OFF
+    "lateContracts": 3,                                // Contract DELINQUENT
+    "pendingVerifications": 2                          // VerificationRequest PENDING, lender + borrower (AD-003)
+  },
+  "revenue": {
+    "month": "2026-09",                                // mes en curso, UTC
+    "closingFees": "1725",                             // MARKETPLACE_CONNECTION (D-S2-5) de contratos activados en el mes
+    "subscriptions": null, "interestShare": null, "affiliatePayouts": null, "net": null,   // sin fuente todavía (AD-006/AD-007)
+    "last6Months": [ { "month": "2026-04", "total": "0" } /* ...6 meses, el último es el actual; hoy total = solo closing fees */ ]
+  },
+  "activeDeals": [                                     // los 5 contratos PENDING_ACCEPTANCE/ACTIVE/DELINQUENT más recientes
+    {
+      "contractId": "...", "contractNumber": "PML-2026-000002",
+      "property": { "addressLine1": "1600 Riverside Dr", "city": "Austin", "state": "TX" },
+      "principalAmount": "180000",                     // términos vigentes; null si el contrato aún no tiene
+      "status": "ACTIVE",                              // PENDING_ACCEPTANCE ≈ "Pending close" de la vista (D-A2)
+      "daysPastDue": null,                             // días desde el vencimiento impago más antiguo, null si no hay
+      "nextPaymentDueDate": "2026-10-01T00:00:00.000Z"
+    }
+  ],
+  "needsAttention": [                                  // verificaciones (1 alerta agregada) + mora (máx. 10); más tipos cuando existan sus módulos
+    { "type": "VERIFICATIONS_PENDING", "severity": "red", "title": "2 verifications pending",
+      "detail": "1 lender entity, 1 borrower entity awaiting review", "entityType": "VerificationRequest", "entityId": null, "occurredAt": "2026-09-20T00:00:00.000Z" },
+    { "type": "LATE_PAYMENT", "severity": "red", "title": "5521 Germantown Rd", "detail": "15 days past due",
+      "entityType": "Contract", "entityId": "...", "occurredAt": "2026-09-06T00:00:00.000Z" }
+  ],
+  "recentSignups": [                                   // los 5 LENDER/BORROWER más recientes (los roles de staff no se auto-registran)
+    { "userId": "...", "name": "Marcus Johnson", "role": "BORROWER", "isActive": true, "createdAt": "...", "verification": "PENDING", "dealsCount": 1 }
+  ]
+}
+```
+
+- **Notas**: los montos (`Decimal`) serializan como string. `lateContracts`/`needsAttention` dependen de `Contract.status = DELINQUENT`, que mantiene al día `recomputeContractDelinquencyStatus`, programado con `node-cron` (diario 02:00 UTC + una corrida al arrancar el servidor, `AD-002`), así que puede tener hasta un día de desfase respecto del vencimiento real. `recentSignups[].role` es el rol de registro (no los roles activos de un usuario dual) y `name` es `User.name` (persona). `recentSignups[].verification` es `"APPROVED"`/`"PENDING"`/`"REJECTED"`/`null` (nunca envió una solicitud) — la más reciente de todas las suyas por precedencia `APPROVED > PENDING > REJECTED` (`AD-003`, ver [Admin — Verifications](#admin--verifications-srcappapiadminverifications) abajo). Las decisiones detrás de cada número están en [00 §D-A1..D-A12](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview); lo que falta, en [Fase 16](plan/fases/fase-16-admin-overview.md).
+- **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (sesión válida pero no es ADMIN).
+
+---
+
+## Verificación de entidad (`src/app/api/{admin/verifications,borrowers/me/verification,lenders/me/companies/:companyId/verification}`)
+
+`AD-003` ([Fase 16](plan/fases/fase-16-admin-overview.md), 2026-09-27). Tier **Business Verified** (`D-A9`): un Lender o un Deudor envía los datos de su entidad (nombre, tipo, EIN, estado de formación) para que un Admin los revise. Sin archivos ni SSN — eso es identidad (`BorrowerApplication`/`PB-018`, no implementado). Es puramente informativo: no bloquea recibir deudores, publicar un `LoanRequest` ni cotizar (`D-A10`).
+
+### `POST`/`GET /api/lenders/me/companies/:companyId/verification`
+
+**¿Para qué sirve?** Para que el propio Lender envíe (o consulte el estado de) la verificación de una empresa suya.
+
+- **Auth**: Autenticado, rol `LENDER`, dueño de `:companyId`. `POST` es escritura de negocio (2FA, `D-P3-1`); `GET` no.
+- **Request body (`POST`)**: `entityName` (string), `entityType` (`LLC`/`CORPORATION`/`LP`/`TRUST`/`INDIVIDUAL`/`OTHER`), `ein` (formato `XX-XXXXXXX`), `stateOfFormation` (2 letras), `signatoryName?`, `signatoryTitle?`.
+- **Response `201`/`200`**: `data` = la `VerificationRequest` (o `null` en el `GET` si nunca se envió una).
+- **Errores**: `400 VALIDATION_ERROR` · `404 LENDER_COMPANY_NOT_FOUND` (`:companyId` no es del Lender) · `409 VERIFICATION_PENDING`/`VERIFICATION_ALREADY_APPROVED` (ya hay una en curso o aprobada).
+
+### `POST`/`GET /api/borrowers/me/verification`
+
+**¿Para qué sirve?** Lo mismo que arriba, para el propio Deudor. Ninguna de las dos rutas exige 2FA — `D-P3-1` no alcanza a `BORROWER`.
+
+- **Auth**: Autenticado, rol `BORROWER`.
+- **Request body / Response / Errores**: igual que arriba, sin `LENDER_COMPANY_NOT_FOUND` (no hay `:companyId`).
+
+### `GET /api/admin/verifications`
+
+**¿Para qué sirve?** La cola de revisión del Admin — todas las solicitudes, de cualquier Lender o Deudor.
+
+- **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
+- **Query params**: `page`, `pageSize`, `search` (por `entityName`), y opcionales `status` (`PENDING`/`APPROVED`/`REJECTED`) y `subject` (`LENDER`/`BORROWER`). Con `status=PENDING`, ordena la más vieja primero (es una cola); el resto, la más reciente primero.
+- **Response `200`**: `data` = [resultado paginado](#convenciones) de `VerificationRequest`, cada uno con `lenderCompany`/`borrowerProfile` y `submittedByUser` resumidos.
+
+### `POST /api/admin/verifications/:id/approve` / `.../reject`
+
+**¿Para qué sirve?** Aprobar o rechazar una solicitud `PENDING`.
+
+- **Auth**: Autenticado, rol `ADMIN` (escritura, 2FA).
+- **Request body (`reject`)**: `{ "reason": "..." }`, obligatorio.
+- **Response `200`**: `data` = la `VerificationRequest` actualizada.
+- **Errores**: `404 VERIFICATION_NOT_FOUND` · `409 VERIFICATION_NOT_PENDING` (ya se revisó — incluida la carrera de dos Admins aprobando/rechazando a la vez, gana el primer `UPDATE`).
+
+---
+
 ## Marketplace / Loan Requests (`src/app/api/borrowers/me/loan-requests`, `src/app/api/marketplace/loan-requests`)
 
 Fase 13 parcial (`PB-011`/`PB-026`/`PB-017`, reescrito 2026-09-11 — `D-S2-21`/`D-S2-22`, ver [00](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar)). El Deudor publica un `LoanRequest` (con su `Property` embebida, sin endpoint propio — mismo criterio que `POST /api/contracts`, `D-P6-2`/`D-S2-25`), elige a qué Prestamistas pedirles cotización (o lo publica abierto), cada Prestamista interesado responde con su propia `LoanQuote`, y el Deudor selecciona una — esa selección es la que crea el `Contract`. **No implementado en esta ronda**: `LoanRequestInvite` (invitar por correo a alguien sin cuenta todavía), fotos, RentCast, `BorrowerApplication`, `BorrowerSubscription`, pitch deck PDF.
@@ -1470,6 +1564,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `LENDER_NOT_FOUND` | 404 | `:id` de `/api/admin/lenders*` no corresponde a ningún `LenderProfile` ni `User.id` de un Lender (o está borrado lógicamente, `D-P4-7`); o el `User` autenticado en `/api/lenders/me*` no tiene `LenderProfile` |
 | `LENDER_COMPANY_NOT_FOUND` | 404 | `:companyId` de `PATCH`/`DELETE /api/admin/lenders/:id/companies/:companyId` no es una `LenderCompany` de ese `:id` (o está borrada lógicamente); mismo código en `PATCH`/`DELETE /api/lenders/me/companies/:companyId` (`D-P4-9`) si `:companyId` no es del Lender de la sesión |
 | `BORROWER_NOT_FOUND` | 404 | El `User` autenticado en `/api/borrowers/me*` no tiene `BorrowerProfile` |
+| `VERIFICATION_NOT_FOUND` | 404 | `POST /api/admin/verifications/:id/approve\|reject` — `:id` no corresponde a ninguna `VerificationRequest` (`AD-003`) |
 | `EMAIL_TAKEN` | 409 | `POST`/`PATCH /api/users`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) con un correo que ya existe |
 | `EIN_TAKEN` | 409 | `POST /api/admin/lenders/:id/companies`, `POST /api/lenders/me/companies`, `POST /api/borrowers/me/become-lender` (`D-P7-1`), o `PATCH /api/admin\|lenders/.../companies/:companyId` (incluido `D-P4-9`) con un `ein` que ya usa otra `LenderCompany` |
 | `LENDER_PROFILE_ALREADY_EXISTS` | 409 | `POST /api/borrowers/me/become-lender` (`D-P7-1`) — el usuario ya tiene un `LenderProfile` |
@@ -1479,6 +1574,9 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `LENDER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/admin/lenders/:id` (alguna de sus `LenderCompany` tiene un `Contract` `ACTIVE`/`DELINQUENT`) o `DELETE .../companies/:companyId` (esa empresa puntual lo tiene) — Admin o autoservicio (`D-P4-9`) |
 | `NO_LENDER_COMPANY` | 409 | `POST /api/marketplace/loan-requests/:id/quotes`, y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender todavía no tiene ninguna `LenderCompany` |
 | `BORROWER_HAS_ACTIVE_CONTRACTS` | 409 | `DELETE /api/lenders/me/borrowers/:id` — el deudor tiene un `Contract` `ACTIVE`/`DELINQUENT` con alguna de las empresas de las que se lo está desvinculando |
+| `VERIFICATION_PENDING` | 409 | `POST /api/lenders/me/companies/:companyId/verification` o `POST /api/borrowers/me/verification` — ya hay una `VerificationRequest` `PENDING` para ese sujeto (`AD-003`) |
+| `VERIFICATION_ALREADY_APPROVED` | 409 | Igual que arriba, pero ya está `APPROVED` — no tiene sentido reenviar |
+| `VERIFICATION_NOT_PENDING` | 409 | `POST /api/admin/verifications/:id/approve\|reject` sobre una solicitud que ya no está `PENDING` (ya revisada, incluida la carrera de dos Admins a la vez) |
 | `TWO_FACTOR_ALREADY_ENABLED` | 409 | `/2fa/setup` o `/2fa/verify` cuando el usuario ya tiene 2FA activo |
 | `TWO_FACTOR_NOT_ENABLED` | 409 | `/2fa/disable` o `/2fa/recovery-codes` cuando el usuario no tiene 2FA activo |
 | `TWO_FACTOR_SETUP_REQUIRED` | 409 | `/2fa/verify` sin haber llamado antes a `/2fa/setup` |

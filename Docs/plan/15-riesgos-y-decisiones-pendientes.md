@@ -50,6 +50,16 @@ Origen: [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf) y [pml_commitment_
 | 28 | **¿La Commitment Letter necesita firma electrónica certificada además de la aceptación in-app (D0-3)?** | Determina si `D-S2-9` (Commitment Letter = PDF de una `ContractTerms ACCEPTED`) es suficiente o si hace falta integrar un proveedor de e-signature (#24) antes de dar la Fase 11/13 por cerrada | PB-021 (generación/distribución de Commitment Letter) — puede implementarse con la aceptación in-app tal como está, revisar si el negocio exige más |
 | 29 | **`CPA`/`Title Company`, ¿siguen sin cuenta propia?** (`D-P1-1`, riesgo #11) | Ninguno de los dos documentos nuevos lo resuelve — title/escrow sigue recibiendo la Commitment Letter/Payoff Letter solo por correo (`D-S2-9`), no por login. Se confirma que esta ronda **no** cambia esa decisión | Sigue sin bloquear ninguna tarea actual |
 
+## Nuevos pendientes — ronda 2026-09-25 (Admin Overview, ver [00 §D-A1..D-A12](00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview))
+
+| # | Pendiente | Impacto si no se resuelve | Bloquea |
+|---|---|---|---|
+| 30 | ✅ **Resuelto 2026-09-25 (`D-A8`)** — **Scheduler del job de mora**: `node-cron` dentro del proceso, 02:00 UTC + corrida al arrancar (`src/jobs/scheduler.ts`). Queda el techo de una sola instancia de `api` | Con réplicas, cada una correría el job (idempotente, pero duplicaría el audit de un mismo cambio) — mover a cron externo o advisory lock de Postgres cuando se escale | — |
+| 31 | **¿Qué es "interest share"?** Aparece en la vista de Admin y en el dashboard de afiliados, pero el spec solo define: $9/mes de suscripción, ACH + $9 por préstamo/mes (tope $99, `D-S2-4`), 1 punto de conexión (mín. $999) y $99 de vetting | Sin definición (¿es el fee por transacción de `D-S2-4`? ¿un % de los intereses cobrados, con qué tasa?) no se puede calcular la línea ni el "net revenue" | `AD-006` |
+| 32 | **¿"MRR" = solo suscripciones (`$9 × activas`) o el ingreso total del mes?** El mock muestra el total (suscripciones + closing fees + interest share) | El KPI se llamaría MRR sin serlo | `AD-006` |
+| 33 | **Draw requests: ¿proceso manual o con aprobación del lender?** `D-S2-15` marca Construction Draw como `FUTURE FEATURE` y `borrower/draw-request.html` describe un proceso manual (el borrower registra el draw), pero el panel de admin muestra "N draw requests awaiting lender approval" | Modelar `DrawRequest` con un flujo de aprobación que el producto v1 dice que no existe | `AD-008` |
+| 34 | ✅ **Resuelto parcialmente 2026-09-27 (`AD-003`/`D-A9`)** — el tier **Business Verified** (entidad + EIN, lender y borrower) está implementado: `VerificationRequest`, cola de revisión y KPI/alerta/badge del panel de Admin ya salen de datos reales. **Sigue abierto** el tier *Fully Verified* (SSN cifrado AES-256, ID con foto, background check) — depende de un proveedor de credit pull/background check sin elegir (#22/#23) y de `Document`/S3 (Fase 11); y qué es "PML fee confirmado" (`AD-004`) | Sin el tier de identidad, el badge del Admin solo distingue "entidad verificada", no el nivel de confianza completo que describe el Product Roadmap del front | `AD-004`, más `BorrowerApplication` (`PB-018`) cuando haya proveedor |
+
 ---
 
 [← Índice del plan](README.md)  ·  [Anterior: 14. Roadmap recomendado](14-roadmap.md)

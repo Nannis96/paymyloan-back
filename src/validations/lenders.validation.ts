@@ -4,8 +4,8 @@ import { phone } from "@/validations/users.validation";
 
 const companyName = z.string().trim().min(1, "Company name is required").max(200);
 // Formato XX-XXXXXXX — ver comentario en LenderCompany.ein (riesgo #13/#14).
-const ein = z.string().trim().regex(/^\d{2}-\d{7}$/, "EIN must be in the format XX-XXXXXXX");
-const state = z
+export const ein = z.string().trim().regex(/^\d{2}-\d{7}$/, "EIN must be in the format XX-XXXXXXX");
+export const state = z
   .string()
   .trim()
   .length(2, "State must be 2 letters")

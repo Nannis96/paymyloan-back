@@ -194,6 +194,19 @@ No agrega rutas propias — reutiliza el flujo ya existente de `ContractTerms` (
 |---|---|---|---|
 | GET | `/api/contracts/:id/commitment-letter` | LENDER, BORROWER asociado | URL firmada de corta vida al `Document(type=COMMITMENT_LETTER)` vigente |
 
+## 6.16 Admin Overview (nuevo, 2026-09-25, [Fase 16](fases/fase-16-admin-overview.md))
+
+| Método | Ruta | Rol | Notas |
+|---|---|---|---|
+| GET | `/api/admin/overview` | ADMIN | **Implementado (`AD-001`)**. Agregación pura para `pml_v4/admin/admin-panel.html`: KPIs, closing fees + serie de 6 meses, últimos deals, alertas de mora + verificaciones, últimos signups. Lo que no tiene fuente todavía (suscripciones, interest share, afiliados) viaja `null`. Lectura, exenta de 2FA. Ver [`D-A1`](00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview) |
+| GET | `/api/admin/borrowers` | ADMIN | ⬜ `AD-010` — listado paginado para la pantalla Borrowers del sidebar |
+| GET | `/api/admin/verifications` | ADMIN | **Implementado (`AD-003`)**. Cola de verificaciones, filtros `status`/`subject`/`search`, paginada. Lectura, exenta de 2FA |
+| POST | `/api/admin/verifications/:id/approve` \| `.../reject` | ADMIN | **Implementado (`AD-003`)**. Escritura, 2FA. `reject` exige `{ reason }` |
+| POST/GET | `/api/lenders/me/companies/:companyId/verification` | LENDER (dueño) | **Implementado (`AD-003`)**. Envía/consulta la verificación de esa empresa. `POST` con 2FA, `GET` sin |
+| POST/GET | `/api/borrowers/me/verification` | BORROWER | **Implementado (`AD-003`)**. Ídem, para el propio Deudor. Ninguna de las dos exige 2FA |
+
+Ver [`D-A9`](00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview) — solo el tier *Business Verified* (entidad + EIN); el tier *Fully Verified* (identidad) sigue siendo `BorrowerApplication`/`PB-018` (§6.11), sin implementar.
+
 ---
 
 [← Índice del plan](README.md)  ·  [Anterior: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)  ·  [Siguiente: 7. Autenticación y autorización](07-autenticacion-y-autorizacion.md)
