@@ -1605,8 +1605,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 ### `GET /api/lenders/:lenderCompanyId/rating` / `GET /api/borrowers/:borrowerProfileId/rating`
 
-**¿Para qué sirve?** Promedio, conteo, distribución 1–5 y reseñas paginadas (`?page`, `?pageSize`) de una `LenderCompany` o un Borrower. El del Borrower comparte path con `PB-009`: cuando exista el score calculado se le agrega un campo sin romper este contrato.
-
+**¿Para qué sirve?** Promedio, conteo, distribución 1–5 y reseñas paginadas (`?page`, `?pageSize`) de una `LenderCompany` o un Borrower.
 - **Auth**: Autenticado, `LENDER`/`BORROWER`/`ADMIN`.
 - **Response `200`**: `{ "average": number|null, "count": n, "distribution": {"1":n,…,"5":n}, "reviews": { items: [{ id, rating, comment, createdAt }], page, pageSize, total, totalPages } | null }`. No se expone quién reseñó.
 - **Visibilidad (`R5`)**: los comentarios de una `LenderCompany` son visibles para cualquier autenticado. Del Borrower: promedio y conteo los ve cualquier Lender, Admin y él mismo; **`reviews` solo** el propio Borrower, Admin y un Lender con contrato con él (para el resto viaja `null`). Otro Borrower recibe `404`.

@@ -461,7 +461,7 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 | createdAt / updatedAt | DateTime | Sí | |
 
 - ~~`invitedLenderCompanyId`~~ **eliminado (`D-S2-22`, 2026-09-11)** — un solo Prestamista objetivo no alcanzaba ("el Deudor elige varios Lenders específicos" a quienes pedirles cotización). Reemplazado por la tabla `LoanRequestLenderTarget` (N Prestamistas), abajo.
-- En listados `PUBLIC`, el servicio oculta `borrowerProfileId`/dirección exacta de `propertyId` (solo ciudad/estado) y expone el `borrowingScore` (`PB-009`, ya planeado) — regla de servicio, no de esquema.
+- En listados `PUBLIC`, el servicio oculta `borrowerProfileId`/dirección exacta de `propertyId` (solo ciudad/estado) — regla de servicio, no de esquema.
 - **`match` deja de crear el `Contract` directo (`D-S2-21`, 2026-09-11, corrige `D-S2-1`)**: ver `LoanQuote` abajo — el flujo pasa por cotización → comparación → selección.
 
 **`LoanRequestLenderTarget`** (`D-S2-22`, nueva) — lista de `LenderCompany` que el Deudor eligió puntualmente para pedirles cotización (además de, o en vez de, publicar `PUBLIC`). Reemplaza a `LoanRequest.invitedLenderCompanyId` (un solo FK, insuficiente).

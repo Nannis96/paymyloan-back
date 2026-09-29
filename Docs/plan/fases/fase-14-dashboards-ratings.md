@@ -8,11 +8,8 @@
 >
 > **Depende de** Fase 6 (Contracts, para contar activos/return rate), Fase 11 (`PB-022`, notificaciones) y Fase 12 (Payoff, para "Completed Loans"/"Upcoming payoffs").
 
-## PB-009 — `GET /api/borrowers/:id/rating`
-- **Objetivo**: "Borrowing score (public)" del Product Spec v2 — métrica calculada, no una reseña.
-- **Prioridad/Complejidad/Dependencias**: P1 / M / historial de `Contract`/`ScheduledPayment` del Deudor (Fase 6/7)
-- **Implementación**: fórmula sin decidir todavía — candidatos razonables: % de `ScheduledPayment` pagados a tiempo, número de `Contract` `PAID_OFF` sin `DELINQUENT`, antigüedad en la plataforma. **No se inventa la fórmula exacta sin confirmarla** — este ticket entrega el endpoint y la estructura (`score`, `completedLoans`, `activeLoans`, `projectTypeHistory` derivado de `LoanRequest.projectType`/`Contract` asociados), con un placeholder documentado hasta que el negocio confirme el cálculo real.
-- **Decisión pendiente**: fórmula exacta del "Borrowing Score" — no especificada en ningún documento fuente más allá del nombre.
+## PB-009 — retirado (2026-09-29)
+Fuera de alcance por ahora: la única puntuación vigente es la reseña de 1–5 estrellas con comentario entre Lender y Borrower ([Fase 18](fase-18-ratings-lender-borrower.md)). No hay score calculado.
 
 ## PB-010 — `GET /api/lenders/:id/stats`
 - **Objetivo**: estadísticas públicas del Prestamista para el marketplace (sin "avg response time", según el plan original ya lo excluía).

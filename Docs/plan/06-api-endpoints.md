@@ -231,7 +231,7 @@ Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` `ACTIVE`
 | POST | `/api/contracts/:id/reviews` | LENDER / BORROWER del contrato | **Implementado (`PB-032`)**. Body `{ rating, comment?, borrowerProfileId? }` (lo manda el Lender; el Borrower no). El sentido se infiere del lado del contrato. `403 REVIEW_NOT_ALLOWED` · `409 REVIEW_ALREADY_EXISTS` |
 | GET | `/api/contracts/:id/reviews` | LENDER / BORROWER / ADMIN | **Implementado (`PB-032`)**. Reseñas del contrato + `canReview` + `pendingBorrowerProfileIds` |
 | GET | `/api/lenders/:lenderCompanyId/rating` | Autenticado | **Implementado (`PB-033`)**. `average`, `count`, `distribution`, reseñas paginadas (públicas) |
-| GET | `/api/borrowers/:borrowerProfileId/rating` | LENDER / BORROWER (él) / ADMIN | **Implementado (`PB-033`)**. Mismo shape; `reviews` solo para él, Admin y un Lender con contrato (R5). Mismo path que `PB-009` |
+| GET | `/api/borrowers/:borrowerProfileId/rating` | LENDER / BORROWER (él) / ADMIN | **Implementado (`PB-033`)**. Mismo shape; `reviews` solo para él, Admin y un Lender con contrato (R5) |
 | GET | `/api/me/reviews/pending` | LENDER / BORROWER | **Implementado (`PB-034`)**. Contratos donde aún falta calificar |
 
 Fuera de alcance en v1: adjuntos (sin `Document`/S3 todavía), tiempo real (REST + polling del cliente alcanza al volumen actual), notificaciones por email (depende de `Notification`/`PB-022`, Fase 11), Bookkeeper/Admin/Insurance Company como participantes, hilos grupales entre co-deudores.

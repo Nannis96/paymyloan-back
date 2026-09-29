@@ -37,7 +37,7 @@ Los ítems originales viven en un documento por fase, bajo [`fases/`](fases/) �
 | 11 | [Documentos, Commitment Letter y Notificaciones](fases/fase-11-documentos-pdf.md) | PB-001 → PB-004, PB-021, PB-022, PB-025 |
 | 12 | [Payoff](fases/fase-12-payoff.md) | PB-005 → PB-008 |
 | 13 | [Marketplace / Loan Requests / Vetting](fases/fase-13-rating-loan-requests.md) | PB-011, PB-012, PB-016 → PB-019, PB-026 |
-| 14 | [Dashboards y Ratings](fases/fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 |
+| 14 | [Dashboards y Ratings](fases/fase-14-dashboards-ratings.md) | PB-010, PB-023, PB-024 |
 | 15 | [Exports contables](fases/fase-15-exports-reporting.md) | PB-015 |
 | 16 | [Admin Overview](fases/fase-16-admin-overview.md) | AD-001 → AD-011 |
 | 17 | [Mensajería Lender ↔ Borrower](fases/fase-17-messaging.md) | PB-027 → PB-030 |

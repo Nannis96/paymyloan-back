@@ -31,7 +31,7 @@ bloqueada por la decisión de Stripe Connect.
 | 11 | [Documentos, Commitment Letter y Notificaciones](fase-11-documentos-pdf.md) | PB-001 → PB-004, PB-021, PB-022, PB-025 | Formalizada 2026-09-10, ver [00 §D-S2-9/12](../00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) |
 | 12 | [Payoff](fase-12-payoff.md) | PB-005 → PB-008 | Formalizada 2026-09-10 |
 | 13 | [Marketplace / Loan Requests / Vetting](fase-13-rating-loan-requests.md) | PB-011, PB-012, PB-016 → PB-019 | Formalizada y ampliada 2026-09-10 (marketplace, RentCast, vetting) |
-| 14 | [Dashboards y Ratings](fase-14-dashboards-ratings.md) | PB-009, PB-010, PB-023, PB-024 | Nueva 2026-09-10 |
+| 14 | [Dashboards y Ratings](fase-14-dashboards-ratings.md) | PB-010, PB-023, PB-024 | Nueva 2026-09-10 |
 | 15 | [Exports contables](fase-15-exports-reporting.md) | PB-015 | Formalizada 2026-09-10 |
 | 16 | [Admin Overview](fase-16-admin-overview.md) | AD-001 → AD-011 | Nueva 2026-09-25 — `AD-001`, `AD-002` y `AD-003` implementados, el resto pendiente |
 | 17 | [Mensajería Lender ↔ Borrower](fase-17-messaging.md) | PB-027 → PB-030 | Nueva 2026-09-28 — completa |
@@ -156,7 +156,6 @@ esta tabla dice en qué documento vive cada uno.
 | [PB-017](fase-13-rating-loan-requests.md#pb-017--selección-de-cotización-y-conversión-a-contract-reescrito-2026-09-11-d-s2-21) | Selección de cotización y conversión a `Contract` (reescrito 2026-09-11, `D-S2-21`) | P0 | L |
 | [PB-018](fase-13-rating-loan-requests.md#pb-018--borrowerapplication-vetting-99--endpoints) | `BorrowerApplication` (vetting, $99) + endpoints | P1 | L |
 | [PB-019](fase-13-rating-loan-requests.md#pb-019--borrowersubscription-9mes-trial-7-días--endpoints) | `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints | P2 | M |
-| [PB-009](fase-14-dashboards-ratings.md#pb-009--get-apiborrowersidrating) | `GET /api/borrowers/:id/rating` | P1 | M |
 | [PB-010](fase-14-dashboards-ratings.md#pb-010--get-apilendersidstats) | `GET /api/lenders/:id/stats` | P1 | M |
 | [PB-023](fase-14-dashboards-ratings.md#pb-023--lenderreview-el-deudor-califica-al-prestamista) | `LenderReview` (el Deudor califica al Prestamista) | P2 | M |
 | [PB-024](fase-14-dashboards-ratings.md#pb-024--dashboards-de-borrower-y-lender) | Dashboards de Borrower y Lender | P1 | L |

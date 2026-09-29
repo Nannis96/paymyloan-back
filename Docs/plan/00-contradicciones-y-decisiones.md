@@ -347,7 +347,7 @@ Se entregó la vista `pml_v4/admin/admin-panel.html` (dashboard del Admin). Se c
 
 | ID | Situación previa | Decisión |
 |---|---|---|
-| `D-S2-13b` | `D-S2-13` planeaba `LenderReview` (solo Deudor → Prestamista, `PB-023`) | **Una sola tabla `Review` bidireccional** (`ReviewDirection`), anclada a un `Contract` en `ACTIVE`/`DELINQUENT`/`PAID_OFF`; una reseña por contrato + deudor + sentido; inmutable; promedio siempre derivado (`D-S2-11`). `PB-023` queda absorbido. El sentido se infiere del lado del usuario en el contrato, no de `User.role`. Comentarios de un Prestamista públicos; los de un Deudor solo para él, Admin y Prestamistas con contrato. El score calculado (pagos a tiempo / respuesta) sigue siendo `PB-009`, mismo path. Detalle y `R1`–`R10` en [fase-18](fases/fase-18-ratings-lender-borrower.md) |
+| `D-S2-13b` | `D-S2-13` planeaba `LenderReview` (solo Deudor → Prestamista, `PB-023`) | **Una sola tabla `Review` bidireccional** (`ReviewDirection`), anclada a un `Contract` en `ACTIVE`/`DELINQUENT`/`PAID_OFF`; una reseña por contrato + deudor + sentido; inmutable; promedio siempre derivado (`D-S2-11`). `PB-023` queda absorbido. El sentido se infiere del lado del usuario en el contrato, no de `User.role`. Comentarios de un Prestamista públicos; los de un Deudor solo para él, Admin y Prestamistas con contrato. Detalle y `R1`–`R10` en [fase-18](fases/fase-18-ratings-lender-borrower.md) |
 
 ---
 

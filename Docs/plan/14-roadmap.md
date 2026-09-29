@@ -42,7 +42,7 @@ Documentos, Commitment Letter y Notificaciones (Fase 11: PB-001..004, PB-021, PB
    │
 Payoff (Fase 12: PB-005..008)
    │
-Dashboards y Ratings (Fase 14: PB-009, PB-010, PB-023, PB-024)
+Dashboards y Ratings (Fase 14: PB-010, PB-023, PB-024)
    │
 Testing transversal (BE-074..079, intercalado en cada fase anterior)
    │

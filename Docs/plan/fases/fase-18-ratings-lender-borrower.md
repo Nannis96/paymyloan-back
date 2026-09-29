@@ -15,13 +15,11 @@
 
 ## 1. Qué se pide
 
-- **Hoy (v1):** los dos lados se califican entre sí con **1 a 5 estrellas** y
-  pueden dejar un **mensaje** (comentario).
-  - Lender → Borrower.
-  - Borrower → Lender.
-- **Futuro (ya contemplado, no es v1):** la puntuación pasaría a ser (o
-  sumar) una métrica **calculada** — paga a tiempo o no, el Lender responde
-  bien o no.
+Los dos lados se califican entre sí con **1 a 5 estrellas** y pueden dejar un
+**mensaje** (comentario):
+
+- Lender → Borrower.
+- Borrower → Lender.
 
 ## 2. Análisis
 
@@ -30,7 +28,6 @@
 | Ya planeado | Estado | Relación con esta fase |
 |---|---|---|
 | `D-S2-13` / `PB-023` — `LenderReview` (Deudor califica al Prestamista, 1–5 + comentario, único por contrato+deudor) | Solo diseño, sin código | **Esta fase lo generaliza a los dos sentidos.** `PB-023` queda absorbido por `PB-031`/`PB-032`. Mismo criterio: reseña = entidad enviada por un usuario, distinta de un cálculo. |
-| `PB-009` — `GET /api/borrowers/:id/rating` ("Borrowing Score" calculado) | Solo diseño, fórmula sin decidir | Es **exactamente el "futuro"** que se menciona (paga a tiempo). Se reserva el mismo path y un shape de respuesta extensible para no rehacer nada (ver §5). |
 | `PB-010` — `GET /api/lenders/:id/stats` (con `averageRating` derivado de `LenderReview`) | Solo diseño | `averageRating` sale de esta tabla. |
 | `canMessage` (Fase 17, `messaging.service.ts`) | ✅ Implementado | Patrón a copiar: **una sola función de servicio** con la regla de elegibilidad (`canReview`), para que cuando cambie la regla sea una función, no cirugía en cada endpoint. |
 | `assertNotSelfLending` (`selfDealing.service.ts`) | ✅ Implementado | Reutilizable: con el rol dual (`D-P7-1`) un usuario puede ser Lender y Borrower a la vez; hay que impedir que se califique a sí mismo. |
@@ -38,15 +35,10 @@
 
 ### 2.2 Principio de diseño
 
-Hay **dos cosas distintas** que hoy se confunden bajo la palabra "puntuación":
-
-1. **Reseña** — la escribe una persona: estrellas + texto. *Esto es la v1.*
-2. **Score calculado** — lo deriva el sistema de pagos/respuestas. *Futuro.*
-
-Van en **tablas/cálculos separados** y se muestran juntos. Así el cambio
-futuro es *sumar* un cálculo, no migrar ni tirar la tabla de reseñas.
-Además, una reseña de 5 estrellas de un deudor que jamás pagó a tiempo no
-"contamina" el score objetivo cuando llegue.
+La puntuación es una **reseña**: la escribe una persona (estrellas + texto)
+sobre un contrato real. No se calcula nada a partir de pagos ni de tiempos
+de respuesta. El promedio se deriva de las reseñas (`AVG(rating)`), no se
+guarda.
 
 ### 2.3 Riesgos reales (y cómo se cubren)
 
@@ -144,34 +136,18 @@ existentes, que resuelven el rol por participación en el contrato):
 | POST | `/api/contracts/:id/reviews` | Lender o Borrower del contrato | Body `{ rating, comment?, borrowerProfileId? }` — `borrowerProfileId` obligatorio solo si reseña el Lender. `direction` se infiere. `403 REVIEW_NOT_ALLOWED` si falla `canReview` |
 | GET | `/api/contracts/:id/reviews` | Cualquier parte del contrato | Reseñas de ese contrato (las dos direcciones) + `canReview` del usuario actual (para que el front sepa si mostrar el botón) |
 | GET | `/api/lenders/:lenderCompanyId/rating` | Autenticado | `{ average, count, distribution: {1..5}, reviews: [...] }` paginado — visibilidad según `R5` |
-| GET | `/api/borrowers/:borrowerProfileId/rating` | Autenticado | Mismo shape. **Mismo path que `PB-009`**: hoy devuelve solo reseñas; cuando exista el score calculado se le **agrega** un campo (`score`) sin romper el contrato |
+| GET | `/api/borrowers/:borrowerProfileId/rating` | Autenticado | Mismo shape; los comentarios solo los ve él, Admin y un Lender con contrato (`R5`) |
 | GET | `/api/me/reviews/pending` | Cualquier usuario | Contratos elegibles donde aún no reseñó (P2 — solo para que el front pueda mostrar "te falta calificar") |
 
 Todas con `withRole(...)` + `requireTwoFactor: false` (calificar no mueve
 dinero ni cambia el estado de un contrato, mismo criterio que mensajería).
 
-## 6. Camino al "futuro" (score calculado)
-
-Sin construir nada ahora, pero dejando la puerta abierta:
-
-- El shape de `/rating` es un **objeto**, no un número → agregar `score`,
-  `onTimePaymentRate`, `avgResponseTime`, etc. es aditivo.
-- **Borrower "paga a tiempo"** se calcula desde `ScheduledPayment`
-  (`dueDate` vs `Transaction.completedAt`) — datos que **ya existen**, así que
-  no hace falta guardar nada hoy para poder calcularlo mañana.
-- **Lender "responde bien"** sí necesita un dato nuevo: tiempo entre un
-  `Message`/`LoanQuote` recibido y la respuesta. `Message` (Fase 17) ya trae
-  `createdAt` + `senderRole`, así que también es derivable **sin migración**.
-- Qué cuenta como "bien" y con qué pesos es decisión de negocio → se define
-  cuando se escriba la fase del score (es `PB-009`).
-
-## 7. Fuera de alcance en v1
+## 6. Fuera de alcance en v1
 
 - Editar/borrar reseñas; réplica del calificado a una reseña.
 - Moderación de comentarios por Admin (modelo lo admite; ver `R7`).
 - Notificaciones ("recibiste una calificación") — depende de `Notification`
   (`PB-022`, no implementado).
-- Score calculado (pagos a tiempo / respuesta) — es `PB-009`.
 - Calificar a Bookkeepers, Insurance Companies o Admins.
 - Bloquear operaciones por mala calificación (informativo únicamente).
 
@@ -193,7 +169,7 @@ implementan las recomendadas.
 | R9 | ¿`AuditLog` por reseña? | **No** — `Review` es de solo inserción y ya es su propio rastro (mismo criterio que `Message`, `D7` de Fase 17) | Sí, si Compliance lo pide |
 | R10 | ¿Endpoint `pending` (P2)? | **Sí, P2** — barato y es lo que hace que la gente efectivamente califique | Omitirlo hasta que el front lo pida |
 
-## 8. Plan de acción (pasos, en orden)
+## 7. Plan de acción (pasos, en orden)
 
 1. **Aprobación** de este documento + respuestas a `R1`–`R10`.
 2. **Migración + modelo** — `Review`, `ReviewDirection`, `CHECK` de rating,
@@ -241,7 +217,7 @@ implementan las recomendadas.
 |---|---|---|---|---|
 | PB-031 | Modelo `Review` + migración + `canReview` en `reviews.service.ts` (absorbe `PB-023`) | P1 | M | ✅ |
 | PB-032 | `POST` / `GET /api/contracts/:id/reviews` | P1 | M | ✅ |
-| PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` (promedio, distribución, reseñas; reserva el path de `PB-009`) | P1 | M | ✅ |
+| PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` (promedio, distribución, reseñas) | P1 | M | ✅ |
 | PB-034 | `GET /api/me/reviews/pending` | P2 | S | ✅ |
 
 ---

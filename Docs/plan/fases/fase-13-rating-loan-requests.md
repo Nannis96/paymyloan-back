@@ -22,7 +22,7 @@
 ## PB-012 — Pitch deck en PDF desde `LoanRequest`
 - **Objetivo**: generar un resumen del deal en PDF (para que el Deudor lo comparta fuera de la plataforma, o el Prestamista lo revise offline).
 - **Prioridad/Complejidad/Dependencias**: P2 / M / PB-011, PB-001 (motor de PDF, Fase 11)
-- **Implementación**: reusa `PB-001`; contenido = los mismos campos de `LoanRequest` + comps (`PB-016`) + fotos (`Document(type=LOAN_REQUEST_PHOTO)`), sin datos financieros del Deudor más allá del `borrowingScore` público (`PB-009`, Fase 14).
+- **Implementación**: reusa `PB-001`; contenido = los mismos campos de `LoanRequest` + comps (`PB-016`) + fotos (`Document(type=LOAN_REQUEST_PHOTO)`), sin datos financieros del Deudor.
 
 ## PB-016 — Integración RentCast (comps de renta y venta) sobre `Property`
 - **Objetivo**: implementar `D-S2-7` — comps automáticos que el Product Spec v2 pide ("AI generates 3–4 rental comps y 3–4 sale comps").

@@ -282,7 +282,7 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 | ✅ PB-011 | `POST`/`GET`/`PATCH /api/borrowers/me/loan-requests*`, `.../publish`, `.../withdraw`, `.../targets[/:lenderCompanyId]` | Crea `Property` embebida (`lenderCompanyId=null`) + `LoanRequest(DRAFT)`; `visibility` se fija en la creación (simplificación sobre el diseño original, no en `publish`); editable solo mientras `DRAFT`; `LoanRequestLenderTarget` reemplaza al viejo `invitedLenderCompanyId` (`D-S2-22`) |
 | ✅ PB-026 | `POST`/`DELETE /api/marketplace/loan-requests/:id/quotes`, `GET /api/borrowers/me/loan-requests/:id/quotes` | Cada Lender interesado propone su propia `LoanQuote` (`structure`/`principalAmount`/`interestRate`/`amortizationTermMonths`/`message`); una fila por `(loanRequestId, lenderCompanyId)`, se reemplaza mientras `SUBMITTED`; visibilidad: `PUBLIC` o `LoanRequestLenderTarget` activo |
 | ✅ PB-017 | `GET /api/marketplace/loan-requests*`, `POST /api/borrowers/me/loan-requests/:id/quotes/:quoteId/select` | Reescrito (`D-S2-21`): el Deudor selecciona una cotización → declina el resto en la misma transacción, backfillea `Property.lenderCompanyId`, `LoanRequest.status→MATCHED`, crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` reutilizando `BE-051` con `ContractTerms` v1 pre-llenada desde la cotización elegida (no desde el pedido original). `MARKETPLACE_CONNECTION` se inserta automáticamente (1pt, mín. $999) y se recalcula en cada versión nueva vía `BE-060` (`D-S2-5`, ampliado). **2026-09-13 (`D-P5-3`)**: además crea/reactiva el `LenderBorrower(ACTIVE)` ganador y agrega al Deudor como `ContractBorrower(isPrimary)` — cierra `D-P5-1` y corrige un bug de esta misma ronda (el `Contract` quedaba sin ningún `ContractBorrower`); notifica al Lender por correo (`loan-quote-selected`) |
-| ⬜ PB-009/010 | *(ver Fase 14 — se movieron ahí en la formalización del plan, 2026-09-10)* |
+| ⬜ PB-010 | *(ver Fase 14 — se movieron ahí en la formalización del plan, 2026-09-10)* |
 | ⬜ PB-012/016/018/019 | Pitch deck PDF, RentCast, `BorrowerApplication`, `BorrowerSubscription` — no implementados esta ronda |
 | ⬜ `LoanRequestInvite` | Invitar por correo a alguien sin cuenta (`D-S2-14`) — no implementado esta ronda |
 
@@ -337,13 +337,12 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 ## ✅ Fase 18 — Ratings Lender ↔ Borrower (completa, verificada)
 
-> **Implementado 2026-09-29**, plan aprobado con todas las recomendaciones `R1`–`R10` de [fase-18-ratings-lender-borrower.md](plan/fases/fase-18-ratings-lender-borrower.md). Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` real. **Absorbe `PB-023`** (`LenderReview`, `D-S2-13`): una sola tabla `Review` bidireccional en vez de una solo-Lender. El score calculado (pagos a tiempo / respuesta) sigue siendo `PB-009`.
-
+> **Implementado 2026-09-29**, plan aprobado con todas las recomendaciones `R1`–`R10` de [fase-18-ratings-lender-borrower.md](plan/fases/fase-18-ratings-lender-borrower.md). Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` real. **Absorbe `PB-023`** (`LenderReview`, `D-S2-13`): una sola tabla `Review` bidireccional en vez de una solo-Lender.
 | # | Ítem | Notas |
 |---|---|---|
 | ✅ PB-031 | Modelo `Review` + migración + `canReview` | Tabla de solo inserción (migración `20260929000000_pb031_reviews`), `CHECK rating BETWEEN 1 AND 5`, `@@unique([contractId, borrowerProfileId, direction])`. Elegibilidad en `reviews.service.ts` (contrato `ACTIVE`/`DELINQUENT`/`PAID_OFF`; sentido inferido del lado del contrato, no de `User.role`) |
 | ✅ PB-032 | `POST` / `GET /api/contracts/:id/reviews` | `403 REVIEW_NOT_ALLOWED`, `409 REVIEW_ALREADY_EXISTS`/`SELF_REVIEW_NOT_ALLOWED`; el `GET` trae `canReview` |
-| ✅ PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` | Promedio derivado + distribución + reseñas paginadas; visibilidad de comentarios según `R5`; el del Borrower reserva el path de `PB-009` |
+| ✅ PB-033 | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` | Promedio derivado + distribución + reseñas paginadas; visibilidad de comentarios según `R5` |
 | ✅ PB-034 | `GET /api/me/reviews/pending` | Contratos donde falta calificar, ambos lados |
 
 **Archivos nuevos**: `prisma/schema.prisma` (`Review`, `ReviewDirection`) + la migración; `src/validations/reviews.validation.ts`; `src/services/reviews.service.ts`; `src/controllers/reviews.controller.ts`; 4 rutas; `src/app/api/reviews-routes.integration.test.ts`.

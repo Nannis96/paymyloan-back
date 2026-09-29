@@ -199,8 +199,7 @@ export async function getLenderRating(lenderCompanyId: string, query: Pagination
 // PB-033. R5: promedio+conteo visible para cualquier Lender, Admin y el propio
 // Borrower (persona física — otro Borrower recibe 404). Los comentarios solo
 // los ve el propio Borrower, Admin y un Lender que tuvo/tiene contrato con él;
-// para el resto `reviews` viaja null. Mismo path que PB-009: cuando exista el
-// score calculado se le agrega un campo sin romper este contrato.
+// para el resto `reviews` viaja null.
 export async function getBorrowerRating(session: Session, borrowerProfileId: string, query: PaginationQuery) {
   const profile = await prisma.borrowerProfile.findFirst({ where: { id: borrowerProfileId, deletedAt: null }, select: { userId: true } });
   const isAdmin = session.roles.includes("ADMIN");

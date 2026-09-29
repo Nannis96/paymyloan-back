@@ -5,8 +5,7 @@ import { apiSuccess } from "@/lib/apiResponse";
 type RouteContext = { params: Promise<{ borrowerProfileId: string }> };
 
 // GET /api/borrowers/:borrowerProfileId/rating — promedio y distribución;
-// `reviews` solo si el que consulta puede ver comentarios (Fase 18, PB-033;
-// mismo path que PB-009, que agregará el score calculado).
+// `reviews` solo si el que consulta puede ver comentarios (Fase 18, PB-033).
 export async function GET(request: Request, { params }: RouteContext) {
   const { borrowerProfileId } = await params;
   try {
