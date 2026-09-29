@@ -36,7 +36,6 @@ bloqueada por la decisión de Stripe Connect.
 | 16 | [Admin Overview](fase-16-admin-overview.md) | AD-001 → AD-011 | Nueva 2026-09-25 — `AD-001`, `AD-002` y `AD-003` implementados, el resto pendiente |
 | 17 | [Mensajería Lender ↔ Borrower](fase-17-messaging.md) | PB-027 → PB-030 | Nueva 2026-09-28 — completa |
 | 18 | [Ratings Lender ↔ Borrower](fase-18-ratings-lender-borrower.md) | PB-031 → PB-034 | Nueva 2026-09-29 — completa (absorbe `PB-023`) |
-| 19 | [Borrowing Score calculado](fase-19-borrowing-score.md) | PB-009, PB-009b | Propuesta 2026-09-29 — pendiente de aprobación |
 
 ---
 
