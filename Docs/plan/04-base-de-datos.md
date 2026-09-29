@@ -411,7 +411,7 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 
 > Incorpora los requisitos de [pml_product_spec_v2.pdf](../pml_product_spec_v2.pdf) y [pml_commitment_letter_spec 1.1.pdf](../pml_commitment_letter_spec%201.1.pdf). El razonamiento completo de cada tabla está en [00 — Decisiones 2026-09-10](00-contradicciones-y-decisiones.md#decisiones-2026-09-10-ronda-product-spec-v2--commitment-letter-spec) bajo los IDs `D-S2-1` a `D-S2-17`; aquí solo se aplica el resultado. Las tablas de §4.3 (Fases 0–5, ya implementadas) no cambian salvo donde se indica explícitamente abajo.
 >
-> **Estado de implementación (actualizado 2026-09-11)**: `ContractFeeItem`/`FeeAmountType`/`ContractFeeCategory`/`ContractFeeCode` — **implementado** (Fase 6, `PB-020`). `LoanRequest`, `LoanRequestLenderTarget` (reemplaza a `invitedLenderCompanyId`, `D-S2-22`), `LoanQuote`, `Contract.originationSource`/`loanRequestId` — **implementado** (`PB-011`/`PB-026`/`PB-017` reescrito, `D-S2-21`, ver [00 — Decisiones 2026-09-11](00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar) y [D-S2-25](00-contradicciones-y-decisiones.md#decisión-2026-09-11-implementación-de-pb-011pb-026pb-017-d-s2-25-propertylendercompanyid-opcional)). El resto de esta sección (`LoanRequestInvite`, `BorrowerSubscription`, `BorrowerApplication`, `Notification`, `LenderReview`, y los campos nuevos sobre `BorrowerProfile`/`Property` de RentCast/`LenderCompany`) sigue **sin implementar**.
+> **Estado de implementación (actualizado 2026-09-11)**: `ContractFeeItem`/`FeeAmountType`/`ContractFeeCategory`/`ContractFeeCode` — **implementado** (Fase 6, `PB-020`). `LoanRequest`, `LoanRequestLenderTarget` (reemplaza a `invitedLenderCompanyId`, `D-S2-22`), `LoanQuote`, `Contract.originationSource`/`loanRequestId` — **implementado** (`PB-011`/`PB-026`/`PB-017` reescrito, `D-S2-21`, ver [00 — Decisiones 2026-09-11](00-contradicciones-y-decisiones.md#decisiones-2026-09-11-ronda-fase-13--cotizaciones-de-marketplace-antes-de-implementar) y [D-S2-25](00-contradicciones-y-decisiones.md#decisión-2026-09-11-implementación-de-pb-011pb-026pb-017-d-s2-25-propertylendercompanyid-opcional)). El resto de esta sección (`LoanRequestInvite`, `BorrowerSubscription`, `BorrowerApplication`, `Notification`, y los campos nuevos sobre `BorrowerProfile`/`Property` de RentCast/`LenderCompany`) sigue **sin implementar**. (`LenderReview` ya no está pendiente: se implementó como `Review`, Fase 18.)
 
 ### Campos nuevos sobre tablas existentes
 
@@ -579,19 +579,22 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 | relatedEntityId | String? | No | |
 | createdAt | DateTime | Sí | sin `updatedAt` |
 
-**`LenderReview`** (`D-S2-13`) — reseña del Deudor sobre el Prestamista.
+**`Review`** (`D-S2-13` → `D-S2-13b`, **implementado 2026-09-29**, [Fase 18](fases/fase-18-ratings-lender-borrower.md), migración `20260929000000_pb031_reviews`) — reseña entre las partes de un contrato, en **ambos sentidos**. Reemplaza al `LenderReview` originalmente planeado (solo Deudor → Prestamista).
 
 | Campo | Tipo | Obligatorio | Notas |
 |---|---|---|---|
 | id | Uuid | Sí | PK |
+| contractId | Uuid → Contract | Sí | contexto — de qué préstamo habla |
 | lenderCompanyId | Uuid → LenderCompany | Sí | |
 | borrowerProfileId | Uuid → BorrowerProfile | Sí | |
-| contractId | Uuid → Contract | Sí | contexto — de qué préstamo habla |
-| rating | Int | Sí | 1–5, validado en Zod |
-| comment | Text? | No | |
+| direction | `ReviewDirection` | Sí | `LENDER_TO_BORROWER` / `BORROWER_TO_LENDER`; define quién es el calificado |
+| reviewerUserId | Uuid → User | Sí | quien escribe |
+| rating | Int | Sí | 1–5, validado en Zod **y** con `CHECK` en la BD |
+| comment | VarChar(1000)? | No | |
 | createdAt | DateTime | Sí | inmutable |
 
-- **Constraint**: `@@unique([contractId, borrowerProfileId])`.
+- **Constraint**: `@@unique([contractId, borrowerProfileId, direction])`. Índices por `(lenderCompanyId, direction)` y `(borrowerProfileId, direction)`.
+- El promedio **no** se guarda: se deriva con `AVG(rating)` (mismo criterio que `deployedCapital`, `D-S2-11`).
 
 ### Enums nuevos (§4.4, adición)
 
@@ -634,9 +637,9 @@ erDiagram
 
     User ||--o{ Notification : ""
 
-    LenderCompany ||--o{ LenderReview : ""
-    BorrowerProfile ||--o{ LenderReview : "escribe"
-    Contract ||--o{ LenderReview : "contexto"
+    LenderCompany ||--o{ Review : ""
+    BorrowerProfile ||--o{ Review : ""
+    Contract ||--o{ Review : "contexto"
 
     LoanRequest ||--o{ Document : ""
     BorrowerApplication ||--o{ Document : ""
@@ -649,7 +652,7 @@ erDiagram
 17. `LoanRequest.visibility=PUBLIC` nunca expone `borrowerProfileId`/identidad del Deudor ni la dirección exacta de la propiedad en listados — solo tras seleccionar una cotización.
 18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto de la cotización original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión. Esta regla solo es evaluable desde Fase 13 en adelante — `originationSource` no existe durante Fase 6 (`D-S2-19`).
 19. `POST /api/marketplace/loan-requests/:id/quotes` (enviar/reemplazar una cotización) resuelve la `LenderCompany` origen con la misma regla que `BE-045`: `lenderCompanyId` opcional si el Lender tiene una sola, obligatorio si tiene más de una (`D-S2-20`).
-20. `LenderReview` es de solo inserción, igual que `AuditLog`/`TransactionAllocation`.
+20. `Review` (antes `LenderReview`) es de solo inserción, igual que `AuditLog`/`TransactionAllocation`.
 21. Al seleccionar una `LoanQuote` (`status → SELECTED`), todas las demás `LoanQuote(status=SUBMITTED)` del mismo `LoanRequest` pasan a `DECLINED` en la misma transacción — nunca quedan dos cotizaciones "vivas" simultáneas sobre un `LoanRequest` ya `MATCHED` (`D-S2-21`).
 22. Una `LenderCompany` solo puede crear una `LoanQuote` para un `LoanRequest` si: `visibility=PUBLIC`, o tiene un `LoanRequestLenderTarget` activo, o aceptó un `LoanRequestInvite` de ese `LoanRequest` (`D-S2-22`).
 
