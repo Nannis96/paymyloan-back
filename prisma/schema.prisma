@@ -261,6 +261,8 @@ model User {
 
   reviewsWritten Review[] @relation("ReviewAuthor")
 
+  notifications Notification[] @relation("UserNotifications")
+
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
   refreshTokens          RefreshToken[]
@@ -956,6 +958,35 @@ model Message {
   @@index([lenderCompanyId, borrowerProfileId, createdAt])
   @@index([borrowerProfileId, readAt])
   @@map("messages")
+}
+
+// -----------------------------------------------------------------------------
+// Notificaciones in-app (Fase 19, PB-035..039 —
+// Docs/plan/fases/fase-19-notificaciones.md, D-S2-12). type es String (no
+// enum de BD), mismo criterio que AuditLog.action: el control vive en el
+// union NotificationType de src/lib/notify.ts.
+// -----------------------------------------------------------------------------
+
+model Notification {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @db.Uuid
+  user   User   @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+
+  type  String
+  title String @db.VarChar(200)
+  body  String @db.VarChar(1000)
+
+  // Deep-link para el front: "LoanRequest" | "LoanQuote" | "Contract" | "MessageThread"
+  relatedEntityType String?
+  relatedEntityId   String? @db.Uuid
+
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
 }
 
 // -----------------------------------------------------------------------------

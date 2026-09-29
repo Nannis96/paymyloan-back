@@ -5,6 +5,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { sendEmail } from "@/lib/email";
+import { notify, notifyLenderCompany } from "@/lib/notify";
 import type { RequestMeta } from "@/lib/requestMeta";
 import { calculateAccruedInterest, generateAmortizationSchedule, regenerateScheduleAfterTermsChange } from "@/services/amortization.service";
 import { assertNotSelfLending, assertPropertyNotSelfEncumbered } from "@/services/selfDealing.service";
@@ -480,6 +481,18 @@ export async function submitContractTerms(userId: string, contractId: string, te
     ),
   );
 
+  await Promise.all(
+    activeBorrowers.map((link) =>
+      notify({
+        userId: link.borrowerProfile.userId,
+        type: "CONTRACT_TERMS_SUBMITTED",
+        title: "New loan terms to review",
+        body: `The lender sent you the terms of contract ${contract.contractNumber}. Review and accept or reject them.`,
+        relatedEntity: { type: "Contract", id: contractId },
+      }),
+    ),
+  );
+
   await logAuditEvent({ action: "CONTRACT_TERMS_SUBMITTED", entityType: "ContractTerms", entityId: termsId, actorUserId: userId, lenderCompanyId: contract.lenderCompanyId, contractId });
 
   return prisma.contract.findUniqueOrThrow({ where: { id: contractId }, include: contractInclude });
@@ -522,7 +535,7 @@ export async function acceptContractTerms(userId: string, contractId: string, te
 
   const contract = await prisma.contract.findUniqueOrThrow({ where: { id: contractId } });
 
-  await prisma.$transaction(async (tx) => {
+  const { pending, activated } = await prisma.$transaction(async (tx) => {
     await tx.contractTermsAcceptance.create({
       data: { contractTermsId: termsId, borrowerProfileId, decision: "ACCEPTED", decidedAt: new Date(), ipAddress: meta.ipAddress, userAgent: meta.userAgent },
     });
@@ -532,7 +545,7 @@ export async function acceptContractTerms(userId: string, contractId: string, te
       tx.contractTermsAcceptance.count({ where: { contractTermsId: termsId, decision: "ACCEPTED" } }),
     ]);
 
-    if (acceptedCount < activeBorrowerCount) return;
+    if (acceptedCount < activeBorrowerCount) return { pending: activeBorrowerCount - acceptedCount, activated: false };
 
     await tx.contractTerms.update({ where: { id: termsId }, data: { status: "ACCEPTED" } });
 
@@ -543,9 +556,31 @@ export async function acceptContractTerms(userId: string, contractId: string, te
     } else if (terms.supersedesId) {
       await regenerateScheduleAfterTermsChange(tx, { previousContractTermsId: terms.supersedesId, newContractTermsId: termsId });
     }
+    return { pending: 0, activated: !contract.activatedAt };
   });
 
   await logAuditEvent({ action: "CONTRACT_TERMS_ACCEPTED", entityType: "ContractTerms", entityId: termsId, actorUserId: userId, lenderCompanyId: contract.lenderCompanyId, contractId });
+
+  const relatedEntity = { type: "Contract", id: contractId } as const;
+  const borrower = await prisma.borrowerProfile.findUniqueOrThrow({ where: { id: borrowerProfileId }, include: { user: true } });
+  // Si esta aceptación activó el contrato, el Lender recibe solo
+  // CONTRACT_ACTIVATED (sin "Terms accepted" redundante). Cuando se defina el
+  // paso de la carta compromiso, mover el disparo de CONTRACT_ACTIVATED allá.
+  if (!activated) {
+    await notifyLenderCompany(contract.lenderCompanyId, {
+      type: "CONTRACT_TERMS_ACCEPTED",
+      title: "Terms accepted",
+      body: `${borrower.user.name} accepted the terms of contract ${contract.contractNumber}${pending > 0 ? ` (${pending} borrower(s) still pending)` : ""}.`,
+      relatedEntity,
+    });
+  } else {
+    const activeBorrowers = await prisma.contractBorrower.findMany({ where: { contractId, removedAt: null }, include: { borrowerProfile: { select: { userId: true } } } });
+    const activatedNotice = { type: "CONTRACT_ACTIVATED", title: "Contract active", body: `Contract ${contract.contractNumber} is now active.`, relatedEntity } as const;
+    await Promise.all([
+      notifyLenderCompany(contract.lenderCompanyId, activatedNotice),
+      ...activeBorrowers.map((link) => notify({ ...activatedNotice, userId: link.borrowerProfile.userId })),
+    ]);
+  }
 
   return prisma.contract.findUniqueOrThrow({ where: { id: contractId }, include: contractInclude });
 }
@@ -588,6 +623,13 @@ export async function rejectContractTerms(
     if (!contract.activatedAt) {
       await tx.contract.update({ where: { id: contractId }, data: { status: "DRAFT" } });
     }
+  });
+
+  await notifyLenderCompany(contract.lenderCompanyId, {
+    type: "CONTRACT_TERMS_REJECTED",
+    title: "Terms rejected",
+    body: `${borrower.user.name} rejected the terms of contract ${contract.contractNumber}${input.comment ? `: "${input.comment}"` : ""}.`,
+    relatedEntity: { type: "Contract", id: contractId },
   });
 
   const lender = await prisma.user.findUnique({ where: { id: contract.createdByUserId } });

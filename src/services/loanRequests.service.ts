@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { notifyLenderCompany } from "@/lib/notify";
 import { assertNotSelfLending } from "@/services/selfDealing.service";
 import type {
   AddLoanRequestTargetInput,
@@ -37,6 +38,15 @@ async function requireOwnLoanRequest(borrowerProfileId: string, loanRequestId: s
 // PB-011. Sin endpoint propio de Property (D-P6-2/D-S2-25) — se crea
 // embebida, sin LenderCompany todavía (nace null, se backfillea al
 // seleccionar una cotización, PB-017/loanQuotes.service.ts).
+function notifyQuoteRequested(lenderCompanyId: string, loanRequest: { id: string; totalLoanAmountRequested: Prisma.Decimal }) {
+  return notifyLenderCompany(lenderCompanyId, {
+    type: "LOAN_QUOTE_REQUESTED",
+    title: "New quote request",
+    body: `A borrower asked you for a quote on a loan of $${loanRequest.totalLoanAmountRequested.toFixed(2)}.`,
+    relatedEntity: { type: "LoanRequest", id: loanRequest.id },
+  });
+}
+
 export async function createLoanRequest(userId: string, input: CreateLoanRequestInput): Promise<LoanRequestDetail> {
   const borrowerProfile = await requireBorrowerProfile(userId);
 
@@ -123,6 +133,11 @@ export async function publishLoanRequest(userId: string, id: string): Promise<Lo
 
   await prisma.loanRequest.update({ where: { id }, data: { status: "PUBLISHED" } });
   await logAuditEvent({ action: "LOAN_REQUEST_PUBLISHED", entityType: "LoanRequest", entityId: id, actorUserId: userId });
+
+  // Fase 19 (N2): solo a los lenders elegidos como target, no a todo el
+  // marketplace. Los targets agregados en DRAFT se notifican acá, al publicar.
+  const targets = await prisma.loanRequestLenderTarget.findMany({ where: { loanRequestId: id, removedAt: null }, select: { lenderCompanyId: true } });
+  await Promise.all(targets.map((target) => notifyQuoteRequested(target.lenderCompanyId, loanRequest)));
   return requireOwnLoanRequest(borrowerProfile.id, id);
 }
 
@@ -184,6 +199,9 @@ export async function addLoanRequestTarget(userId: string, id: string, input: Ad
     actorUserId: userId,
     lenderCompanyId: input.lenderCompanyId,
   });
+  if (loanRequest.status === "PUBLISHED") {
+    await notifyQuoteRequested(input.lenderCompanyId, loanRequest);
+  }
 
   return requireOwnLoanRequest(borrowerProfile.id, id);
 }

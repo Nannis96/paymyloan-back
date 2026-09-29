@@ -564,7 +564,7 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 
 - Documentos (entity docs, bank statement, ID) se adjuntan vía `Document(type=BORROWER_APPLICATION_DOCUMENT, applicationId=...)` (`D-S2-8`), no como campos propios de esta tabla.
 
-**`Notification`** (`D-S2-12`) — in-app.
+**`Notification`** (`D-S2-12`, **implementado 2026-09-29**, [Fase 19](fases/fase-19-notificaciones.md), migración `20260929120000_pb035_notifications`) — in-app. `title` `VarChar(200)`, `body` `VarChar(1000)`, `relatedEntityId` `Uuid`, FK a `User` con `onDelete: Cascade`, índice `(userId, isRead, createdAt)`.
 
 | Campo | Tipo | Obligatorio | Notas |
 |---|---|---|---|

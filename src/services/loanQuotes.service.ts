@@ -3,6 +3,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { sendEmail } from "@/lib/email";
+import { notifyBorrowerProfile, notifyLenderCompany } from "@/lib/notify";
 import { addMonths } from "@/services/amortization.service";
 import { createContractFromLoanQuote } from "@/services/contracts.service";
 import { assertNotSelfLending } from "@/services/selfDealing.service";
@@ -93,6 +94,12 @@ export async function submitQuote(userId: string, loanRequestId: string, input: 
     : await prisma.loanQuote.create({ data: { ...data, loanRequestId, lenderCompanyId, submittedByUserId: userId } });
 
   await logAuditEvent({ action: "LOAN_QUOTE_SUBMITTED", entityType: "LoanQuote", entityId: quote.id, actorUserId: userId, lenderCompanyId });
+  await notifyBorrowerProfile(loanRequest.borrowerProfileId, {
+    type: "LOAN_QUOTE_RECEIVED",
+    title: "New loan offer",
+    body: `A lender sent you an offer of $${quote.principalAmount.toFixed(2)} at ${quote.interestRate.toString()}%.`,
+    relatedEntity: { type: "LoanQuote", id: quote.id },
+  });
   return quote;
 }
 
@@ -244,6 +251,12 @@ export async function selectQuote(userId: string, loanRequestId: string, quoteId
     prisma.contract.findUniqueOrThrow({ where: { id: contractId }, select: { contractNumber: true } }),
     prisma.user.findUnique({ where: { id: quote.submittedByUserId }, select: { email: true } }),
   ]);
+  await notifyLenderCompany(quote.lenderCompanyId, {
+    type: "LOAN_QUOTE_SELECTED",
+    title: "Your quote was selected",
+    body: `The borrower selected your quote. Contract ${contract.contractNumber} was created as a draft — review it and send it for signature.`,
+    relatedEntity: { type: "Contract", id: contractId },
+  });
   if (lenderUser) {
     await sendEmail({
       to: lenderUser.email,

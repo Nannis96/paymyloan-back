@@ -171,7 +171,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | GET | `/api/borrowers/me/dashboard` | BORROWER | agregados: loan requests activos, contratos por estado, próximos cierres, notificaciones sin leer |
 | GET | `/api/lenders/me/dashboard` | LENDER | agregados: Commitment Letters enviadas, `availableCapital`/`deployedCapital` derivado (`D-S2-11`), contratos activos + return rate, próximos cierres/payoffs, notificaciones sin leer |
 
-## 6.13 Notificaciones (nuevo, `D-S2-12`)
+## 6.13 Notificaciones (nuevo, `D-S2-12`) — **implementado 2026-09-29** ([Fase 19](fases/fase-19-notificaciones.md); se suma `GET /api/notifications/unread-count`)
 
 | Método | Ruta | Rol | Notas |
 |---|---|---|---|

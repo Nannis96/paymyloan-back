@@ -349,6 +349,22 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 **Verificado end-to-end**: `type-check` y `lint` limpios; 9 tests de integración nuevos contra Postgres real (camino dorado con visibilidad `R5`, duplicado, estados `R2`, acceso/co-deudor removido, co-deudores, rol dual + autocalificación, validaciones, `CHECK` de BD, ratings vacíos) y la suite completa sin regresiones (`pnpm run test:integration`).
 
+## ✅ Fase 19 — Notificaciones Lender ↔ Borrower (completa)
+
+> **Implementado 2026-09-29**, plan aprobado tal cual (`N1`–`N10` con las recomendaciones) de [fase-19-notificaciones.md](plan/fases/fase-19-notificaciones.md). Absorbe `PB-022` (tabla + `notify()`); los disparadores de pagos/payoff/`BorrowerApplication` siguen pendientes de sus fases.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ PB-035 | Modelo `Notification` + migración + `notify()` | Migración `20260929120000_pb035_notifications`. `src/lib/notify.ts`: `notify`/`notifyLenderCompany`/`notifyBorrowerProfile`, nunca lanzan (`N5`); `type` String + union TS |
+| ✅ PB-036 | `GET /api/notifications`, `GET .../unread-count`, `POST .../:id/read`, `POST .../read-all` | Solo las propias; ajena → `404` |
+| ✅ PB-037 | Disparadores de cotizaciones | `publishLoanRequest`/`addLoanRequestTarget` (solo targets, `N2`), `submitQuote`, `selectQuote` |
+| ✅ PB-038 | Disparadores de contrato | `submitContractTerms`, `acceptContractTerms` (+ `CONTRACT_ACTIVATED` con el quórum), `rejectContractTerms` |
+| ✅ PB-039 | Disparador de mensajes | Coalescido por hilo (`N4`-A); leer el hilo apaga la notificación |
+
+**Archivos nuevos**: `Notification` en `prisma/schema.prisma` + migración; `src/lib/notify.ts`; `src/validations/notifications.validation.ts`; `src/services/notifications.service.ts`; `src/controllers/notifications.controller.ts`; 4 rutas bajo `src/app/api/notifications/`; `src/app/api/notifications-routes.integration.test.ts`. **Modificados**: `loanRequests`, `loanQuotes`, `contracts` y `messaging` services.
+
+---
+
 ## ⬜ Fase 9 — Docker / Deployment (cierre)
 
 | # | Ítem |

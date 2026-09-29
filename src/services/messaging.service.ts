@@ -1,6 +1,7 @@
 import type { Message } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
+import { notifyBorrowerProfile, notifyLenderCompany } from "@/lib/notify";
 import { buildPaginatedResult, type PaginatedResult, type PaginationQuery } from "@/validations/pagination";
 import type { LenderThreadQuery, SendMessageAsBorrowerInput, SendMessageAsLenderInput } from "@/validations/messages.validation";
 
@@ -74,9 +75,18 @@ export async function sendFromLender(userId: string, input: SendMessageAsLenderI
   if (!(await canMessage(lenderCompanyId, input.borrowerProfileId))) {
     throw new AppError("You can only message a borrower you have an active quote or loan with", 403, "MESSAGING_NOT_ALLOWED");
   }
-  return prisma.message.create({
+  const message = await prisma.message.create({
     data: { lenderCompanyId, borrowerProfileId: input.borrowerProfileId, senderUserId: userId, senderRole: "LENDER", body: input.body },
   });
+  // Hilo identificado por la contraparte del destinatario (N4-A, coalescido).
+  await notifyBorrowerProfile(input.borrowerProfileId, {
+    type: "MESSAGE_RECEIVED",
+    title: "New message from a lender",
+    body: input.body,
+    relatedEntity: { type: "MessageThread", id: lenderCompanyId },
+    coalesce: true,
+  });
+  return message;
 }
 
 export async function sendFromBorrower(userId: string, input: SendMessageAsBorrowerInput): Promise<Message> {
@@ -84,9 +94,17 @@ export async function sendFromBorrower(userId: string, input: SendMessageAsBorro
   if (!(await canMessage(input.lenderCompanyId, borrowerProfile.id))) {
     throw new AppError("You can only message a lender you have an active quote or loan with", 403, "MESSAGING_NOT_ALLOWED");
   }
-  return prisma.message.create({
+  const message = await prisma.message.create({
     data: { lenderCompanyId: input.lenderCompanyId, borrowerProfileId: borrowerProfile.id, senderUserId: userId, senderRole: "BORROWER", body: input.body },
   });
+  await notifyLenderCompany(input.lenderCompanyId, {
+    type: "MESSAGE_RECEIVED",
+    title: "New message from a borrower",
+    body: input.body,
+    relatedEntity: { type: "MessageThread", id: borrowerProfile.id },
+    coalesce: true,
+  });
+  return message;
 }
 
 interface LenderThreadSummary {
@@ -177,6 +195,15 @@ export async function getThreadForBorrower(userId: string, lenderCompanyId: stri
 export async function markThreadReadForLender(userId: string, borrowerProfileId: string, requestedCompanyId: string | undefined): Promise<void> {
   const lenderCompanyId = await resolveTargetLenderCompanyId(userId, requestedCompanyId);
   await prisma.message.updateMany({ where: { lenderCompanyId, borrowerProfileId, senderRole: "BORROWER", readAt: null }, data: { readAt: new Date() } });
+  await markThreadNotificationRead(userId, borrowerProfileId);
+}
+
+// N4-A: leer el hilo también apaga la notificación de mensaje de ese hilo.
+function markThreadNotificationRead(userId: string, threadId: string) {
+  return prisma.notification.updateMany({
+    where: { userId, type: "MESSAGE_RECEIVED", relatedEntityType: "MessageThread", relatedEntityId: threadId, isRead: false },
+    data: { isRead: true, readAt: new Date() },
+  });
 }
 
 export async function markThreadReadForBorrower(userId: string, lenderCompanyId: string): Promise<void> {
@@ -185,4 +212,5 @@ export async function markThreadReadForBorrower(userId: string, lenderCompanyId:
     where: { lenderCompanyId, borrowerProfileId: borrowerProfile.id, senderRole: "LENDER", readAt: null },
     data: { readAt: new Date() },
   });
+  await markThreadNotificationRead(userId, lenderCompanyId);
 }

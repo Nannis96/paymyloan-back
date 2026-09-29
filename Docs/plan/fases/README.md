@@ -36,6 +36,7 @@ bloqueada por la decisión de Stripe Connect.
 | 16 | [Admin Overview](fase-16-admin-overview.md) | AD-001 → AD-011 | Nueva 2026-09-25 — `AD-001`, `AD-002` y `AD-003` implementados, el resto pendiente |
 | 17 | [Mensajería Lender ↔ Borrower](fase-17-messaging.md) | PB-027 → PB-030 | Nueva 2026-09-28 — completa |
 | 18 | [Ratings Lender ↔ Borrower](fase-18-ratings-lender-borrower.md) | PB-031 → PB-034 | Nueva 2026-09-29 — completa (absorbe `PB-023`) |
+| 19 | [Notificaciones Lender ↔ Borrower](fase-19-notificaciones.md) | PB-035 → PB-039 | Nueva 2026-09-29 — completa (absorbe `PB-022`) |
 
 ---
 
@@ -179,6 +180,11 @@ esta tabla dice en qué documento vive cada uno.
 | [PB-032](fase-18-ratings-lender-borrower.md#tickets) | `POST` / `GET /api/contracts/:id/reviews` | P1 | M |
 | [PB-033](fase-18-ratings-lender-borrower.md#tickets) | `GET /api/lenders/:id/rating` y `GET /api/borrowers/:id/rating` | P1 | M |
 | [PB-034](fase-18-ratings-lender-borrower.md#tickets) | `GET /api/me/reviews/pending` | P2 | S |
+| [PB-035](fase-19-notificaciones.md#tickets) | Modelo `Notification` + `notify()` | P1 | M |
+| [PB-036](fase-19-notificaciones.md#tickets) | `GET/POST /api/notifications` (lista, unread-count, read, read-all) | P1 | M |
+| [PB-037](fase-19-notificaciones.md#tickets) | Disparadores de cotizaciones | P1 | S |
+| [PB-038](fase-19-notificaciones.md#tickets) | Disparadores de contrato | P1 | M |
+| [PB-039](fase-19-notificaciones.md#tickets) | Disparador de mensajes | P2 | S |
 
 ---
 

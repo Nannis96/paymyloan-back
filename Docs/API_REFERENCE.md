@@ -1620,6 +1620,49 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 ---
 
+## Notificaciones (`src/app/api/notifications`)
+
+`PB-035`..`PB-039` ([Fase 19](plan/fases/fase-19-notificaciones.md), 2026-09-29). Notificaciones in-app del usuario autenticado. Se crean solas desde los servicios (`src/lib/notify.ts`, nunca falla la operación de negocio) — no hay endpoint para crearlas. Un usuario con rol dual recibe las de ambos lados en una sola lista. Ningún endpoint exige rol ni 2FA; todos filtran por el usuario de la sesión.
+
+| `type` | Para | Cuándo | `relatedEntityType` / `relatedEntityId` |
+|---|---|---|---|
+| `LOAN_QUOTE_REQUESTED` | Lender (dueño de la empresa) | El Borrower publica la solicitud (o agrega al lender como target ya publicada) — solo los targets, no todo el marketplace | `LoanRequest` |
+| `LOAN_QUOTE_RECEIVED` | Borrower | Un Lender envía/actualiza su oferta | `LoanQuote` |
+| `LOAN_QUOTE_SELECTED` | Lender | El Borrower selecciona su oferta (contrato en `DRAFT`) | `Contract` |
+| `CONTRACT_TERMS_SUBMITTED` | Borrower (cada co-deudor activo) | El Lender envía los términos | `Contract` |
+| `CONTRACT_TERMS_ACCEPTED` | Lender | Un Borrower acepta y el contrato **aún no se activa** (el body indica cuántos faltan). Si esa aceptación completa el quórum, el Lender recibe solo `CONTRACT_ACTIVATED` | `Contract` |
+| `CONTRACT_TERMS_REJECTED` | Lender | Un Borrower rechaza (body incluye su comentario) | `Contract` |
+| `CONTRACT_ACTIVATED` | Lender y Borrower(es) | Se completa el quórum en la primera activación | `Contract` |
+| `MESSAGE_RECEIVED` | La contraparte | Mensaje nuevo. **Coalescida por hilo**: mientras haya una sin leer del mismo hilo se actualiza (`body` = último mensaje) en vez de crear otra; `POST .../messages/threads/:id/read` la marca leída | `MessageThread` (id = `LenderCompany` si la recibe el Borrower, `BorrowerProfile` si la recibe el Lender) |
+
+### `GET /api/notifications`
+
+**¿Para qué sirve?** Lista de notificaciones propias, más nuevas primero.
+
+- **Query**: `page`, `pageSize` (máx. 100), `isRead=true|false`, `type=<tipo>`.
+- **Response `200`**: `data` = `{ items: Notification[], page, pageSize, total, totalPages }`; cada item: `id`, `type`, `title`, `body`, `relatedEntityType`, `relatedEntityId`, `isRead`, `readAt`, `createdAt`.
+- **Errores**: `400 VALIDATION_ERROR` · `401`.
+
+### `GET /api/notifications/unread-count`
+
+**¿Para qué sirve?** Badge de la campana (el front hace polling sobre este endpoint).
+
+- **Response `200`**: `data` = `{ "unread": number }`. **Errores**: `401`.
+
+### `POST /api/notifications/:id/read`
+
+**¿Para qué sirve?** Marcar una notificación propia como leída. Idempotente.
+
+- **Response `200`**: `data` = la `Notification`. **Errores**: `400 VALIDATION_ERROR` (id no-uuid) · `401` · `404 NOT_FOUND` (no existe o es de otro usuario).
+
+### `POST /api/notifications/read-all`
+
+**¿Para qué sirve?** Marcar todas las propias sin leer.
+
+- **Response `200`**: `data` = `{ "updated": number }`. **Errores**: `401`.
+
+---
+
 ## Catálogo de códigos de error
 
 `code` es estable entre versiones; `message` es texto en **inglés** (convención fijada 2026-09-08 — toda respuesta de la API, éxito o error, va en inglés; el resto del código/documentación sigue en español) pensado para mostrarse tal cual, no para parsearse.
