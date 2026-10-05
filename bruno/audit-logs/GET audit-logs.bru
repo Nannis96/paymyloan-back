@@ -1,0 +1,20 @@
+meta {
+  name: GET /audit-logs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/audit-logs
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+  ~contractId: {{contractId}}
+  ~action: action
+  ~entityType: entityType
+}

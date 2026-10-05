@@ -1,0 +1,18 @@
+meta {
+  name: POST /lenders/me/messages
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/lenders/me/messages
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "borrowerProfileId": "00000000-0000-0000-0000-000000000000",
+    "body": "body"
+  }
+}

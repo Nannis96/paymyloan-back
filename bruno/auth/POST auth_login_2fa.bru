@@ -1,0 +1,25 @@
+meta {
+  name: POST /auth/login/2fa
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login/2fa
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "pendingToken": "pendingToken",
+    "code": "code"
+  }
+}
+
+script:post-response {
+  if (res.body?.data?.accessToken) {
+    bru.setEnvVar("accessToken", res.body.data.accessToken);
+    bru.setEnvVar("refreshToken", res.body.data.refreshToken);
+  }
+}

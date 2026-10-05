@@ -1,0 +1,21 @@
+meta {
+  name: POST /transactions/:id/reverse
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/transactions/:id/reverse
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{transactionId}}
+}
+
+body:json {
+  {
+    "reason": "reason"
+  }
+}

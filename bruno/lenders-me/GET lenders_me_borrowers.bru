@@ -1,0 +1,17 @@
+meta {
+  name: GET /lenders/me/borrowers
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/lenders/me/borrowers
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+}

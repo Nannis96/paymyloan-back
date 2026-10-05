@@ -1,0 +1,21 @@
+meta {
+  name: GET /lenders/:lenderCompanyId/rating
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/lenders/:lenderCompanyId/rating
+  body: none
+  auth: none
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+}
+
+params:path {
+  lenderCompanyId: {{lenderCompanyId}}
+}

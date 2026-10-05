@@ -1,0 +1,15 @@
+meta {
+  name: POST /notifications/:id/read
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/notifications/:id/read
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{notificationId}}
+}

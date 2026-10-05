@@ -1,0 +1,21 @@
+meta {
+  name: GET /contracts/:id/transactions
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/api/contracts/:id/transactions
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+}
+
+params:path {
+  id: {{contractId}}
+}

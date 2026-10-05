@@ -1,0 +1,21 @@
+meta {
+  name: POST /contracts/:id/cancel
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/cancel
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:json {
+  {
+    "reason": "reason"
+  }
+}

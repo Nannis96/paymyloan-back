@@ -1,0 +1,16 @@
+meta {
+  name: POST /contracts/:id/terms/:termsId/accept
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/terms/:termsId/accept
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+  termsId: {{termsId}}
+}

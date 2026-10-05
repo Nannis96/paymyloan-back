@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "PayMyLoan API",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

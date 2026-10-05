@@ -1,0 +1,25 @@
+meta {
+  name: POST /auth/login
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "admin@paymyloan.dev",
+    "password": "DevPass!2026"
+  }
+}
+
+script:post-response {
+  if (res.body?.data?.accessToken) {
+    bru.setEnvVar("accessToken", res.body.data.accessToken);
+    bru.setEnvVar("refreshToken", res.body.data.refreshToken);
+  }
+}

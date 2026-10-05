@@ -1,0 +1,15 @@
+meta {
+  name: DELETE /contracts/:id
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/api/contracts/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}

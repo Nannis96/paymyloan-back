@@ -1,0 +1,38 @@
+meta {
+  name: POST /contracts
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/api/contracts
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "property": {
+      "addressLine1": "addressLine1",
+      "city": "city",
+      "state": "TX",
+      "postalCode": "postalCode",
+      "propertyType": "SINGLE_FAMILY"
+    },
+    "terms": {
+      "structure": "INTEREST_ONLY",
+      "principalAmount": 1,
+      "interestRate": 0,
+      "amortizationTermMonths": 1,
+      "firstPaymentDate": "2026-09-30",
+      "paymentDueDay": 1,
+      "maturityDate": "2027-09-30",
+      "lateFeeType": "FLAT",
+      "lateFeeAmount": 1
+    }
+  }
+}
+
+script:post-response {
+  if (res.body?.data?.id) bru.setEnvVar("contractId", res.body.data.id);
+}

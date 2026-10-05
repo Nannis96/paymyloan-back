@@ -1,0 +1,21 @@
+meta {
+  name: POST /contracts/:id/reviews
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/reviews
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:json {
+  {
+    "rating": 1
+  }
+}

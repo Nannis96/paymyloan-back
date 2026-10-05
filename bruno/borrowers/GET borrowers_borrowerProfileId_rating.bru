@@ -1,0 +1,21 @@
+meta {
+  name: GET /borrowers/:borrowerProfileId/rating
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/borrowers/:borrowerProfileId/rating
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+}
+
+params:path {
+  borrowerProfileId: {{borrowerProfileId}}
+}

@@ -1,0 +1,16 @@
+meta {
+  name: DELETE /borrowers/me/loan-requests/:id/targets/:lenderCompanyId
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id/targets/:lenderCompanyId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+  lenderCompanyId: {{lenderCompanyId}}
+}

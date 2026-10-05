@@ -1,0 +1,25 @@
+meta {
+  name: POST /contracts/:id/terms/:termsId/fees
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/terms/:termsId/fees
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+  termsId: {{termsId}}
+}
+
+body:json {
+  {
+    "category": "LENDER",
+    "code": "ORIGINATION_POINTS",
+    "amountType": "FLAT",
+    "amountValue": 1
+  }
+}

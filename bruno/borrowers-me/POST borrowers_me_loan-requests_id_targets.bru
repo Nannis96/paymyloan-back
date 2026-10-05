@@ -1,0 +1,21 @@
+meta {
+  name: POST /borrowers/me/loan-requests/:id/targets
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id/targets
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+}
+
+body:json {
+  {
+    "lenderCompanyId": "{{lenderCompanyId}}"
+  }
+}

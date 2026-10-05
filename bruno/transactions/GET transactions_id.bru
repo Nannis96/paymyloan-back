@@ -1,0 +1,15 @@
+meta {
+  name: GET /transactions/:id
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/transactions/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{transactionId}}
+}

@@ -1,0 +1,16 @@
+meta {
+  name: POST /borrowers/me/loan-requests/:id/quotes/:quoteId/select
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id/quotes/:quoteId/select
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+  quoteId: {{quoteId}}
+}

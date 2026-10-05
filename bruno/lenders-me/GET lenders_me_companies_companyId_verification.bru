@@ -1,0 +1,15 @@
+meta {
+  name: GET /lenders/me/companies/:companyId/verification
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/lenders/me/companies/:companyId/verification
+  body: none
+  auth: inherit
+}
+
+params:path {
+  companyId: {{companyId}}
+}

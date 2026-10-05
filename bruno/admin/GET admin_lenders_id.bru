@@ -1,0 +1,15 @@
+meta {
+  name: GET /admin/lenders/:id
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/admin/lenders/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{lenderId}}
+}

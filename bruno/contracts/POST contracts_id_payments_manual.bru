@@ -1,0 +1,21 @@
+meta {
+  name: POST /contracts/:id/payments/manual
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/payments/manual
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:json {
+  {
+    "amount": 1
+  }
+}

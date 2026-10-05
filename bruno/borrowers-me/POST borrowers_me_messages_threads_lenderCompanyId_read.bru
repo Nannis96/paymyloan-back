@@ -1,0 +1,19 @@
+meta {
+  name: POST /borrowers/me/messages/threads/:lenderCompanyId/read
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/messages/threads/:lenderCompanyId/read
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~lenderCompanyId: 00000000-0000-0000-0000-000000000000
+}
+
+params:path {
+  lenderCompanyId: {{lenderCompanyId}}
+}

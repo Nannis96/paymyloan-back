@@ -1,0 +1,18 @@
+meta {
+  name: GET /admin/lenders
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/admin/lenders
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+  ~status: ACTIVE
+}

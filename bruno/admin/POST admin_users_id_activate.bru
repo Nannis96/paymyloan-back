@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/users/:id/activate
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/admin/users/:id/activate
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{userId}}
+}

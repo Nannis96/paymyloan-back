@@ -1,0 +1,22 @@
+meta {
+  name: POST /borrowers/me/become-lender
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/become-lender
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "companyName": "companyName",
+    "ein": "ein",
+    "addressLine1": "addressLine1",
+    "city": "city",
+    "state": "TX",
+    "postalCode": "postalCode"
+  }
+}

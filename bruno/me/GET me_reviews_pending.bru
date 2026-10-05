@@ -1,0 +1,11 @@
+meta {
+  name: GET /me/reviews/pending
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/me/reviews/pending
+  body: none
+  auth: inherit
+}

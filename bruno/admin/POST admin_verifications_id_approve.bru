@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/verifications/:id/approve
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/admin/verifications/:id/approve
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{verificationId}}
+}

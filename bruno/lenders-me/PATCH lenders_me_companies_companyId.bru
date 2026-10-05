@@ -1,0 +1,19 @@
+meta {
+  name: PATCH /lenders/me/companies/:companyId
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/api/lenders/me/companies/:companyId
+  body: json
+  auth: inherit
+}
+
+params:path {
+  companyId: {{companyId}}
+}
+
+body:json {
+  {}
+}

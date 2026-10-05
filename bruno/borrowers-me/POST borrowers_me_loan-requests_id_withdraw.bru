@@ -1,0 +1,15 @@
+meta {
+  name: POST /borrowers/me/loan-requests/:id/withdraw
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id/withdraw
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+}

@@ -1,0 +1,18 @@
+meta {
+  name: GET /marketplace/loan-requests
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/marketplace/loan-requests
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+  ~status: DRAFT
+}

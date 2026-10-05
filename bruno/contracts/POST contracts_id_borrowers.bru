@@ -1,0 +1,21 @@
+meta {
+  name: POST /contracts/:id/borrowers
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/borrowers
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:json {
+  {
+    "borrowerProfileId": "{{borrowerProfileId}}"
+  }
+}

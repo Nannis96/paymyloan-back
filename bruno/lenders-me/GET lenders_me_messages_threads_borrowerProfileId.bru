@@ -1,0 +1,22 @@
+meta {
+  name: GET /lenders/me/messages/threads/:borrowerProfileId
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/api/lenders/me/messages/threads/:borrowerProfileId
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+  ~lenderCompanyId: 00000000-0000-0000-0000-000000000000
+}
+
+params:path {
+  borrowerProfileId: {{borrowerProfileId}}
+}

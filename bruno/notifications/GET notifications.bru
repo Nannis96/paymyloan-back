@@ -1,0 +1,19 @@
+meta {
+  name: GET /notifications
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/notifications
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+  ~isRead: true
+  ~type: type
+}

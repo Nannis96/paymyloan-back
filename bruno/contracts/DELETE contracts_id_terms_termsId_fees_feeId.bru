@@ -1,0 +1,17 @@
+meta {
+  name: DELETE /contracts/:id/terms/:termsId/fees/:feeId
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{baseUrl}}/api/contracts/:id/terms/:termsId/fees/:feeId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+  termsId: {{termsId}}
+  feeId: {{feeId}}
+}

@@ -1,0 +1,19 @@
+meta {
+  name: PATCH /borrowers/me/loan-requests/:id
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+}
+
+body:json {
+  {}
+}

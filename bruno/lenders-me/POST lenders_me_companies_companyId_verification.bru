@@ -1,0 +1,24 @@
+meta {
+  name: POST /lenders/me/companies/:companyId/verification
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/lenders/me/companies/:companyId/verification
+  body: json
+  auth: inherit
+}
+
+params:path {
+  companyId: {{companyId}}
+}
+
+body:json {
+  {
+    "entityName": "entityName",
+    "entityType": "LLC",
+    "ein": "ein",
+    "stateOfFormation": "TX"
+  }
+}

@@ -1,0 +1,22 @@
+meta {
+  name: POST /lenders/me/companies
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/lenders/me/companies
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "companyName": "companyName",
+    "ein": "ein",
+    "addressLine1": "addressLine1",
+    "city": "city",
+    "state": "TX",
+    "postalCode": "postalCode"
+  }
+}

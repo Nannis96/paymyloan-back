@@ -1,0 +1,18 @@
+meta {
+  name: POST /lenders/me/borrowers
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/lenders/me/borrowers
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "name",
+    "email": "user@example.com"
+  }
+}

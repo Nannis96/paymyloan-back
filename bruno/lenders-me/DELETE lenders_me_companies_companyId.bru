@@ -1,0 +1,15 @@
+meta {
+  name: DELETE /lenders/me/companies/:companyId
+  type: http
+  seq: 8
+}
+
+delete {
+  url: {{baseUrl}}/api/lenders/me/companies/:companyId
+  body: none
+  auth: inherit
+}
+
+params:path {
+  companyId: {{companyId}}
+}

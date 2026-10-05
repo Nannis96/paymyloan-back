@@ -1,0 +1,33 @@
+meta {
+  name: POST /contracts/:id/terms
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/terms
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:json {
+  {
+    "structure": "INTEREST_ONLY",
+    "principalAmount": 1,
+    "interestRate": 0,
+    "amortizationTermMonths": 1,
+    "firstPaymentDate": "2026-09-30",
+    "paymentDueDay": 1,
+    "maturityDate": "2027-09-30",
+    "lateFeeType": "FLAT",
+    "lateFeeAmount": 1
+  }
+}
+
+script:post-response {
+  if (res.body?.data?.id) bru.setEnvVar("termsId", res.body.data.id);
+}

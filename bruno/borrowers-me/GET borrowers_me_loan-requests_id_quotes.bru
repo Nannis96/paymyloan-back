@@ -1,0 +1,15 @@
+meta {
+  name: GET /borrowers/me/loan-requests/:id/quotes
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id/quotes
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+}

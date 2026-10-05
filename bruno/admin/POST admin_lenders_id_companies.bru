@@ -1,0 +1,26 @@
+meta {
+  name: POST /admin/lenders/:id/companies
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/admin/lenders/:id/companies
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{lenderId}}
+}
+
+body:json {
+  {
+    "companyName": "companyName",
+    "ein": "ein",
+    "addressLine1": "addressLine1",
+    "city": "city",
+    "state": "TX",
+    "postalCode": "postalCode"
+  }
+}

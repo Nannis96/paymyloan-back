@@ -1,0 +1,20 @@
+meta {
+  name: POST /borrowers/me/verification
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/verification
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "entityName": "entityName",
+    "entityType": "LLC",
+    "ein": "ein",
+    "stateOfFormation": "TX"
+  }
+}

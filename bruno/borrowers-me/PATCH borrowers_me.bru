@@ -1,0 +1,15 @@
+meta {
+  name: PATCH /borrowers/me
+  type: http
+  seq: 18
+}
+
+patch {
+  url: {{baseUrl}}/api/borrowers/me
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {}
+}

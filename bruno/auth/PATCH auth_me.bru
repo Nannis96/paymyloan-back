@@ -1,0 +1,15 @@
+meta {
+  name: PATCH /auth/me
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/api/auth/me
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {}
+}

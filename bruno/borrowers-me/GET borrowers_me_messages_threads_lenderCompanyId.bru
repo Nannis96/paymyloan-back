@@ -1,0 +1,21 @@
+meta {
+  name: GET /borrowers/me/messages/threads/:lenderCompanyId
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/api/borrowers/me/messages/threads/:lenderCompanyId
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+}
+
+params:path {
+  lenderCompanyId: {{lenderCompanyId}}
+}

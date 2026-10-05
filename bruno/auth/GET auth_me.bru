@@ -1,0 +1,11 @@
+meta {
+  name: GET /auth/me
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/auth/me
+  body: none
+  auth: inherit
+}

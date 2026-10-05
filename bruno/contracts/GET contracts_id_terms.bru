@@ -1,0 +1,15 @@
+meta {
+  name: GET /contracts/:id/terms
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/api/contracts/:id/terms
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}

@@ -1,0 +1,21 @@
+meta {
+  name: POST /admin/verifications/:id/reject
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/admin/verifications/:id/reject
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{verificationId}}
+}
+
+body:json {
+  {
+    "reason": "reason"
+  }
+}
