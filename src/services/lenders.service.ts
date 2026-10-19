@@ -3,7 +3,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
-import type { CreateLenderCompanyInput, ListLendersQuery, UpdateLenderCompanyInput, UpdateOwnLenderCompanyInput } from "@/validations/lenders.validation";
+import type { CreateLenderCompanyInput, ListLendersQuery, SendLenderAlertInput, UpdateLenderCompanyInput, UpdateOwnLenderCompanyInput } from "@/validations/lenders.validation";
 import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagination";
 
 export interface LenderCompanySummary {
@@ -293,6 +293,17 @@ export async function listLenders(query: ListLendersQuery): Promise<PaginatedRes
   ]);
 
   return buildPaginatedResult(profiles.map(mapLenderListItem), total, query);
+}
+
+// AB-10. Alerta del Admin al Lender (:id = LenderProfile.id o User.id). Se crea
+// directo (no vía notify()) para que un fallo llegue al Admin en vez de perderse.
+export async function sendLenderAlert(id: string, input: SendLenderAlertInput, actorUserId: string) {
+  const profile = await requireLenderProfile(id);
+  const notification = await prisma.notification.create({
+    data: { userId: profile.userId, type: "ADMIN_ALERT", title: input.title, body: input.body },
+  });
+  await logAuditEvent({ action: "LENDER_ALERT_SENT", entityType: "LenderProfile", entityId: profile.id, actorUserId, metadata: { notificationId: notification.id } });
+  return notification;
 }
 
 // BE-042. Incluye el resumen de deudores/contratos activos de **todas** las

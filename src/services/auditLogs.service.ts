@@ -29,6 +29,8 @@ export async function listAuditLogs(session: Session, query: ListAuditLogsQuery)
   if (query.contractId) where.contractId = query.contractId;
   if (query.action) where.action = query.action;
   if (query.entityType) where.entityType = query.entityType;
+  if (query.actorId) where.actorUserId = query.actorId;
+  if (query.from || query.to) where.createdAt = { ...(query.from && { gte: query.from }), ...(query.to && { lte: query.to }) };
 
   const [total, logs] = await Promise.all([
     prisma.auditLog.count({ where }),

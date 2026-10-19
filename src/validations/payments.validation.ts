@@ -32,5 +32,9 @@ export const listAuditLogsQuerySchema = paginationQuerySchema.extend({
   contractId: z.string().trim().min(1).optional(),
   action: z.string().trim().min(1).optional(),
   entityType: z.string().trim().min(1).optional(),
+  // AB-14: rango por createdAt (ISO 8601; `to` inclusivo) y actor.
+  actorId: z.string().uuid().optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
 });
 export type ListAuditLogsQuery = z.infer<typeof listAuditLogsQuerySchema>;

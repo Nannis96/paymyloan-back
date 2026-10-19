@@ -68,3 +68,10 @@ export const listLendersQuerySchema = paginationQuerySchema.extend({
   status: z.enum(["ACTIVE", "SUSPENDED"]).optional(),
 });
 export type ListLendersQuery = z.infer<typeof listLendersQuerySchema>;
+
+// AB-10.
+export const sendLenderAlertSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(200),
+  body: z.string().trim().min(1, "Body is required").max(1000),
+});
+export type SendLenderAlertInput = z.infer<typeof sendLenderAlertSchema>;

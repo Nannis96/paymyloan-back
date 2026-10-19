@@ -642,6 +642,17 @@ Lista + búsqueda (por nombre/email de la persona o `companyName`) + paginación
 - **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
 - **Response `200`**: `data` = [resultado paginado](#convenciones) de objetos con la forma de `Lender` (ver abajo).
 
+### `POST /api/admin/lenders/:id/alerts`
+
+**¿Para qué sirve?** El botón "Send lender alert" del Overview: el Admin le manda un aviso in-app a un Lender. `AB-10`.
+
+Crea una [notificación](#notificaciones-srcappapinotifications) `type: "ADMIN_ALERT"` para la persona (sin `relatedEntity`) y registra `LENDER_ALERT_SENT` en auditoría. `:id` acepta `LenderProfile.id` o `User.id` (`D-P4-7`).
+
+- **Auth**: Autenticado, rol `ADMIN` + 2FA activo (escritura).
+- **Request body**: `{ "title": "...", "body": "..." }` — `title` 1–200, `body` 1–1000 caracteres.
+- **Response `201`**: `data` = la `Notification` creada.
+- **Errores**: `400 VALIDATION_ERROR`/`INVALID_JSON` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_NOT_FOUND`.
+
 ### `GET /api/admin/lenders/:id`
 
 **¿Para qué sirve?** Ver el detalle completo de un Lender puntual: todas sus empresas, cuántos deudores tiene y cuántos contratos activos — la pantalla de "ficha de prestamista".
@@ -1295,7 +1306,7 @@ Revierte `ScheduledPayment.amountPaid`/`status` de las filas que ese pago había
 `ADMIN` ve todo; `LENDER` solo `lenderCompanyId IN (mis empresas)` (mismo criterio tenant-scoped que el resto de los listados — `withTenantScope` sigue descartado, `D-P6-1`); `BORROWER` no tiene acceso.
 
 - **Auth**: Autenticado, rol `ADMIN` o `LENDER` (lectura, exenta de 2FA).
-- **Query params**: `page`, `pageSize`, y opcionales `contractId`, `action`, `entityType`.
+- **Query params**: `page`, `pageSize`, y opcionales `contractId`, `action`, `entityType`, `actorId` (UUID del `User` que hizo la acción), `from`/`to` (rango sobre `createdAt`, ISO 8601, ambos inclusivos; fecha inválida → `400 VALIDATION_ERROR`) — `AB-14`.
 - **Response `200`**: `data` = [resultado paginado](#convenciones) de `AuditLog`.
 - **Errores**: `401`/`403`.
 
@@ -1387,7 +1398,7 @@ Revierte `ScheduledPayment.amountPaid`/`status` de las filas que ese pago había
 **¿Para qué sirve?** Aprobar o rechazar una solicitud `PENDING`.
 
 - **Auth**: Autenticado, rol `ADMIN` (escritura, 2FA).
-- **Request body (`reject`)**: `{ "reason": "..." }`, obligatorio.
+- **Request body (`reject`)**: `{ "reason": "..." }`, obligatorio (1–500 caracteres, se recorta; sin él → `400 VALIDATION_ERROR`). Queda guardado en `VerificationRequest.rejectionReason` y en el `metadata` del audit log (`AB-13`).
 - **Response `200`**: `data` = la `VerificationRequest` actualizada.
 - **Errores**: `404 VERIFICATION_NOT_FOUND` · `409 VERIFICATION_NOT_PENDING` (ya se revisó — incluida la carrera de dos Admins aprobando/rechazando a la vez, gana el primer `UPDATE`).
 
@@ -1648,7 +1659,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 
 ## Notificaciones (`src/app/api/notifications`)
 
-`PB-035`..`PB-039` ([Fase 19](plan/fases/fase-19-notificaciones.md), 2026-09-29). Notificaciones in-app del usuario autenticado. Se crean solas desde los servicios (`src/lib/notify.ts`, nunca falla la operación de negocio) — no hay endpoint para crearlas. Un usuario con rol dual recibe las de ambos lados en una sola lista. Ningún endpoint exige rol ni 2FA; todos filtran por el usuario de la sesión.
+`PB-035`..`PB-039` ([Fase 19](plan/fases/fase-19-notificaciones.md), 2026-09-29). Notificaciones in-app del usuario autenticado. Se crean solas desde los servicios (`src/lib/notify.ts`, nunca falla la operación de negocio) — no hay endpoint para crearlas. Un usuario con rol dual recibe las de ambos lados en una sola lista. Ningún endpoint exige rol ni 2FA; todos filtran por el usuario de la sesión. **ADMIN** puede llamarlos igual que cualquier rol (`AB-15`), pero hoy el sistema no le genera ninguna notificación automática (la cola de verificaciones pendientes se ve en `GET /api/admin/overview` y `GET /api/admin/verifications`): su lista llega siempre vacía.
 
 | `type` | Para | Cuándo | `relatedEntityType` / `relatedEntityId` |
 |---|---|---|---|
@@ -1659,6 +1670,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `CONTRACT_TERMS_ACCEPTED` | Lender | Un Borrower acepta y el contrato **aún no se activa** (el body indica cuántos faltan). Si esa aceptación completa el quórum, el Lender recibe solo `CONTRACT_ACTIVATED` | `Contract` |
 | `CONTRACT_TERMS_REJECTED` | Lender | Un Borrower rechaza (body incluye su comentario) | `Contract` |
 | `CONTRACT_ACTIVATED` | Lender y Borrower(es) | Se completa el quórum en la primera activación | `Contract` |
+| `ADMIN_ALERT` | Lender | Un Admin le envía una alerta con [`POST /api/admin/lenders/:id/alerts`](#post-apiadminlendersidalerts) (`title`/`body` libres) | — |
 | `MESSAGE_RECEIVED` | La contraparte | Mensaje nuevo. **Coalescida por hilo**: mientras haya una sin leer del mismo hilo se actualiza (`body` = último mensaje) en vez de crear otra; `POST .../messages/threads/:id/read` la marca leída | `MessageThread` (id = `LenderCompany` si la recibe el Borrower, `BorrowerProfile` si la recibe el Lender) |
 
 ### `GET /api/notifications`

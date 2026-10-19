@@ -5,7 +5,7 @@ import * as borrowerProfileService from "@/services/borrowerProfile.service";
 import * as lendersService from "@/services/lenders.service";
 import { becomeBorrowerSchema } from "@/validations/borrowers.validation";
 import { parseOrThrow } from "@/validations/parse";
-import { createLenderCompanySchema, listLendersQuerySchema, updateLenderCompanySchema, updateOwnLenderCompanySchema } from "@/validations/lenders.validation";
+import { createLenderCompanySchema, listLendersQuerySchema, sendLenderAlertSchema, updateLenderCompanySchema, updateOwnLenderCompanySchema } from "@/validations/lenders.validation";
 
 // BE-041..044: /api/admin/lenders — ADMIN, escrituras exigen 2FA (D-P3-1).
 async function requireAdminSession(request: Request, options?: { requireTwoFactor?: boolean }) {
@@ -27,6 +27,12 @@ export async function createLenderCompany(request: Request, lenderProfileId: str
   const session = await requireAdminSession(request);
   const input = parseOrThrow(createLenderCompanySchema, body);
   return lendersService.createLenderCompany(lenderProfileId, input, session.userId);
+}
+
+// AB-10.
+export async function sendLenderAlert(request: Request, lenderId: string, body: unknown) {
+  const session = await requireAdminSession(request);
+  return lendersService.sendLenderAlert(lenderId, parseOrThrow(sendLenderAlertSchema, body), session.userId);
 }
 
 export async function getLender(request: Request, id: string) {

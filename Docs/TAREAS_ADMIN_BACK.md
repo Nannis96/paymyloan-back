@@ -23,11 +23,11 @@ Front que las consume: `paymyloan/Docs/TAREAS_ADMIN_DASHBOARD.md`. `⛔` = decis
 - [ ] **AB-09** Settings de plataforma: `GET/PATCH /api/admin/settings` (PML fee, flags). ⛔ definir qué parámetros son editables por el Admin hoy hardcodeados/en `env`.
 
 ### Overview y acciones
-- [ ] **AB-10** Acciones del Overview: "Send lender alert" (crear `Notification` a un lender — depende de la fase 19 de notificaciones). "Clear all" queda fuera de v1 (`D-A7`). (`AD-011`)
+- [x] **AB-10** **Hecha 2026-10-19:** `POST /api/admin/lenders/:id/alerts` (`ADMIN_ALERT`). Acciones del Overview: "Send lender alert" (crear `Notification` a un lender — depende de la fase 19 de notificaciones). "Clear all" queda fuera de v1 (`D-A7`). (`AD-011`)
 - [ ] **AB-11** Confirmación del PML fee (`Contract.platformFeeConfirmedAt`) + endpoint admin para confirmarlo. ⛔ falta definir qué es "confirmado" (riesgo #34). (`AD-004`)
 - [ ] **AB-12** Draw requests. ⛔ contradice el diseño v1 manual (riesgo #33, `D-S2-15`); no hacer sin decisión. (`AD-008`)
 
 ## Chequeos pequeños (pueden salir al ejecutar el front)
-- [ ] **AB-13** `POST /api/admin/verifications/:id/reject`: confirmar si acepta `reason` y que `API_REFERENCE.md` lo diga.
-- [ ] **AB-14** `GET /api/audit-logs`: confirmar filtro por rango de fechas (`from`/`to`) y por `actorId`; agregarlo si falta (AF-18 lo usa).
-- [ ] **AB-15** Notificaciones para ADMIN: confirmar si `GET /api/notifications` responde al rol ADMIN y qué eventos le generan (AF-22).
+- [x] **AB-13** **Hecha 2026-10-19:** `reason` ya era obligatorio; documentado. `POST /api/admin/verifications/:id/reject`: confirmar si acepta `reason` y que `API_REFERENCE.md` lo diga.
+- [x] **AB-14** **Hecha 2026-10-19:** se agregaron `from`/`to`/`actorId`. `GET /api/audit-logs`: confirmar filtro por rango de fechas (`from`/`to`) y por `actorId`; agregarlo si falta (AF-18 lo usa).
+- [x] **AB-15** **Hecha 2026-10-19:** responde a ADMIN pero no se le genera ningún evento (lista vacía); documentado. Notificaciones para ADMIN: confirmar si `GET /api/notifications` responde al rol ADMIN y qué eventos le generan (AF-22).

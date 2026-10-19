@@ -1,0 +1,22 @@
+meta {
+  name: POST /admin/lenders/:id/alerts
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/admin/lenders/:id/alerts
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{lenderId}}
+}
+
+body:json {
+  {
+    "title": "title",
+    "body": "body"
+  }
+}
