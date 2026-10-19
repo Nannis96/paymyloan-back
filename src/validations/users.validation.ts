@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationQuerySchema } from "@/validations/pagination";
 
 // bcrypt ignora silenciosamente todo lo que exceda 72 bytes: se topa acá
 // para que un password largo falle en validación y no en un hash truncado.
@@ -65,3 +66,11 @@ export const updateMeSchema = z
     path: ["currentPassword"],
   });
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
+
+// AB-01: filtros de GET /api/users. Sin ningún query param la lista sigue
+// devolviendo el array completo (compatibilidad con el front actual).
+export const listUsersQuerySchema = paginationQuerySchema.extend({
+  role: z.enum(["ADMIN", "LENDER", "BORROWER", "BOOKKEEPER", "INSURANCE_COMPANY"]).optional(),
+  isActive: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
+});
+export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;

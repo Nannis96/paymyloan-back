@@ -22,6 +22,7 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Autenticación](#autenticación-srcappapiauth)
 - [Administración de usuarios](#administración-de-usuarios-srcappapiadminusersid)
 - [Prestamistas — Admin](#prestamistas--admin-srcappapiadminlenders)
+- [Deudores — Admin](#deudores--admin-srcappapiadminborrowers)
 - [Prestamistas y Deudores — autoservicio](#prestamistas-y-deudores--autoservicio)
 - [Contratos](#contratos-srcappapicontracts)
 - [Pagos](#pagos-srcappapicontractsidpayments-srcappapitransactions)
@@ -123,6 +124,7 @@ Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incl
 
 - **Auth**: Autenticado, rol `ADMIN`.
 - **Response `200`**: `data` = array de `SafeUser` (ver forma abajo), orden `createdAt desc`.
+- **Query params (opcionales, AB-01)**: `page`, `pageSize` (máx. 100), `search` (nombre o email), `role` (`ADMIN`\|`LENDER`\|`BORROWER`\|`BOOKKEEPER`\|`INSURANCE_COMPANY`), `isActive` (`true`\|`false`). **Sin ningún query param** la respuesta es el array completo de arriba; **con al menos uno**, `data` es el sobre paginado `{ items: SafeUser[], page, pageSize, total, totalPages }`. Valor inválido → `400 VALIDATION_ERROR`.
 - **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (sesión válida pero no es ADMIN).
 
 ### `POST /api/users`
@@ -676,6 +678,30 @@ Soft-delete de `User` + `LenderProfile` + **todas** sus `LenderCompany` (`delete
 
 ---
 
+## Deudores — Admin (`src/app/api/admin/borrowers/`)
+
+### `GET /api/admin/borrowers`
+
+**¿Para qué sirve?** Para que un Admin busque y liste todos los Deudores — la pantalla de "gestión de deudores" (espejo de [`GET /api/admin/lenders`](#get-apiadminlenders)). `AB-02`.
+
+Lista + paginación (ver [Convenciones](#convenciones)). Query params opcionales: `search` (nombre/email de la persona o `entityName`) y `verification` (`PENDING`\|`APPROVED`\|`REJECTED`: deudores con al menos una solicitud de verificación en ese estado). Orden `createdAt desc`; excluye borrados lógicamente.
+
+- **Auth**: Autenticado, rol `ADMIN` (lectura, exenta de 2FA).
+- **Response `200`**: `data` = [resultado paginado](#convenciones) de:
+  ```jsonc
+  {
+    "id": "...",                       // BorrowerProfile.id
+    "user": /* SafeUser */ {},
+    "entityName": "Zeta Holdings LLC", // null = persona natural (AB-03)
+    "addressLine1": null, "city": null, "state": null, "postalCode": null,
+    "verification": "PENDING",         // APPROVED > PENDING > REJECTED por precedencia; null = nunca envió una solicitud
+    "contractsCount": 2                // contratos no borrador ni cancelados (PENDING_ACCEPTANCE/ACTIVE/DELINQUENT/PAID_OFF) donde es codeudor activo
+  }
+  ```
+- **Errores**: `400 VALIDATION_ERROR` · `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN`.
+
+---
+
 ## Prestamistas y Deudores — autoservicio
 
 ### `GET /api/lenders/me`
@@ -823,12 +849,12 @@ Lista + búsqueda (nombre/email) + paginación, a través de **todas** las `Lend
     "success": true,
     "data": {
       "user": /* SafeUser */ {},
-      "borrowerProfile": { "id": "...", "addressLine1": null, "city": null, "state": null, "postalCode": null },
+      "borrowerProfile": { "id": "...", "addressLine1": null, "city": null, "state": null, "postalCode": null, "entityName": null },
       "lenderCompanies": [ { "id": "...", "companyName": "..." } ]
     }
   }
   ```
-- **Request body (`PATCH`)**: `addressLine1`/`city`/`state`/`postalCode` — `phone` se edita por [`PATCH /api/auth/me`](#patch-apiauthme) (`D-P5-2`, ya no vive en `BorrowerProfile`).
+- **Request body (`PATCH`)**: `addressLine1`/`city`/`state`/`postalCode`/`entityName` (nombre de la entidad/empresa, `AB-03`) — `phone` se edita por [`PATCH /api/auth/me`](#patch-apiauthme) (`D-P5-2`, ya no vive en `BorrowerProfile`).
 
   ```json
   {
@@ -1039,7 +1065,7 @@ Crea el contrato en un solo paso.
 
 **¿Para qué sirve?** Listar los contratos propios — la pantalla de "mis contratos", tanto para el Lender (todos los de sus empresas) como para el Borrower (todos donde es codeudor activo).
 
-Lista + filtro `status` + paginación. `LENDER` ve todas sus `LenderCompany`; `BORROWER` ve donde es `ContractBorrower` activo; `ADMIN` ve todos, sin filtro de tenant (Fase 7).
+Lista + filtros `status` y `search` (número de contrato o dirección de la propiedad, sin distinguir mayúsculas — `AB-04`) + paginación. `LENDER` ve todas sus `LenderCompany`; `BORROWER` ve donde es `ContractBorrower` activo; `ADMIN` ve todos, sin filtro de tenant (Fase 7).
 
 - **Auth**: Autenticado, rol `LENDER`, `BORROWER` o `ADMIN` (lectura, exenta de 2FA).
 - **Response `200`**: `data` = [resultado paginado](#convenciones) de `Contract`.
@@ -1318,12 +1344,12 @@ Revierte `ScheduledPayment.amountPaid`/`status` de las filas que ese pago había
       "entityType": "Contract", "entityId": "...", "occurredAt": "2026-09-06T00:00:00.000Z" }
   ],
   "recentSignups": [                                   // los 5 LENDER/BORROWER más recientes (los roles de staff no se auto-registran)
-    { "userId": "...", "name": "Marcus Johnson", "role": "BORROWER", "isActive": true, "createdAt": "...", "verification": "PENDING", "dealsCount": 1 }
+    { "userId": "...", "name": "Marcus Johnson", "entityName": null, "role": "BORROWER", "isActive": true, "createdAt": "...", "verification": "PENDING", "dealsCount": 1 }
   ]
 }
 ```
 
-- **Notas**: los montos (`Decimal`) serializan como string. `lateContracts`/`needsAttention` dependen de `Contract.status = DELINQUENT`, que mantiene al día `recomputeContractDelinquencyStatus`, programado con `node-cron` (diario 02:00 UTC + una corrida al arrancar el servidor, `AD-002`), así que puede tener hasta un día de desfase respecto del vencimiento real. `recentSignups[].role` es el rol de registro (no los roles activos de un usuario dual) y `name` es `User.name` (persona). `recentSignups[].verification` es `"APPROVED"`/`"PENDING"`/`"REJECTED"`/`null` (nunca envió una solicitud) — la más reciente de todas las suyas por precedencia `APPROVED > PENDING > REJECTED` (`AD-003`, ver [Admin — Verifications](#admin--verifications-srcappapiadminverifications) abajo). Las decisiones detrás de cada número están en [00 §D-A1..D-A12](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview); lo que falta, en [Fase 16](plan/fases/fase-16-admin-overview.md).
+- **Notas**: los montos (`Decimal`) serializan como string. `lateContracts`/`needsAttention` dependen de `Contract.status = DELINQUENT`, que mantiene al día `recomputeContractDelinquencyStatus`, programado con `node-cron` (diario 02:00 UTC + una corrida al arrancar el servidor, `AD-002`), así que puede tener hasta un día de desfase respecto del vencimiento real. `recentSignups[].entityName` es `BorrowerProfile.entityName` (`null` para lenders y personas naturales, `AB-03`). `recentSignups[].role` es el rol de registro (no los roles activos de un usuario dual) y `name` es `User.name` (persona). `recentSignups[].verification` es `"APPROVED"`/`"PENDING"`/`"REJECTED"`/`null` (nunca envió una solicitud) — la más reciente de todas las suyas por precedencia `APPROVED > PENDING > REJECTED` (`AD-003`, ver [Admin — Verifications](#admin--verifications-srcappapiadminverifications) abajo). Las decisiones detrás de cada número están en [00 §D-A1..D-A12](plan/00-contradicciones-y-decisiones.md#decisiones-2026-09-25-ronda-admin-overview); lo que falta, en [Fase 16](plan/fases/fase-16-admin-overview.md).
 - **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (sesión válida pero no es ADMIN).
 
 ---

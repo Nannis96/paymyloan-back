@@ -13,6 +13,7 @@ export interface OwnBorrowerProfile {
     city: string | null;
     state: string | null;
     postalCode: string | null;
+    entityName: string | null;
   };
   lenderCompanies: { id: string; companyName: string }[];
 }
@@ -31,10 +32,10 @@ async function loadOwnProfile(userId: string): Promise<OwnBorrowerProfile> {
     throw new AppError("Borrower profile not found", 404, "BORROWER_NOT_FOUND");
   }
 
-  const { id, addressLine1, city, state, postalCode } = profile;
+  const { id, addressLine1, city, state, postalCode, entityName } = profile;
   return {
     user: toSafeUser(user),
-    borrowerProfile: { id, addressLine1, city, state, postalCode },
+    borrowerProfile: { id, addressLine1, city, state, postalCode, entityName },
     lenderCompanies: profile.lenders.map((link) => link.lenderCompany),
   };
 }
@@ -49,11 +50,12 @@ export async function updateOwnProfile(userId: string, input: UpdateBorrowerProf
 
   // `phone` no vive acá (D-P5-2, redundante con `User.phone`) — se edita por
   // `PATCH /api/auth/me` (BE-099), no por este endpoint.
-  const data: { addressLine1?: string; city?: string; state?: string; postalCode?: string } = {};
+  const data: { addressLine1?: string; city?: string; state?: string; postalCode?: string; entityName?: string } = {};
   if (input.addressLine1 !== undefined) data.addressLine1 = input.addressLine1;
   if (input.city !== undefined) data.city = input.city;
   if (input.state !== undefined) data.state = input.state;
   if (input.postalCode !== undefined) data.postalCode = input.postalCode;
+  if (input.entityName !== undefined) data.entityName = input.entityName;
 
   await prisma.borrowerProfile.update({ where: { id: current.borrowerProfile.id }, data });
   await logAuditEvent({ action: "BORROWER_UPDATED", entityType: "BorrowerProfile", entityId: current.borrowerProfile.id, actorUserId: userId });
