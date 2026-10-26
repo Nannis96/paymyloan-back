@@ -22,8 +22,13 @@ export async function getActiveRoles(userId: string): Promise<UserRole[]> {
       borrowerProfile: { select: { deletedAt: true } },
     },
   });
-  if (!user) return [];
+  return user ? activeRolesOf(user) : [];
+}
 
+type ProfileFlag = { deletedAt: Date | null } | null;
+
+// Misma regla sin consulta, para quien ya cargó los perfiles (p. ej. listUsers).
+export function activeRolesOf(user: { role: UserRole; lenderProfile: ProfileFlag; borrowerProfile: ProfileFlag }): UserRole[] {
   if (!COMBINABLE_ROLES.includes(user.role)) {
     return [user.role];
   }

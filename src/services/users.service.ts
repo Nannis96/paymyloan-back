@@ -5,6 +5,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { activateUserAccount, deactivateUserAccount } from "@/services/userActivation.service";
+import { activeRolesOf } from "@/services/userRoles.service";
 import type { CreateUserInput, UpdateMeInput, UpdateUserInput } from "@/validations/users.validation";
 
 export interface SafeUser {
@@ -32,13 +33,18 @@ export function toSafeUser(user: User): SafeUser {
 
 // D-P2-4 (CRUD de Fase 0 restringido a ADMIN): lista siempre a todos los
 // usuarios no eliminados, activos o no — es lo que el Admin necesita ver
-// para poder activarlos/desactivarlos.
-export async function listUsers(): Promise<SafeUser[]> {
+// para poder activarlos/desactivarlos. `roles` (D-P7-1) incluye el rol
+// adquirido de un usuario dual, para que aparezca también en esa vista.
+export async function listUsers(): Promise<(SafeUser & { roles: User["role"][] })[]> {
   const users = await prisma.user.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
+    include: {
+      lenderProfile: { select: { deletedAt: true } },
+      borrowerProfile: { select: { deletedAt: true } },
+    },
   });
-  return users.map(toSafeUser);
+  return users.map((user) => ({ ...toSafeUser(user), roles: activeRolesOf(user) }));
 }
 
 export interface CreateUserResult extends SafeUser {

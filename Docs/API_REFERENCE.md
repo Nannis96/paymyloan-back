@@ -122,7 +122,7 @@ Sonda de infraestructura (Docker `HEALTHCHECK`, balanceador, monitoreo externo) 
 Lista los usuarios **no eliminados lógicamente** (`deletedAt IS NULL`) — incluye tanto activos como inactivos, es lo que el Admin necesita ver para decidir a quién activar/desactivar.
 
 - **Auth**: Autenticado, rol `ADMIN`.
-- **Response `200`**: `data` = array de `SafeUser` (ver forma abajo), orden `createdAt desc`.
+- **Response `200`**: `data` = array de `SafeUser` (ver forma abajo), orden `createdAt desc`. Cada uno trae además `roles: UserRole[]` — roles activos (`D-P7-1`): un usuario dual trae `LENDER` y `BORROWER` aunque `role` sea solo el de registro.
 - **Errores**: `401 UNAUTHENTICATED`/`INVALID_TOKEN` · `403 FORBIDDEN` (sesión válida pero no es ADMIN).
 
 ### `POST /api/users`
