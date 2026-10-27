@@ -22,6 +22,20 @@ export const reverseTransactionSchema = z.object({
 });
 export type ReverseTransactionInput = z.infer<typeof reverseTransactionSchema>;
 
+// Abono a capital / liquidación anticipada. El Lender las ejecuta; el
+// Borrower las solicita (el Lender confirma o rechaza).
+export const createPrepaymentSchema = createManualPaymentSchema;
+export type CreatePrepaymentInput = z.infer<typeof createPrepaymentSchema>;
+
+export const createPayoffSchema = createManualPaymentSchema.omit({ amount: true });
+export type CreatePayoffInput = z.infer<typeof createPayoffSchema>;
+
+export const payoffQuoteQuerySchema = z.object({ asOf: z.coerce.date().optional() });
+export type PayoffQuoteQuery = z.infer<typeof payoffQuoteQuerySchema>;
+
+export const rejectPaymentRequestSchema = z.object({ reason: z.string().trim().min(1).max(1000).optional() });
+export type RejectPaymentRequestInput = z.infer<typeof rejectPaymentRequestSchema>;
+
 // BE-069.
 export const listTransactionsQuerySchema = paginationQuerySchema;
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuerySchema>;

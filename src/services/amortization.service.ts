@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type ContractTerms } from "@prisma/client";
 import { AppError } from "@/errors/AppError";
 
 const { Decimal } = Prisma;
@@ -118,16 +118,17 @@ function buildDecliningBalanceRows(params: {
   monthlyPayment: Prisma.Decimal;
   firstPaymentDate: Date;
   rowCount: number;
+  firstRowInterest?: Prisma.Decimal;
 }): ScheduleRowDraft[] {
-  const { principal, annualRatePercent, monthlyPayment, firstPaymentDate, rowCount } = params;
+  const { principal, annualRatePercent, monthlyPayment, firstPaymentDate, rowCount, firstRowInterest } = params;
   const monthlyRate = annualRatePercent.div(100).div(12);
 
   const rows: ScheduleRowDraft[] = [];
   let balance = principal;
   for (let i = 1; i <= rowCount; i++) {
-    const interestDue = balance.times(monthlyRate).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const interestDue = i === 1 && firstRowInterest ? firstRowInterest : balance.times(monthlyRate).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     const isLastRow = i === rowCount;
-    const principalDue = isLastRow ? balance : Decimal.min(monthlyPayment.minus(interestDue), balance);
+    const principalDue = isLastRow ? balance : Decimal.max(Decimal.min(monthlyPayment.minus(interestDue), balance), 0);
     const totalDue = principalDue.plus(interestDue);
     balance = balance.minus(principalDue);
 
@@ -148,20 +149,22 @@ function buildInterestOnlyRows(params: {
   annualRatePercent: Prisma.Decimal;
   firstPaymentDate: Date;
   rowCount: number;
+  firstRowInterest?: Prisma.Decimal;
 }): ScheduleRowDraft[] {
-  const { principal, annualRatePercent, firstPaymentDate, rowCount } = params;
+  const { principal, annualRatePercent, firstPaymentDate, rowCount, firstRowInterest } = params;
   const monthlyInterest = calculateInterestOnlyPayment(principal, annualRatePercent);
 
   const rows: ScheduleRowDraft[] = [];
   for (let i = 1; i <= rowCount; i++) {
     const isLastRow = i === rowCount;
     const principalDue = isLastRow ? principal : new Decimal(0);
-    const totalDue = monthlyInterest.plus(principalDue);
+    const interestDue = i === 1 && firstRowInterest ? firstRowInterest : monthlyInterest;
+    const totalDue = interestDue.plus(principalDue);
     rows.push({
       sequenceNumber: i,
       dueDate: addMonths(firstPaymentDate, i - 1),
       principalDue,
-      interestDue: monthlyInterest,
+      interestDue,
       totalDue,
       projectedRemainingBalance: isLastRow ? new Decimal(0) : principal,
     });
@@ -236,4 +239,55 @@ export async function regenerateScheduleAfterTermsChange(
     data: { status: "VOIDED" },
   });
   await generateAmortizationSchedule(tx, params.newContractTermsId);
+}
+
+// Abono a capital: mantiene el plazo (mismas filas y fechas) y rehace
+// principal/interés/cuota de las filas aún sin pagar sobre el nuevo saldo.
+// La cuota en curso cobra el interés de los días previos al abono sobre el
+// saldo viejo y el resto sobre el nuevo. Exige cuenta al día (todas las filas
+// pendientes PENDING y vencen después de `asOf`): un abono no sustituye mora.
+export async function applyPrepaymentToSchedule(
+  tx: TxClient,
+  params: { contractId: string; terms: ContractTerms; currentBalance: Prisma.Decimal; amount: Prisma.Decimal; asOf: Date },
+): Promise<void> {
+  const { contractId, terms, currentBalance, amount, asOf } = params;
+  const rows = await tx.scheduledPayment.findMany({
+    where: { contractId, contractTermsId: terms.id, status: { in: ["PENDING", "PARTIALLY_PAID"] } },
+    orderBy: { sequenceNumber: "asc" },
+  });
+  if (rows.length === 0 || rows.some((row) => row.status !== "PENDING" || row.dueDate <= asOf)) {
+    throw new AppError("Prepayment requires the account to be current — settle overdue installments first", 409, "ACCOUNT_NOT_CURRENT");
+  }
+
+  const newBalance = currentBalance.minus(amount);
+  const rate = d(terms.interestRate);
+  const periodStart = addMonths(rows[0].dueDate, -1);
+  const firstRowInterest = calculateAccruedInterest(currentBalance, rate, terms.dayCountConvention, periodStart, asOf).plus(
+    calculateAccruedInterest(newBalance, rate, terms.dayCountConvention, asOf > periodStart ? asOf : periodStart, rows[0].dueDate),
+  );
+
+  let monthlyPayment: Prisma.Decimal;
+  let drafts: ScheduleRowDraft[];
+  if (terms.structure === "INTEREST_ONLY") {
+    monthlyPayment = calculateInterestOnlyPayment(newBalance, rate);
+    drafts = buildInterestOnlyRows({ principal: newBalance, annualRatePercent: rate, firstPaymentDate: rows[0].dueDate, rowCount: rows.length, firstRowInterest });
+  } else {
+    const paidRows = await tx.scheduledPayment.count({ where: { contractId, contractTermsId: terms.id, status: "PAID" } });
+    const paymentTerm = terms.structure === "BALLOON" ? Math.max(terms.amortizationTermMonths - paidRows, 1) : rows.length;
+    monthlyPayment = calculateAmortizedPayment(newBalance, rate, paymentTerm);
+    drafts = buildDecliningBalanceRows({ principal: newBalance, annualRatePercent: rate, monthlyPayment, firstPaymentDate: rows[0].dueDate, rowCount: rows.length, firstRowInterest });
+  }
+
+  for (const [index, draft] of drafts.entries()) {
+    await tx.scheduledPayment.update({
+      where: { id: rows[index].id },
+      data: {
+        principalDue: draft.principalDue,
+        interestDue: draft.interestDue,
+        totalDue: draft.totalDue,
+        projectedRemainingBalance: draft.projectedRemainingBalance,
+      },
+    });
+  }
+  await tx.contractTerms.update({ where: { id: terms.id }, data: { calculatedMonthlyPayment: monthlyPayment } });
 }

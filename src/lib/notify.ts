@@ -13,7 +13,10 @@ export type NotificationType =
   | "CONTRACT_TERMS_ACCEPTED"
   | "CONTRACT_TERMS_REJECTED"
   | "CONTRACT_ACTIVATED"
-  | "MESSAGE_RECEIVED";
+  | "MESSAGE_RECEIVED"
+  | "PAYMENT_REQUESTED"
+  | "PAYMENT_REQUEST_CONFIRMED"
+  | "PAYMENT_REQUEST_REJECTED";
 
 export type NotificationEntityType = "LoanRequest" | "LoanQuote" | "Contract" | "MessageThread";
 
