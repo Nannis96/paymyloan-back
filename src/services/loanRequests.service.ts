@@ -231,6 +231,14 @@ export async function removeLoanRequestTarget(userId: string, id: string, lender
   });
 }
 
+// Solo las cotizaciones propias del Lender (nunca las de la competencia).
+function marketplaceInclude(companyIds: string[]) {
+  return {
+    ...loanRequestInclude,
+    quotes: { where: { lenderCompanyId: { in: companyIds } }, include: { lenderCompany: { select: { id: true, companyName: true } } } },
+  } satisfies Prisma.LoanRequestInclude;
+}
+
 async function requireOwnedLenderCompanyIds(userId: string): Promise<string[]> {
   const profile = await prisma.lenderProfile.findUnique({
     where: { userId },
@@ -246,7 +254,7 @@ async function requireOwnedLenderCompanyIds(userId: string): Promise<string[]> {
 // dirección exacta en listados — solo tras seleccionar una cotización. Un
 // LoanRequest PRIVATE ya fue compartido a propósito con ese Lender puntual
 // (LoanRequestLenderTarget), así que no aplica el enmascarado ahí.
-function maskLoanRequestForMarketplace(loanRequest: LoanRequestDetail) {
+function maskLoanRequestForMarketplace<T extends LoanRequestDetail>(loanRequest: T) {
   if (loanRequest.visibility !== "PUBLIC") return loanRequest;
   return {
     ...loanRequest,
@@ -272,7 +280,7 @@ export async function listMarketplaceLoanRequests(userId: string, query: ListLoa
     prisma.loanRequest.count({ where }),
     prisma.loanRequest.findMany({
       where,
-      include: loanRequestInclude,
+      include: marketplaceInclude(companyIds),
       orderBy: { createdAt: "desc" },
       skip: (query.page - 1) * query.pageSize,
       take: query.pageSize,
@@ -284,7 +292,7 @@ export async function listMarketplaceLoanRequests(userId: string, query: ListLoa
 
 export async function getMarketplaceLoanRequest(userId: string, id: string) {
   const companyIds = await requireOwnedLenderCompanyIds(userId);
-  const loanRequest = await prisma.loanRequest.findUnique({ where: { id }, include: loanRequestInclude });
+  const loanRequest = await prisma.loanRequest.findUnique({ where: { id }, include: marketplaceInclude(companyIds) });
   if (!loanRequest || loanRequest.status !== "PUBLISHED") {
     throw new AppError("Loan request not found", 404, "NOT_FOUND");
   }

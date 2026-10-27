@@ -96,6 +96,12 @@ describe("rutas HTTP de marketplace / loan-requests (Fase 13)", () => {
     expect(quoteResponse.status).toBe(201);
     const quote = await quoteResponse.json();
 
+    const listWithQuote = await (
+      await marketplaceListRoute(jsonRequest("GET", "http://localhost/api/marketplace/loan-requests", undefined, { authorization: lenderAuth }))
+    ).json();
+    const listed = listWithQuote.data.items.find((item: { id: string }) => item.id === loanRequestId);
+    expect(listed.quotes.map((q: { id: string }) => q.id)).toEqual([quote.data.id]);
+
     const receivedResponse = await listReceivedQuotesRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: borrowerAuth }), {
       params: Promise.resolve({ id: loanRequestId }),
     });
