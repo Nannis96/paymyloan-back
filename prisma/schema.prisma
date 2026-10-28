@@ -363,6 +363,9 @@ model BorrowerProfile {
   state        String? @db.VarChar(2)
   postalCode   String?
 
+  // AB-03: nombre de la entidad/empresa del deudor (nulo = persona natural).
+  entityName String?
+
   createdByUserId String? @db.Uuid // nulo cuando el propio Deudor se auto-registró (D-P1-10, ver también PB-013)
   createdByUser   User?   @relation("BorrowerProfileCreatedBy", fields: [createdByUserId], references: [id])
 

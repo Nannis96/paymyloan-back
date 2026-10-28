@@ -3,10 +3,11 @@ import { handleRouteError } from "@/errors/errorHandler";
 import { apiError, apiSuccess } from "@/lib/apiResponse";
 
 // GET /api/users — lista todos los usuarios no eliminados (activos e
-// inactivos). Solo ADMIN (D-P2-4).
+// inactivos). Solo ADMIN (D-P2-4). Con ?page/pageSize/search/role/isActive
+// responde paginado (AB-01); sin params, el array completo.
 export async function GET(request: Request) {
   try {
-    const users = await listUsers(request);
+    const users = await listUsers(request, Object.fromEntries(new URL(request.url).searchParams));
     return apiSuccess(users);
   } catch (error) {
     return handleRouteError(error, request);

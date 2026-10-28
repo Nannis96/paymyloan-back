@@ -96,7 +96,7 @@ export async function getAdminOverview(now: Date = new Date()) {
         isActive: true,
         createdAt: true,
         lenderProfile: { select: { lenderCompanies: { where: { deletedAt: null }, select: { id: true } } } },
-        borrowerProfile: { select: { id: true } },
+        borrowerProfile: { select: { id: true, entityName: true } },
       },
       orderBy: { createdAt: "desc" },
       take: SIGNUPS_LIMIT,
@@ -213,6 +213,7 @@ export async function getAdminOverview(now: Date = new Date()) {
       signups.map(async (user) => ({
         userId: user.id,
         name: user.name,
+        entityName: user.borrowerProfile?.entityName ?? null,
         role: user.role,
         isActive: user.isActive,
         createdAt: user.createdAt,

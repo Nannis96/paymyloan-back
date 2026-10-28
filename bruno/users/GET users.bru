@@ -9,3 +9,15 @@ get {
   body: none
   auth: inherit
 }
+
+params:query {
+  ~page: 1
+  ~pageSize: 20
+  ~search: search
+  ~role: LENDER
+  ~isActive: true
+}
+
+docs {
+  Sin query params devuelve el array completo; con cualquiera, el sobre paginado {items,page,pageSize,total,totalPages} (AB-01).
+}

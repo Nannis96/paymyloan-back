@@ -4,6 +4,7 @@ import * as usersService from "@/services/users.service";
 import { parseOrThrow } from "@/validations/parse";
 import {
   createUserSchema,
+  listUsersQuerySchema,
   updateUserSchema,
   type CreateUserInput,
   type UpdateUserInput,
@@ -18,9 +19,11 @@ async function requireAdminSession(request: Request, options?: WithRoleOptions) 
   return session;
 }
 
-export async function listUsers(request: Request) {
+export async function listUsers(request: Request, query: Record<string, string> = {}) {
   await requireAdminSession(request, { requireTwoFactor: false });
-  return usersService.listUsers();
+  // AB-01: sin query params → array completo (forma histórica); con alguno → paginado.
+  if (Object.keys(query).length === 0) return usersService.listUsers();
+  return usersService.listUsersPaginated(parseOrThrow(listUsersQuerySchema, query));
 }
 
 export async function createUser(request: Request, body: unknown) {

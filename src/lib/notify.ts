@@ -16,7 +16,8 @@ export type NotificationType =
   | "MESSAGE_RECEIVED"
   | "PAYMENT_REQUESTED"
   | "PAYMENT_REQUEST_CONFIRMED"
-  | "PAYMENT_REQUEST_REJECTED";
+  | "PAYMENT_REQUEST_REJECTED"
+  | "ADMIN_ALERT";
 
 export type NotificationEntityType = "LoanRequest" | "LoanQuote" | "Contract" | "MessageThread";
 

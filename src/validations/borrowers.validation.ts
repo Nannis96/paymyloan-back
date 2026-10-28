@@ -32,7 +32,7 @@ export type CreateBorrowerInput = z.infer<typeof createBorrowerSchema>;
 // únicamente; `phone` ya no vive en `BorrowerProfile` (D-P5-2, redundante
 // con `User.phone`) — se edita por `PATCH /api/auth/me` (BE-099).
 export const updateBorrowerProfileSchema = z
-  .object({ addressLine1, city, state, postalCode })
+  .object({ addressLine1, city, state, postalCode, entityName: z.string().trim().min(1).max(200).optional() })
   .refine((data) => Object.keys(data).length > 0, { message: "Must include at least one field to update" });
 export type UpdateBorrowerProfileInput = z.infer<typeof updateBorrowerProfileSchema>;
 
@@ -58,3 +58,9 @@ export const changePasswordSchema = z.object({
   newPassword: z.string().min(8, "Password must be at least 8 characters").max(72),
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+// AB-02. `verification`: filtra deudores con al menos una solicitud en ese estado.
+export const listAdminBorrowersQuerySchema = paginationQuerySchema.extend({
+  verification: z.enum(["PENDING", "APPROVED", "REJECTED"]).optional(),
+});
+export type ListAdminBorrowersQuery = z.infer<typeof listAdminBorrowersQuerySchema>;

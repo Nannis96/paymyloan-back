@@ -92,34 +92,41 @@ async function seedReviews(ctx: Ctx) {
   }
 }
 
+// Réplica de lo que dispararía el back real (mismos title/body/relatedEntity que
+// los services), para que se comporten igual que las creadas a mano.
 async function seedNotifications(ctx: Ctx) {
   const lenderOf = (companyId: string) => Object.values(ctx.lenders).find((l) => ctx.companies[Object.keys(ctx.companies).find((k) => ctx.companies[k].id === companyId)!].lenderProfileId === l.profile.id)!.user.id;
   const borrowerUserOf = (profileId: string) => Object.values(ctx.borrowers).find((b) => b.profile.id === profileId)!.user.id;
   const reqs = (s: string) => ctx.loanRequests.filter((r) => r.status === s).slice(0, 3);
   const quotes = (s: string) => ctx.quotes.filter((q) => q.status === s).slice(0, 3);
   const contracts = (s: string) => ctx.contracts.filter((e) => e.spec.status === s).slice(0, 3);
-  const principal = (e: (typeof ctx.contracts)[number]) => ctx.borrowers[e.spec.borrowers[0]].user.id;
+  const borrowerUsers = (e: (typeof ctx.contracts)[number]) => e.spec.borrowers.map((b) => ctx.borrowers[b].user.id);
 
   type N = [NotificationType, string, string, string, string, NotificationEntityType][]; // type,userId,title,body,entityId,entityType
   const n: N = [];
   for (const r of reqs("PUBLISHED")) {
     const q = ctx.quotes.find((x) => x.loanRequestId === r.id)!;
-    n.push(["LOAN_QUOTE_REQUESTED", lenderOf(q.lenderCompanyId), "New loan request", "A borrower is asking for quotes on a new loan request.", r.id, "LoanRequest"]);
+    n.push(["LOAN_QUOTE_REQUESTED", lenderOf(q.lenderCompanyId), "New quote request", `A borrower asked you for a quote on a loan of $${r.totalLoanAmountRequested.toFixed(2)}.`, r.id, "LoanRequest"]);
   }
   for (const q of quotes("SUBMITTED")) {
     const r = ctx.loanRequests.find((x) => x.id === q.loanRequestId)!;
-    n.push(["LOAN_QUOTE_RECEIVED", borrowerUserOf(r.borrowerProfileId), "New quote received", "A lender sent you a quote for your loan request.", q.id, "LoanQuote"]);
+    n.push(["LOAN_QUOTE_RECEIVED", borrowerUserOf(r.borrowerProfileId), "New loan offer", `A lender sent you an offer of $${q.principalAmount.toFixed(2)} at ${q.interestRate.toString()}%.`, q.id, "LoanQuote"]);
   }
-  for (const q of quotes("SELECTED")) n.push(["LOAN_QUOTE_SELECTED", lenderOf(q.lenderCompanyId), "Your quote was selected", "The borrower selected your quote.", q.id, "LoanQuote"]);
-  for (const e of contracts("PENDING_ACCEPTANCE")) n.push(["CONTRACT_TERMS_SUBMITTED", principal(e), "Terms ready for review", `Review the terms of contract ${e.contract.contractNumber}.`, e.contract.id, "Contract"]);
+  // El back real apunta al Contract creado (no a la quote); las SELECTED sin contrato no generan aviso.
+  for (const q of ctx.quotes.filter((x) => x.status === "SELECTED")) {
+    const c = ctx.contracts.find((e) => e.contract.loanRequestId === q.loanRequestId);
+    if (c) n.push(["LOAN_QUOTE_SELECTED", lenderOf(q.lenderCompanyId), "Your quote was selected", `The borrower selected your quote. Contract ${c.contract.contractNumber} was created as a draft — review it and send it for signature.`, c.contract.id, "Contract"]);
+  }
+  for (const e of contracts("PENDING_ACCEPTANCE")) {
+    for (const uid of borrowerUsers(e)) n.push(["CONTRACT_TERMS_SUBMITTED", uid, "New loan terms to review", `The lender sent you the terms of contract ${e.contract.contractNumber}. Review and accept or reject them.`, e.contract.id, "Contract"]);
+  }
   for (const e of contracts("ACTIVE")) {
-    n.push(["CONTRACT_TERMS_ACCEPTED", ownerOf(ctx, e.spec.company).id, "Terms accepted", `The terms of contract ${e.contract.contractNumber} were accepted.`, e.contract.id, "Contract"]);
-    n.push(["CONTRACT_ACTIVATED", principal(e), "Contract active", `Contract ${e.contract.contractNumber} is now active.`, e.contract.id, "Contract"]);
+    // Al activarse, lender y todos los deudores reciben solo CONTRACT_ACTIVATED.
+    for (const uid of [ownerOf(ctx, e.spec.company).id, ...borrowerUsers(e)]) n.push(["CONTRACT_ACTIVATED", uid, "Contract active", `Contract ${e.contract.contractNumber} is now active.`, e.contract.id, "Contract"]);
   }
-  for (const e of contracts("CANCELLED")) n.push(["CONTRACT_TERMS_REJECTED", ownerOf(ctx, e.spec.company).id, "Terms rejected", `The borrower rejected the terms of contract ${e.contract.contractNumber}.`, e.contract.id, "Contract"]);
-  for (const [i, [co, b]] of THREADS.slice(0, 3).entries()) {
-    n.push(["MESSAGE_RECEIVED", ctx.borrowers[b].user.id, "New message", "You have a new message from your lender.", ctx.companies[co].id, "MessageThread"]);
-    if (i < 2) n.push(["MESSAGE_RECEIVED", ownerOf(ctx, co).id, "New message", "You have a new message from a borrower.", ctx.borrowers[b].profile.id, "MessageThread"]);
+  for (const e of contracts("CANCELLED")) {
+    const who = ctx.borrowers[e.spec.borrowers[0]].user.name;
+    n.push(["CONTRACT_TERMS_REJECTED", ownerOf(ctx, e.spec.company).id, "Terms rejected", `${who} rejected the terms of contract ${e.contract.contractNumber}: "No puedo cumplir con estas condiciones."`, e.contract.id, "Contract"]);
   }
 
   const seen: Record<string, number> = {};
@@ -128,6 +135,23 @@ async function seedNotifications(ctx: Ctx) {
     const isRead = i % 3 === 0;
     await prisma.notification.create({
       data: { userId, type, title, body, relatedEntityType: entityType, relatedEntityId: id, isRead, readAt: isRead ? daysFromNow(-1) : null, createdAt: daysFromNow(-i - 0.5) },
+    });
+  }
+
+  // MESSAGE_RECEIVED derivado de los mensajes sin leer: una (coalescida) por hilo y
+  // destinatario, con el cuerpo del último, y se apaga solo al leer el hilo.
+  const unread = await prisma.message.findMany({ where: { readAt: null }, orderBy: { createdAt: "asc" } });
+  const latest = new Map<string, (typeof unread)[number]>();
+  for (const m of unread) latest.set(`${m.lenderCompanyId}:${m.borrowerProfileId}:${m.senderRole}`, m);
+  for (const m of latest.values()) {
+    const toBorrower = m.senderRole === "LENDER";
+    const lenderUserId = lenderOf(m.lenderCompanyId);
+    await prisma.notification.create({
+      data: {
+        userId: toBorrower ? borrowerUserOf(m.borrowerProfileId) : lenderUserId, type: "MESSAGE_RECEIVED",
+        title: toBorrower ? "New message from a lender" : "New message from a borrower", body: m.body,
+        relatedEntityType: "MessageThread", relatedEntityId: toBorrower ? m.lenderCompanyId : m.borrowerProfileId, createdAt: m.createdAt,
+      },
     });
   }
 }

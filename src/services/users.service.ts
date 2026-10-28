@@ -1,4 +1,4 @@
-import type { User } from "@prisma/client";
+import type { Prisma, User } from "@prisma/client";
 import { generateOpaqueToken } from "@/auth/jwt";
 import { hashPassword, verifyPassword } from "@/auth/password";
 import { prisma } from "@/db/prisma";
@@ -6,7 +6,8 @@ import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { activateUserAccount, deactivateUserAccount } from "@/services/userActivation.service";
 import { activeRolesOf } from "@/services/userRoles.service";
-import type { CreateUserInput, UpdateMeInput, UpdateUserInput } from "@/validations/users.validation";
+import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagination";
+import type { ListUsersQuery, CreateUserInput, UpdateMeInput, UpdateUserInput } from "@/validations/users.validation";
 
 export interface SafeUser {
   id: string;
@@ -45,6 +46,33 @@ export async function listUsers(): Promise<(SafeUser & { roles: User["role"][] }
     },
   });
   return users.map((user) => ({ ...toSafeUser(user), roles: activeRolesOf(user) }));
+}
+
+// AB-01: versión paginada/filtrada de listUsers().
+export async function listUsersPaginated(query: ListUsersQuery): Promise<PaginatedResult<SafeUser & { roles: User["role"][] }>> {
+  const where: Prisma.UserWhereInput = { deletedAt: null };
+  if (query.role) where.role = query.role;
+  if (query.isActive !== undefined) where.isActive = query.isActive;
+  if (query.search) {
+    where.OR = [
+      { name: { contains: query.search, mode: "insensitive" } },
+      { email: { contains: query.search, mode: "insensitive" } },
+    ];
+  }
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+      include: {
+        lenderProfile: { select: { deletedAt: true } },
+        borrowerProfile: { select: { deletedAt: true } },
+      },
+    }),
+  ]);
+  return buildPaginatedResult(users.map((user) => ({ ...toSafeUser(user), roles: activeRolesOf(user) })), total, query);
 }
 
 export interface CreateUserResult extends SafeUser {

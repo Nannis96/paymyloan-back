@@ -249,6 +249,12 @@ export async function listContracts(session: Session, query: ListContractsQuery)
   }
 
   if (query.status) where.status = query.status;
+  // AB-04: búsqueda por número de contrato o dirección de la propiedad.
+  if (query.search) {
+    const contains = { contains: query.search, mode: "insensitive" as const };
+    const searchClause: Prisma.ContractWhereInput = { OR: [{ contractNumber: contains }, { property: { addressLine1: contains } }] };
+    where = { AND: [where, searchClause] };
+  }
 
   const [total, contracts] = await Promise.all([
     prisma.contract.count({ where }),

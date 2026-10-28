@@ -151,4 +151,33 @@ describe("rutas HTTP de /api/users (D-P2-4 — restringidas a ADMIN, D-P3-1 — 
     const login = await authService.login({ email, password: activated.data.temporaryPassword });
     expect(login.requiresTwoFactor).toBe(false);
   });
+
+  it("GET /api/users con query params responde paginado y filtra por role/isActive/search (AB-01); sin params, el array", async () => {
+    const admin = await createTestUserWithPassword("ADMIN", ADMIN_PASSWORD);
+    const adminAuth = `Bearer ${await issueAccessTokenFor(admin, ADMIN_PASSWORD)}`;
+    const get = async (qs: string) =>
+      (await GET(jsonRequest("GET", `http://localhost/api/users${qs}`, undefined, { authorization: adminAuth }))).json();
+
+    await createTestUserWithPassword("LENDER", LENDER_PASSWORD);
+
+    const plain = await get("");
+    expect(Array.isArray(plain.data)).toBe(true);
+
+    const paged = await get("?pageSize=1");
+    expect(paged.data.items).toHaveLength(1);
+    expect(paged.data.pageSize).toBe(1);
+    expect(paged.data.total).toBeGreaterThanOrEqual(2);
+
+    const lenders = await get("?role=LENDER");
+    expect(lenders.data.items.every((u: { role: string }) => u.role === "LENDER")).toBe(true);
+
+    const inactive = await get("?isActive=false");
+    expect(inactive.data.items.every((u: { isActive: boolean }) => !u.isActive)).toBe(true);
+
+    const none = await get("?search=zzz-no-match");
+    expect(none.data.total).toBe(0);
+
+    const bad = await GET(jsonRequest("GET", "http://localhost/api/users?role=NOPE", undefined, { authorization: adminAuth }));
+    expect(bad.status).toBe(400);
+  });
 });
