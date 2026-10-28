@@ -625,6 +625,10 @@ model ContractTerms {
   prePayPenaltyType   LateFeeType?
   prePayPenaltyAmount Decimal?     @db.Decimal(14, 2)
 
+  // El Lender decide si el contrato admite abonos a capital / liquidación
+  // anticipada (Lender o Borrower); sin esto ambos se rechazan.
+  allowPrepayment Boolean @default(false)
+
   status ContractTermsStatus @default(DRAFT)
 
   createdByUserId String @db.Uuid

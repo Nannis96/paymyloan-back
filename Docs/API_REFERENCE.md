@@ -1232,6 +1232,25 @@ Fase 7 (`BE-067`/`068`/`069`/`071`). `BE-065`/`066`/`070` (SetupIntent, ACH del 
 - **Response `201`**: `Transaction` con `status: "SUCCEEDED"` y `allocations` (`TransactionAllocation[]`, una fila por `(scheduledPaymentId, allocationType)`).
 - **Errores**: `400 VALIDATION_ERROR` · `400 AMOUNT_EXCEEDS_BALANCE` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 CONTRACT_NOT_ACTIVE` (el contrato no está `ACTIVE`/`DELINQUENT`, no tiene calendario para aplicar el pago).
 
+### Abono a capital y liquidación anticipada
+
+Solo si la `ContractTerms` aceptada tiene `allowPrepayment: true` (lo define el Lender al crear/proponer los términos, default `false`); si no, todo lo de abajo responde `403 PREPAYMENT_NOT_ALLOWED`. Contrato `ACTIVE`/`DELINQUENT` (si no, `409 CONTRACT_NOT_ACTIVE`).
+
+- **Lender**: ejecuta en el acto (la `Transaction` nace `SUCCEEDED`). **Borrower** asociado: deja una solicitud (`Transaction` `PENDING`, avisa al Lender con la notificación `PAYMENT_REQUESTED`) que el Lender confirma o rechaza.
+- **Abono** (`PRINCIPAL_PREPAYMENT`): el monto va 100 % a capital, se **mantiene el plazo** y se rehace el calendario: baja la cuota; el interés de la cuota en curso se parte (días previos sobre el saldo viejo, el resto sobre el nuevo) y las demás cuotas se recalculan sobre el saldo nuevo. Requiere cuenta al día (`409 ACCOUNT_NOT_CURRENT`) y monto menor al capital (`400 USE_PAYOFF`).
+- **Liquidación** (`PAYOFF_PAYMENT`): capital pendiente + interés devengado a la fecha de la cuota en curso + cuotas vencidas completas (mora incluida). Cierra el contrato (`PAID_OFF`) y deja las cuotas sin completar `VOIDED`.
+- Ninguna de las dos es reversible (`409 TRANSACTION_NOT_REVERSIBLE`). La penalidad `prePayPenalty*` todavía no se cobra.
+
+| Endpoint | Auth | Body / query | Respuesta |
+|---|---|---|---|
+| `GET /api/contracts/:id/payoff-quote?asOf=` | `LENDER`/`BORROWER` asociado/`ADMIN` | `asOf` opcional (default ahora) | `{ principal, accruedInterest, lateFees, total, asOf }` |
+| `POST /api/contracts/:id/payments/prepayment` | `LENDER` (ejecuta) o `BORROWER` (solicita) | `{ amount, method?, occurredAt?, notes? }` | `201` `Transaction` (`SUCCEEDED` o `PENDING`) |
+| `POST /api/contracts/:id/payments/payoff` | `LENDER` (ejecuta) o `BORROWER` (solicita) | `{ method?, occurredAt?, notes? }` | `201` `Transaction` (el monto es la cotización; en la solicitud se re-cotiza al confirmar) |
+| `POST /api/transactions/:id/confirm` | `LENDER` dueño | — | `200` `Transaction` `SUCCEEDED` |
+| `POST /api/transactions/:id/reject` | `LENDER` dueño | `{ reason? }` | `200` `Transaction` `CANCELLED` |
+
+Errores comunes: `409 TRANSACTION_NOT_PENDING` (confirm/reject sobre algo que no es una solicitud pendiente).
+
 ### `GET /api/contracts/:id/transactions` / `GET /api/transactions/:id`
 
 **¿Para qué sirve?** El historial de pagos de un contrato (lista) o el detalle de uno puntual — para el Lender, el Borrower asociado, o el Admin.

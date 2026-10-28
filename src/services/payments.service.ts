@@ -4,7 +4,17 @@ import { requireContractAccess } from "@/middlewares/requireContractAccess";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
-import type { CreateManualPaymentInput, ListTransactionsQuery, ReverseTransactionInput } from "@/validations/payments.validation";
+import { notify, notifyLenderCompany } from "@/lib/notify";
+import { addMonths, applyPrepaymentToSchedule, calculateAccruedInterest, type DayCountConvention } from "@/services/amortization.service";
+import type {
+  CreateManualPaymentInput,
+  CreatePayoffInput,
+  CreatePrepaymentInput,
+  ListTransactionsQuery,
+  PayoffQuoteQuery,
+  RejectPaymentRequestInput,
+  ReverseTransactionInput,
+} from "@/validations/payments.validation";
 import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagination";
 
 const { Decimal } = Prisma;
@@ -63,7 +73,13 @@ export function calculatePaymentAllocation(rows: AllocationRow[], amount: Prisma
   return plan;
 }
 
-async function loadAllocationRows(tx: TxClient, contractId: string): Promise<AllocationRow[]> {
+// Fila con lo necesario para cotizar una liquidación anticipada.
+export interface PayoffRow extends AllocationRow {
+  dueDate: Date;
+  interestDue: Prisma.Decimal;
+}
+
+async function loadAllocationRows(tx: TxClient, contractId: string): Promise<PayoffRow[]> {
   const candidates = await tx.scheduledPayment.findMany({
     where: { contractId, status: { in: ["PENDING", "PARTIALLY_PAID"] } },
     orderBy: [{ dueDate: "asc" }, { sequenceNumber: "asc" }],
@@ -78,6 +94,8 @@ async function loadAllocationRows(tx: TxClient, contractId: string): Promise<All
 
     return {
       scheduledPaymentId: row.id,
+      dueDate: row.dueDate,
+      interestDue: row.interestDue,
       remainingLateFee: row.lateFeeAssessed.minus(paidFor("LATE_FEE")),
       remainingInterest: row.interestDue.minus(paidFor("INTEREST")),
       remainingPrincipal: row.principalDue.minus(paidFor("PRINCIPAL")),
@@ -99,13 +117,13 @@ async function recomputeNextPaymentDueDate(tx: TxClient, contractId: string): Pr
 // webhook, todavía bloqueado por A-3). Persiste TransactionAllocation y
 // actualiza ScheduledPayment.amountPaid/status + Contract.
 // currentPrincipalBalance/nextPaymentDueDate.
-export async function applyTransaction(tx: TxClient, transactionId: string): Promise<void> {
+export async function applyTransaction(tx: TxClient, transactionId: string, rowsOverride?: AllocationRow[]): Promise<void> {
   const transaction = await tx.transaction.findUniqueOrThrow({ where: { id: transactionId } });
   if (transaction.status !== "SUCCEEDED") {
     throw new AppError("applyTransaction only runs on a SUCCEEDED transaction", 409, "TRANSACTION_NOT_SUCCEEDED");
   }
 
-  const rows = await loadAllocationRows(tx, transaction.contractId);
+  const rows = rowsOverride ?? (await loadAllocationRows(tx, transaction.contractId));
   const totalOutstanding = rows.reduce(
     (sum, row) => sum.plus(row.remainingLateFee).plus(row.remainingInterest).plus(row.remainingPrincipal),
     new Decimal(0),
@@ -258,6 +276,10 @@ export async function reverseTransaction(userId: string, transactionId: string, 
   if (transaction.status !== "SUCCEEDED") {
     throw new AppError("Only a SUCCEEDED transaction can be reversed", 409, "TRANSACTION_NOT_REVERSIBLE");
   }
+  // El calendario ya se rehízo / anuló al aplicarlas — no hay vuelta atrás limpia.
+  if (transaction.type === "PRINCIPAL_PREPAYMENT" || transaction.type === "PAYOFF_PAYMENT") {
+    throw new AppError("Prepayments and payoffs cannot be reversed", 409, "TRANSACTION_NOT_REVERSIBLE");
+  }
 
   const contract = await requireContractAccess({ userId, role: "ADMIN", roles: ["ADMIN"] }, transaction.contractId);
 
@@ -314,4 +336,267 @@ export async function reverseTransaction(userId: string, transactionId: string, 
   });
 
   return prisma.transaction.findUniqueOrThrow({ where: { id: transactionId }, include: transactionInclude });
+}
+
+// ---------------------------------------------------------------------------
+// Abono a capital y liquidación anticipada. Solo si ContractTerms.
+// allowPrepayment. El Lender las ejecuta en el acto; el Borrower deja una
+// Transaction PENDING que el Lender confirma o rechaza.
+// ---------------------------------------------------------------------------
+
+export interface PayoffQuote {
+  principal: Prisma.Decimal;
+  accruedInterest: Prisma.Decimal;
+  lateFees: Prisma.Decimal;
+  total: Prisma.Decimal;
+  asOf: Date;
+}
+
+// Puro (unit-testable). Cuotas ya vencidas se deben completas; la cuota en
+// curso solo el interés devengado desde la cuota anterior hasta `asOf`; las
+// futuras solo su capital. Devuelve filas listas para calculatePaymentAllocation.
+export function buildPayoffRows(rows: PayoffRow[], asOf: Date, annualRatePercent: Prisma.Decimal.Value, dayCount: DayCountConvention): AllocationRow[] {
+  const currentIndex = rows.findIndex((row) => row.dueDate > asOf);
+  return rows.map((row, index) => {
+    if (currentIndex === -1 || index < currentIndex) return row;
+    if (index > currentIndex) return { ...row, remainingLateFee: new Decimal(0), remainingInterest: new Decimal(0) };
+
+    const outstanding = rows.slice(index).reduce((sum, r) => sum.plus(r.remainingPrincipal), new Decimal(0));
+    const accrued = Decimal.min(calculateAccruedInterest(outstanding, annualRatePercent, dayCount, addMonths(row.dueDate, -1), asOf), row.interestDue);
+    const alreadyPaid = row.interestDue.minus(row.remainingInterest);
+    return { ...row, remainingLateFee: new Decimal(0), remainingInterest: Decimal.max(accrued.minus(alreadyPaid), 0) };
+  });
+}
+
+function summarizePayoff(rows: AllocationRow[], asOf: Date): PayoffQuote {
+  const sum = (pick: (row: AllocationRow) => Prisma.Decimal) => rows.reduce((acc, row) => acc.plus(pick(row)), new Decimal(0));
+  const principal = sum((r) => r.remainingPrincipal);
+  const accruedInterest = sum((r) => r.remainingInterest);
+  const lateFees = sum((r) => r.remainingLateFee);
+  return { principal, accruedInterest, lateFees, total: principal.plus(accruedInterest).plus(lateFees), asOf };
+}
+
+async function requirePrepaymentContext(session: Session, contractId: string) {
+  const contract = await requireContractAccess(session, contractId);
+  if (contract.status !== "ACTIVE" && contract.status !== "DELINQUENT") {
+    throw new AppError("The contract has no active payment schedule", 409, "CONTRACT_NOT_ACTIVE");
+  }
+  const terms = await prisma.contractTerms.findFirst({ where: { contractId, status: "ACCEPTED" } });
+  if (!terms || !terms.allowPrepayment) {
+    throw new AppError("The lender does not allow prepayments or early payoff on this contract", 403, "PREPAYMENT_NOT_ALLOWED");
+  }
+  return { contract, terms };
+}
+
+async function isContractLender(userId: string, lenderCompanyId: string): Promise<boolean> {
+  return (await prisma.lenderCompany.findFirst({ where: { id: lenderCompanyId, lenderProfile: { userId } }, select: { id: true } })) !== null;
+}
+
+async function computePayoffQuote(tx: TxClient, contractId: string, terms: { interestRate: Prisma.Decimal; dayCountConvention: DayCountConvention }, asOf: Date) {
+  const rows = buildPayoffRows(await loadAllocationRows(tx, contractId), asOf, terms.interestRate, terms.dayCountConvention);
+  return { rows, quote: summarizePayoff(rows, asOf) };
+}
+
+export async function getPayoffQuote(session: Session, contractId: string, query: PayoffQuoteQuery): Promise<PayoffQuote> {
+  const { terms } = await requirePrepaymentContext(session, contractId);
+  return (await computePayoffQuote(prisma, contractId, terms, query.asOf ?? new Date())).quote;
+}
+
+// Ejecuta el abono dentro de `tx`: crea (o completa, si viene `existingId`) la
+// Transaction y rehace el calendario.
+async function executePrepayment(
+  tx: TxClient,
+  params: { contractId: string; userId: string; amount: Prisma.Decimal; method: CreatePrepaymentInput["method"]; notes?: string; existingId?: string; asOf: Date },
+) {
+  const { contractId, amount, asOf } = params;
+  const contract = await tx.contract.findUniqueOrThrow({ where: { id: contractId } });
+  const terms = await tx.contractTerms.findFirstOrThrow({ where: { contractId, status: "ACCEPTED" } });
+  const balance = contract.currentPrincipalBalance ?? new Decimal(0);
+  if (amount.greaterThanOrEqualTo(balance)) {
+    throw new AppError("The amount covers the whole principal — use the payoff instead", 400, "USE_PAYOFF");
+  }
+
+  const settled = { status: "SUCCEEDED" as const, processedAt: new Date(), settledAt: new Date() };
+  const transaction = params.existingId
+    ? await tx.transaction.update({ where: { id: params.existingId }, data: settled })
+    : await tx.transaction.create({
+        data: { contractId, type: "PRINCIPAL_PREPAYMENT", method: params.method, amount, initiatedByUserId: params.userId, initiatedAt: asOf, notes: params.notes, ...settled },
+      });
+
+  await applyPrepaymentToSchedule(tx, { contractId, terms, currentBalance: balance, amount, asOf });
+  await tx.transactionAllocation.create({ data: { transactionId: transaction.id, allocationType: "PRINCIPAL", amount } });
+  await tx.contract.update({ where: { id: contractId }, data: { currentPrincipalBalance: balance.minus(amount) } });
+  return transaction.id;
+}
+
+// Cotiza a `asOf`, cobra todo y cierra el contrato (PAID_OFF); las cuotas que
+// no se completaron quedan VOIDED.
+async function executePayoff(
+  tx: TxClient,
+  params: { contractId: string; userId: string; method: CreatePayoffInput["method"]; notes?: string; existingId?: string; asOf: Date },
+) {
+  const { contractId, asOf } = params;
+  const terms = await tx.contractTerms.findFirstOrThrow({ where: { contractId, status: "ACCEPTED" } });
+  const { rows, quote } = await computePayoffQuote(tx, contractId, terms, asOf);
+  if (quote.total.lessThanOrEqualTo(0)) {
+    throw new AppError("Nothing left to pay off", 409, "CONTRACT_NOT_ACTIVE");
+  }
+
+  const settled = { status: "SUCCEEDED" as const, amount: quote.total, processedAt: new Date(), settledAt: new Date() };
+  const transaction = params.existingId
+    ? await tx.transaction.update({ where: { id: params.existingId }, data: settled })
+    : await tx.transaction.create({
+        data: { contractId, type: "PAYOFF_PAYMENT", method: params.method, initiatedByUserId: params.userId, initiatedAt: asOf, notes: params.notes, ...settled },
+      });
+
+  await applyTransaction(tx, transaction.id, rows);
+  await tx.scheduledPayment.updateMany({ where: { contractId, status: { in: ["PENDING", "PARTIALLY_PAID"] } }, data: { status: "VOIDED" } });
+  await tx.contract.update({
+    where: { id: contractId },
+    data: { status: "PAID_OFF", paidOffAt: new Date(), currentPrincipalBalance: new Decimal(0), nextPaymentDueDate: null },
+  });
+  return transaction.id;
+}
+
+async function auditSettled(transactionId: string, contractId: string, lenderCompanyId: string, userId: string, metadata: Record<string, string>) {
+  await logAuditEvent({ action: "TRANSACTION_CREATED", entityType: "Transaction", entityId: transactionId, actorUserId: userId, lenderCompanyId, contractId, metadata });
+  await logAuditEvent({ action: "TRANSACTION_SUCCEEDED", entityType: "Transaction", entityId: transactionId, actorUserId: userId, lenderCompanyId, contractId });
+}
+
+// Borrower: deja la solicitud PENDING y avisa al Lender.
+async function createRequest(params: {
+  contractId: string;
+  lenderCompanyId: string;
+  userId: string;
+  type: "PRINCIPAL_PREPAYMENT" | "PAYOFF_PAYMENT";
+  amount: Prisma.Decimal;
+  method: CreatePrepaymentInput["method"];
+  notes?: string;
+}) {
+  const transaction = await prisma.transaction.create({
+    data: {
+      contractId: params.contractId,
+      type: params.type,
+      status: "PENDING",
+      method: params.method,
+      amount: params.amount,
+      initiatedByUserId: params.userId,
+      initiatedAt: new Date(),
+      notes: params.notes,
+    },
+    include: transactionInclude,
+  });
+  const label = params.type === "PAYOFF_PAYMENT" ? "early payoff" : "principal prepayment";
+  await notifyLenderCompany(params.lenderCompanyId, {
+    type: "PAYMENT_REQUESTED",
+    title: "Payment request",
+    body: `The borrower requested an ${label} of ${params.amount.toFixed(2)}.`,
+    relatedEntity: { type: "Contract", id: params.contractId },
+  });
+  return transaction;
+}
+
+export async function requestPrepayment(session: Session, contractId: string, input: CreatePrepaymentInput): Promise<TransactionDetail> {
+  const { contract } = await requirePrepaymentContext(session, contractId);
+  const amount = new Decimal(input.amount);
+  if (!(await isContractLender(session.userId, contract.lenderCompanyId))) {
+    if (amount.greaterThanOrEqualTo(contract.currentPrincipalBalance ?? 0)) {
+      throw new AppError("The amount covers the whole principal — use the payoff instead", 400, "USE_PAYOFF");
+    }
+    return createRequest({
+      contractId,
+      lenderCompanyId: contract.lenderCompanyId,
+      userId: session.userId,
+      type: "PRINCIPAL_PREPAYMENT",
+      amount,
+      method: input.method,
+      notes: input.notes,
+    });
+  }
+
+  const transactionId = await prisma.$transaction((tx) =>
+    executePrepayment(tx, { contractId, userId: session.userId, amount, method: input.method, notes: input.notes, asOf: input.occurredAt ?? new Date() }),
+  );
+  await auditSettled(transactionId, contractId, contract.lenderCompanyId, session.userId, { amount: amount.toString(), type: "PRINCIPAL_PREPAYMENT" });
+  return prisma.transaction.findUniqueOrThrow({ where: { id: transactionId }, include: transactionInclude });
+}
+
+export async function requestPayoff(session: Session, contractId: string, input: CreatePayoffInput): Promise<TransactionDetail> {
+  const { contract, terms } = await requirePrepaymentContext(session, contractId);
+  if (!(await isContractLender(session.userId, contract.lenderCompanyId))) {
+    const { quote } = await computePayoffQuote(prisma, contractId, terms, new Date());
+    return createRequest({
+      contractId,
+      lenderCompanyId: contract.lenderCompanyId,
+      userId: session.userId,
+      type: "PAYOFF_PAYMENT",
+      amount: quote.total,
+      method: input.method,
+      notes: input.notes,
+    });
+  }
+
+  const transactionId = await prisma.$transaction((tx) =>
+    executePayoff(tx, { contractId, userId: session.userId, method: input.method, notes: input.notes, asOf: input.occurredAt ?? new Date() }),
+  );
+  const done = await prisma.transaction.findUniqueOrThrow({ where: { id: transactionId }, include: transactionInclude });
+  await auditSettled(transactionId, contractId, contract.lenderCompanyId, session.userId, { amount: done.amount.toString(), type: "PAYOFF_PAYMENT" });
+  return done;
+}
+
+async function loadPendingRequest(session: Session, transactionId: string) {
+  const transaction = await prisma.transaction.findUnique({ where: { id: transactionId } });
+  if (!transaction) throw new AppError("Transaction not found", 404, "NOT_FOUND");
+  const contract = await requireContractAccess(session, transaction.contractId);
+  if (!(await isContractLender(session.userId, contract.lenderCompanyId))) {
+    throw new AppError("Transaction not found", 404, "NOT_FOUND");
+  }
+  const isRequest = transaction.type === "PRINCIPAL_PREPAYMENT" || transaction.type === "PAYOFF_PAYMENT";
+  if (transaction.status !== "PENDING" || !isRequest) {
+    throw new AppError("Only a pending prepayment/payoff request can be confirmed or rejected", 409, "TRANSACTION_NOT_PENDING");
+  }
+  return { transaction, contract };
+}
+
+// El Lender confirma que recibió el dinero. El payoff se re-cotiza a hoy
+// (el interés corre entre la solicitud y la confirmación).
+export async function confirmPaymentRequest(session: Session, transactionId: string): Promise<TransactionDetail> {
+  const { transaction, contract } = await loadPendingRequest(session, transactionId);
+  await requirePrepaymentContext(session, contract.id);
+  const common = { contractId: contract.id, userId: session.userId, method: transaction.method as "WIRE" | "CHECK" | "MANUAL", existingId: transaction.id, asOf: new Date() };
+
+  await prisma.$transaction((tx) =>
+    transaction.type === "PAYOFF_PAYMENT" ? executePayoff(tx, common) : executePrepayment(tx, { ...common, amount: transaction.amount }),
+  );
+  const done = await prisma.transaction.findUniqueOrThrow({ where: { id: transactionId }, include: transactionInclude });
+  await auditSettled(transactionId, contract.id, contract.lenderCompanyId, session.userId, { amount: done.amount.toString(), type: transaction.type });
+  if (transaction.initiatedByUserId) {
+    await notify({
+      userId: transaction.initiatedByUserId,
+      type: "PAYMENT_REQUEST_CONFIRMED",
+      title: "Payment confirmed",
+      body: "The lender confirmed your payment.",
+      relatedEntity: { type: "Contract", id: contract.id },
+    });
+  }
+  return done;
+}
+
+export async function rejectPaymentRequest(session: Session, transactionId: string, input: RejectPaymentRequestInput): Promise<TransactionDetail> {
+  const { transaction, contract } = await loadPendingRequest(session, transactionId);
+  const updated = await prisma.transaction.update({
+    where: { id: transactionId },
+    data: { status: "CANCELLED", notes: [transaction.notes, input.reason && `Rejected: ${input.reason}`].filter(Boolean).join(" | ") },
+    include: transactionInclude,
+  });
+  if (transaction.initiatedByUserId) {
+    await notify({
+      userId: transaction.initiatedByUserId,
+      type: "PAYMENT_REQUEST_REJECTED",
+      title: "Payment request rejected",
+      body: input.reason ?? "The lender rejected your request.",
+      relatedEntity: { type: "Contract", id: contract.id },
+    });
+  }
+  return updated;
 }

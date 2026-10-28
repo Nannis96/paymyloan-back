@@ -59,6 +59,7 @@ const contractTermsFields = z.object({
   gracePeriodDays: z.coerce.number().int().min(0).default(10),
   prePayPenaltyType: z.enum(["FLAT", "PERCENTAGE"]).optional(),
   prePayPenaltyAmount: nonNegativeMoney.optional(),
+  allowPrepayment: z.boolean().optional(),
   changeSummary: z.string().trim().max(500).optional(),
 });
 export type ContractTermsInput = z.infer<typeof contractTermsFields>;
