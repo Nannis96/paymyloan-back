@@ -1,0 +1,15 @@
+meta {
+  name: GET /affiliates/validate
+  type: http
+  seq: 0
+}
+
+get {
+  url: {{baseUrl}}/api/affiliates/validate
+  body: none
+  auth: none
+}
+
+params:query {
+  code: ABC123XY
+}

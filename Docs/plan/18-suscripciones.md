@@ -16,7 +16,7 @@
 6. **Bloqueo suave (`D-SU-4`)**: sin `hasAccess`, el Borrower **no puede iniciar préstamos nuevos**. Nunca se bloquea pagar un préstamo existente, ni leer, ni descargar, ni mensajería/notificaciones.
 7. **Estado efectivo derivado, sin cron (`D-SU-2`)**: se guarda solo lo que cambia por una acción (`TRIALING`/`ACTIVE`/`CANCELLED`); `EXPIRED` se calcula al leer cuando `hasAccess=false`. Un job de vencimiento no hace falta porque nada depende de una transición automática.
 8. **Cancelar** no corta el acceso: queda `CANCELLED` y sigue valiendo hasta `currentPeriodEnd` (o `trialEndsAt`). Pagar de nuevo la reactiva (`ACTIVE`, `cancelledAt=null`).
-9. **Cobro simulado** (`D-SU-5`, `BILLING_MODE=simulated`): el propio Borrower dispara `POST /api/subscription/me/pay` y se registra un pago exitoso sin pasarela. La etapa 2 reemplaza el cuerpo de ese endpoint por Stripe Checkout + webhook sin cambiar rutas ni respuestas (§18.7).
+9. **Cobro simulado** (`D-SU-5`, `BILLING_MODE=simulated`): el propio Borrower dispara `POST /api/subscription/me/pay` y se registra un pago exitoso sin pasarela. **Freno (`D-SU-8`)**: con `NODE_ENV=production` el endpoint responde `403 SIMULATED_BILLING_DISABLED` salvo que se active `ALLOW_SIMULATED_BILLING=true`; sin pasarela real cualquiera podría "pagar" gratis y, de paso, generar comisiones de afiliado. El `grant` del Admin no está afectado. La etapa 2 reemplaza el cuerpo de ese endpoint por Stripe Checkout + webhook sin cambiar rutas ni respuestas (§18.7).
 10. **Comisión de afiliado**: el primer pago con monto > 0 dispara `onFirstSubscriptionPayment` (§18.6). Los `ADMIN_GRANT` (monto 0) nunca la generan.
 
 ### Cálculo de periodos
@@ -35,6 +35,7 @@
 | `SUBSCRIPTION_PRICE_CENTS` | `900` | Precio mensual en centavos ($9.00) |
 | `SUBSCRIPTION_TRIAL_DAYS` | `7` | Días de trial al crear la suscripción |
 | `SUBSCRIPTION_CURRENCY` | `usd` | Moneda guardada en cada pago |
+| `ALLOW_SIMULATED_BILLING` | `false` | Solo importa en producción: `true` deja pasar el cobro simulado (p. ej. un staging con `NODE_ENV=production`) |
 | `BILLING_MODE` | `simulated` | `simulated` (etapa 1) o `stripe` (etapa 2). Con `stripe` el endpoint `pay` responde `409 BILLING_NOT_SIMULATED` |
 
 Se agregan a `src/config/env.ts` (validadas con Zod como el resto) y a la tabla de [03](03-arquitectura-backend.md) y de `API_REFERENCE.md`. Las `STRIPE_*` ya existen reservadas.
@@ -150,6 +151,7 @@ Estado efectivo (también el filtro `status`): si `hasAccess=false` → `EXPIRED
 | `SUBSCRIPTION_NOT_FOUND` | 404 | Admin con id inexistente; usuario sin `BorrowerProfile` en `/api/subscription/me/*` |
 | `SUBSCRIPTION_ALREADY_CANCELLED` | 409 | Cancelar una ya cancelada |
 | `BILLING_NOT_SIMULATED` | 409 | `pay` con `BILLING_MODE=stripe` |
+| `SIMULATED_BILLING_DISABLED` | 403 | `pay` en producción sin `ALLOW_SIMULATED_BILLING=true` |
 
 ### Etapa 2 — Stripe (fuera de esta entrega)
 
@@ -179,7 +181,7 @@ Estado efectivo (también el filtro `status`): si `hasAccess=false` → `EXPIRED
 - Cambiar el precio sin redesplegar (un `Plan` editable por el Admin): no hasta que exista más de un plan.
 - Recordatorios de vencimiento por correo/notificación (requerirían un job): no en v1.
 - Impacto del bloqueo en los ratings, la mensajería y el marketplace del lado Lender: ninguno por diseño.
-- Si el `BILLING_MODE=simulated` puede quedar activo en producción: hoy sí (el Admin decide); es un riesgo de configuración que se cierra al activar la etapa 2.
+- `BILLING_MODE=simulated` en producción: bloqueado por defecto (`D-SU-8`); solo se abre con `ALLOW_SIMULATED_BILLING=true`.
 
 ---
 

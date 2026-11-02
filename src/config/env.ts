@@ -87,6 +87,8 @@ export const env = {
   subscriptionTrialDays: Number(process.env.SUBSCRIPTION_TRIAL_DAYS ?? 7),
   subscriptionCurrency: process.env.SUBSCRIPTION_CURRENCY ?? "usd",
   billingMode: process.env.BILLING_MODE === "stripe" ? "stripe" : "simulated",
+  // Freno (D-SU-8): en producción el cobro simulado queda apagado salvo opt-in explícito.
+  allowSimulatedBilling: process.env.ALLOW_SIMULATED_BILLING === "true",
 
   // Afiliados (Fase 21, Docs/plan/19-afiliados.md §19.2).
   affiliateApprovalMode: process.env.AFFILIATE_APPROVAL_MODE === "self" ? "self" : "admin",

@@ -99,6 +99,7 @@ Fuente única: `src/config/env.ts` (`.env.example` documenta lo mismo con coment
 | `AFFILIATE_APPROVAL_MODE` | `admin` | `affiliates.service.ts#applyAffiliate` | `admin`: el Admin aprueba las solicitudes; `self`: el usuario se prende/apaga solo ([plan/19](plan/19-afiliados.md)) |
 | `AFFILIATE_DEFAULT_COMMISSION_TYPE` / `AFFILIATE_DEFAULT_COMMISSION_VALUE` | `PERCENT` / `0` | `resolveTerms` | Tarifa para afiliados sin tarifa propia. Valor `0` = no se genera comisión |
 | `AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS` | *(vacío)* | `computePayableAt` | Retraso por defecto antes de poder pagar una comisión; vacío = inmediato |
+| `ALLOW_SIMULATED_BILLING` | `false` | `subscription.service.ts#payMySubscription` | En producción el cobro simulado responde `403 SIMULATED_BILLING_DISABLED` salvo que sea `true` ([plan/18](plan/18-suscripciones.md), `D-SU-8`) |
 | `BILLING_MODE` | `simulated` | `subscription.service.ts#payMySubscription` | `simulated` registra el pago sin pasarela; `stripe` (etapa 2) hace que `pay` responda `409 BILLING_NOT_SIMULATED` |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PUBLISHABLE_KEY` | *(vacío)* | *(sin uso todavía)* | Reservadas para Fase 7 (Pagos) — bloqueadas por la decisión Stripe Connect vs. cuenta única |
 | `S3_BUCKET` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | *(vacío)* | *(sin uso todavía)* | Reservadas para Fase 11 (Documentos) |
@@ -1348,7 +1349,7 @@ Fase 20 — diseño completo y reglas en [plan/18-suscripciones.md](plan/18-susc
 Cobro simulado: inserta un `SubscriptionPayment` (`SIMULATED`, `SUCCEEDED`, monto `SUBSCRIPTION_PRICE_CENTS`), deja la suscripción `ACTIVE` y extiende un mes desde el fin del periodo/trial vigente (no se pierden días). El primer pago con monto > 0 lleva `isFirstPayment=true` (dispara la comisión de afiliado cuando exista el módulo).
 
 - **Response `201`**: `{ subscription: { ...GET /me }, payment: { id, amountCents, currency, status, source, isFirstPayment, periodStart, periodEnd, paidAt } }`.
-- **Errores**: `401`/`403` · `404 SUBSCRIPTION_NOT_FOUND` · `409 BILLING_NOT_SIMULATED`.
+- **Errores**: `401`/`403` · `403 SIMULATED_BILLING_DISABLED` (producción sin `ALLOW_SIMULATED_BILLING=true`) · `404 SUBSCRIPTION_NOT_FOUND` · `409 BILLING_NOT_SIMULATED`.
 
 ### `POST /api/subscription/me/cancel`
 
@@ -1392,6 +1393,12 @@ Fase 21 — reglas y diseño en [plan/19-afiliados.md](plan/19-afiliados.md) (`D
 **Forma de un perfil** (`POST apply`, `DELETE me`, `approve`, `reject`, `suspend`, `PATCH commission`): `{ id, isAffiliate, status, code, link, commissionType, commissionValue, payoutDelayDays, statusReason }`. `link` = `{CORS_ORIGIN}/register?ref={code}`; `code` es `null` hasta la primera aprobación y no cambia nunca. `commissionType`/`commissionValue`/`payoutDelayDays` ya vienen resueltos (tarifa propia o default de `.env`).
 
 **Forma de una comisión**: `{ id, affiliateId, referredUserId, subscriptionPaymentId, source (SUBSCRIPTION|MANUAL), baseAmountCents, commissionType, commissionValue, amountCents, currency, status (PENDING|PAID|VOID), payableAt, paidAt, paidById, paymentReference, voidedAt, voidedById, note, createdAt }`.
+
+### Público
+
+#### `GET /api/affiliates/validate?code=ABC123XY`
+- Sin sesión. **Response `200`**: `{ "valid": true }` solo si el código es de un afiliado `APPROVED`; inexistente, de un afiliado no aprobado o mal formado → `{ "valid": false }` (nunca `400`). No devuelve datos del afiliado.
+- **Rate limit**: 30 consultas por IP cada 15 min → `429 RATE_LIMITED`. Solo es comodidad para el front: `POST /api/auth/register` no la necesita.
 
 ### Usuario (cualquier sesión autenticada, sin 2FA)
 
@@ -1852,6 +1859,7 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `SUBSCRIPTION_REQUIRED` | 403 | El Borrower no tiene trial ni periodo pagado vigente y quiso iniciar un préstamo nuevo (ver [Suscripciones](#suscripciones-srcappapisubscription-srcappapiadminsubscriptions)) |
 | `SUBSCRIPTION_NOT_FOUND` | 404 | Suscripción inexistente, o el usuario no tiene `BorrowerProfile` |
 | `SUBSCRIPTION_ALREADY_CANCELLED` | 409 | Cancelar una suscripción ya cancelada |
+| `SIMULATED_BILLING_DISABLED` | 403 | `POST /api/subscription/me/pay` en producción sin `ALLOW_SIMULATED_BILLING=true` |
 | `BILLING_NOT_SIMULATED` | 409 | `POST /api/subscription/me/pay` con `BILLING_MODE≠simulated` |
 | `VALIDATION_ERROR` | 400 | El body no cumple el schema Zod del endpoint (primer error de validación) |
 | `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/marketplace/loan-requests/:id/quotes`, `POST /api/lenders/me/messages` y `GET /api/lenders/me/messages/threads/:borrowerProfileId` (Fase 17), y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |

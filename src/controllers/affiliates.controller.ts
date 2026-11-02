@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { getRequestMeta } from "@/lib/requestMeta";
+import { checkRateLimit } from "@/middlewares/rateLimit";
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
 import * as affiliatesService from "@/services/affiliates.service";
@@ -13,6 +15,7 @@ import {
   markPaidSchema,
   myCommissionsQuerySchema,
   reasonSchema,
+  referralCodeSchema,
   setPayableAtSchema,
   voidCommissionSchema,
 } from "@/validations/affiliates.validation";
@@ -28,6 +31,13 @@ async function requireAdminSession(request: Request) {
 
 const idSchema = z.string().uuid("Invalid id");
 const pageQuerySchema = paginationQuerySchema.pick({ page: true, pageSize: true });
+
+// Público, sin sesión. Limitado por IP para que no sirva para adivinar códigos.
+export async function validateCode(request: Request, query: { code?: string }) {
+  checkRateLimit(`affiliate-validate:${getRequestMeta(request).ipAddress ?? "unknown"}`, { max: 30, windowMs: 900_000 });
+  const parsed = referralCodeSchema.safeParse(query.code);
+  return { valid: parsed.success ? await affiliatesService.isReferralCodeValid(parsed.data) : false };
+}
 
 export async function apply(request: Request) {
   const session = await withAuth(request);

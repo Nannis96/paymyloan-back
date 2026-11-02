@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
+import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 import { createTestAdmin, createTestBorrower, createTestUser, resetPhase1Tables } from "@/db/testFixtures";
 import { AppError } from "@/errors/AppError";
@@ -57,6 +58,26 @@ describe("subscription.service (Fase 20, Docs/plan/18)", () => {
     const second = await subscriptionService.payMySubscription(user.id);
     expect(second.payment.isFirstPayment).toBe(false);
     expect(second.payment.periodStart.getTime()).toBe(payment.periodEnd.getTime());
+  });
+
+  it("freno: en producción el cobro simulado responde 403 salvo ALLOW_SIMULATED_BILLING; el Admin grant sigue andando", async () => {
+    const mutableEnv = env as unknown as { isProduction: boolean; allowSimulatedBilling: boolean };
+    const admin = await createTestAdmin();
+    const { user } = await createTestBorrower();
+    const sub = await subscriptionService.ensureSubscription(user.id);
+
+    mutableEnv.isProduction = true;
+    try {
+      await expectCode(subscriptionService.payMySubscription(user.id), "SIMULATED_BILLING_DISABLED");
+      expect(await prisma.subscriptionPayment.count({ where: { subscriptionId: sub.id } })).toBe(0);
+      await subscriptionService.adminGrantSubscription(sub.id, admin.id, { days: 5, reason: "Soporte" });
+
+      mutableEnv.allowSimulatedBilling = true;
+      expect((await subscriptionService.payMySubscription(user.id)).payment.status).toBe("SUCCEEDED");
+    } finally {
+      mutableEnv.isProduction = false;
+      mutableEnv.allowSimulatedBilling = false;
+    }
   });
 
   it("cancelar conserva el acceso; cancelar dos veces → 409; pagar reactiva", async () => {

@@ -258,6 +258,7 @@ Detalle de request/response y errores en [19 §19.5](19-afiliados.md#195-api).
 
 | Método | Ruta | Rol |
 |---|---|---|
+| GET | `/api/affiliates/validate?code=` | público (rate limit por IP) |
 | POST | `/api/affiliates/me/apply` | cualquier sesión |
 | DELETE | `/api/affiliates/me` | cualquier sesión |
 | GET | `/api/affiliates/me` | cualquier sesión |

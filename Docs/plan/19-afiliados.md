@@ -115,6 +115,12 @@ Corre **después** de confirmar el pago y **nunca lanza**: un fallo se registra 
 
 Formato de respuesta y errores: el del resto de la API. Endpoints de Admin con 2FA obligatorio (`D-P3-1`); los de usuario solo exigen sesión (no son escrituras de negocio de ADMIN/LENDER sobre terceros).
 
+### Público (sin sesión)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/affiliates/validate?code=` | `{ valid: boolean }`: `true` solo si el código es de un afiliado `APPROVED`. No devuelve datos del afiliado; un código mal formado da `valid:false`. Límite por IP: 30 consultas / 15 min → `429 RATE_LIMITED`. Es solo comodidad para el front; `register` no la necesita (`D-AF-8`) |
+
 ### Usuario (cualquier sesión autenticada)
 
 | Método | Ruta | Descripción |

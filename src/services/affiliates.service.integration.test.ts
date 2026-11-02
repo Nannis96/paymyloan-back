@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 import { createTestAdmin, createTestBorrower, createTestUser, resetPhase1Tables } from "@/db/testFixtures";
+import { validateCode } from "@/controllers/affiliates.controller";
 import * as affiliates from "@/services/affiliates.service";
 import * as authService from "@/services/auth.service";
 import * as subscriptionService from "@/services/subscription.service";
@@ -84,6 +85,26 @@ describe("affiliates.service (Fase 21, Docs/plan/19)", () => {
     expect((await registerBorrower(aff.code)).referredByAffiliateId).toBe(aff.id);
     expect((await registerBorrower("ZZZZZZZZ")).referredByAffiliateId).toBeNull();
     expect((await registerBorrower()).referredByAffiliateId).toBeNull();
+  });
+
+  it("isReferralCodeValid: solo true para un código de afiliado aprobado", async () => {
+    const admin = await createTestAdmin();
+    const aff = await approvedAffiliate(admin, { commissionType: "PERCENT", commissionValue: 10 });
+    expect(await affiliates.isReferralCodeValid(aff.code)).toBe(true);
+    expect(await affiliates.isReferralCodeValid(aff.code.toLowerCase())).toBe(true);
+    expect(await affiliates.isReferralCodeValid("ZZZZZZZZ")).toBe(false);
+
+    await affiliates.adminSuspendAffiliate(aff.id, admin.id, "Abuso");
+    expect(await affiliates.isReferralCodeValid(aff.code)).toBe(false);
+  });
+
+  it("GET /validate: { valid } sin sesión; un código mal formado da valid:false y no 400", async () => {
+    const admin = await createTestAdmin();
+    const aff = await approvedAffiliate(admin, { commissionType: "PERCENT", commissionValue: 10 });
+    const req = new Request("http://localhost/api/affiliates/validate", { headers: { "x-forwarded-for": `10.9.${seq}.1` } });
+    expect(await validateCode(req, { code: aff.code })).toEqual({ valid: true });
+    expect(await validateCode(req, { code: "no" })).toEqual({ valid: false });
+    expect(await validateCode(req, {})).toEqual({ valid: false });
   });
 
   it("primer pago → una comisión; pagos y grants posteriores no generan otra; la tarifa nueva no toca las viejas", async () => {

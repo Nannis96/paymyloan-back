@@ -210,6 +210,11 @@ export async function resolveReferralCode(code: string | undefined): Promise<str
   return profile?.status === "APPROVED" ? profile.id : null;
 }
 
+// Público (§19.5): solo dice si un código se puede usar; no devuelve datos del afiliado.
+export async function isReferralCodeValid(code: string): Promise<boolean> {
+  return (await resolveReferralCode(code)) !== null;
+}
+
 export async function getAffiliateStatusForUser(userId: string) {
   const profile = await prisma.affiliateProfile.findUnique({ where: { userId }, select: { status: true } });
   return { isAffiliate: profile?.status === "APPROVED", affiliateStatus: profile?.status ?? null };

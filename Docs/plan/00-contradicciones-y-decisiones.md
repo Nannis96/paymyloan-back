@@ -362,6 +362,7 @@ Detalle completo en [18. Suscripciones](18-suscripciones.md), que es la fuente d
 | `D-SU-5` | Cobro real bloqueado por `A-3` | **Etapa 1 simulada** (`BILLING_MODE=simulated`): `POST /api/subscription/me/pay` registra el pago sin pasarela. Stripe Billing/Checkout + webhook queda para la etapa 2 sin cambiar rutas. Stripe Billing no depende de `A-3` (Connect solo aplica a transferir a Lenders) |
 | `D-SU-6` | Sin enlace con afiliados | El primer pago con monto > 0 llama a `onFirstSubscriptionPayment`; solo los Borrowers tienen suscripción, así que la comisión de [19. Afiliados](19-afiliados.md) solo nace cuando el referido se suscribe como Borrower |
 | `D-SU-7` | Borrowers ya existentes | La migración les crea una suscripción `TRIALING` con 7 días nuevos desde el despliegue |
+| `D-SU-8` | El cobro simulado quedaba abierto en producción | Freno: en `NODE_ENV=production` `POST /api/subscription/me/pay` responde `403 SIMULATED_BILLING_DISABLED` salvo `ALLOW_SIMULATED_BILLING=true`. Protege también contra comisiones de afiliado fraudulentas |
 
 ## Decisiones 2026-11-02 (ronda afiliados)
 
@@ -376,6 +377,7 @@ Detalle completo en [19. Afiliados](19-afiliados.md), que es la fuente de verdad
 | `D-AF-5` | — | Comisión **solo** al primer pago de suscripción (monto > 0) del referido, por lo tanto solo cuando se suscribe como Borrower; engancha con `onFirstSubscriptionPayment` ([18 §18.6](18-suscripciones.md)) |
 | `D-AF-6` | — | El Admin define la tarifa por afiliado (`PERCENT`/`FIXED`); el monto se guarda ya calculado con copia de la tarifa. Default de `.env` en `0` hasta que el negocio fije números |
 | `D-AF-7` | Stripe Connect bloqueado (`A-3`) | Pago **manual** del Admin (`mark-paid`); `payableAt` opcional por afiliado (`payoutDelayDays`) o por comisión; nada se paga solo. Stripe en etapa 2 sin cambiar la API |
+| `D-AF-8` | El front no podía saber si un `?ref=` era válido antes de registrar | Endpoint público `GET /api/affiliates/validate?code=` que solo devuelve `{ valid }` (limitado por IP, 30/15 min). Cosmético: `register` sigue ignorando en silencio un código inválido |
 
 ---
 

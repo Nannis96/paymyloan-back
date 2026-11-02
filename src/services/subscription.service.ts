@@ -121,6 +121,9 @@ export async function payMySubscription(userId: string): Promise<{ subscription:
   if (env.billingMode !== "simulated") {
     throw new AppError("Billing is not in simulated mode", 409, "BILLING_NOT_SIMULATED");
   }
+  if (env.isProduction && !env.allowSimulatedBilling) {
+    throw new AppError("Simulated billing is disabled in production", 403, "SIMULATED_BILLING_DISABLED");
+  }
   const sub = await ensureSubscription(userId);
   const now = new Date();
   const periodStart = periodBase(sub, now);
