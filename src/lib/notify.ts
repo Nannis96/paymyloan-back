@@ -17,7 +17,12 @@ export type NotificationType =
   | "PAYMENT_REQUESTED"
   | "PAYMENT_REQUEST_CONFIRMED"
   | "PAYMENT_REQUEST_REJECTED"
-  | "ADMIN_ALERT";
+  | "ADMIN_ALERT"
+  | "AFFILIATE_APPROVED"
+  | "AFFILIATE_REJECTED"
+  | "AFFILIATE_SUSPENDED"
+  | "AFFILIATE_COMMISSION_EARNED"
+  | "AFFILIATE_COMMISSION_PAID";
 
 export type NotificationEntityType = "LoanRequest" | "LoanQuote" | "Contract" | "MessageThread";
 

@@ -1,0 +1,15 @@
+meta {
+  name: PATCH /admin/affiliates/commissions/:id
+  type: http
+  seq: 38
+}
+
+patch {
+  url: {{baseUrl}}/api/admin/affiliates/commissions/{{commissionId}}
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "payableAt": "2026-12-01T00:00:00Z" }
+}

@@ -87,4 +87,10 @@ export const env = {
   subscriptionTrialDays: Number(process.env.SUBSCRIPTION_TRIAL_DAYS ?? 7),
   subscriptionCurrency: process.env.SUBSCRIPTION_CURRENCY ?? "usd",
   billingMode: process.env.BILLING_MODE === "stripe" ? "stripe" : "simulated",
+
+  // Afiliados (Fase 21, Docs/plan/19-afiliados.md §19.2).
+  affiliateApprovalMode: process.env.AFFILIATE_APPROVAL_MODE === "self" ? "self" : "admin",
+  affiliateDefaultCommissionType: process.env.AFFILIATE_DEFAULT_COMMISSION_TYPE === "FIXED" ? "FIXED" : "PERCENT",
+  affiliateDefaultCommissionValue: Number(process.env.AFFILIATE_DEFAULT_COMMISSION_VALUE ?? 0),
+  affiliateDefaultPayoutDelayDays: process.env.AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS ? Number(process.env.AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS) : null,
 } as const;

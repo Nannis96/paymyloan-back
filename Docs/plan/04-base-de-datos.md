@@ -531,6 +531,8 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 
 **`Subscription`** / **`SubscriptionPayment`** (`D-SU-1`, reemplaza a `BorrowerSubscription` de `D-S2-3`) — suscripción mensual del Deudor ($9/mes tras 7 días de prueba, precio en `.env`). Campos, reglas y migración en [18. Suscripciones §18.3](18-suscripciones.md#183-modelo-de-datos) — **fuente de verdad**; no se duplican acá.
 
+**`AffiliateProfile`** / **`AffiliateCommission`** (`D-AF-1`..`D-AF-7`) — afiliados y sus comisiones, más `User.referredByAffiliateId`. Campos, reglas y migración en [19. Afiliados §19.3](19-afiliados.md#193-modelo-de-datos) — **fuente de verdad**; no se duplican acá.
+
 **`BorrowerApplication`** (`D-S2-6`) — vetting completo ($99).
 
 | Campo | Tipo | Obligatorio | Notas |
@@ -600,6 +602,10 @@ enum SubscriptionStatus { TRIALING ACTIVE CANCELLED }
 enum SubscriptionPaymentStatus { SUCCEEDED FAILED REFUNDED }
 enum SubscriptionPaymentSource { SIMULATED ADMIN_GRANT STRIPE }
 enum BorrowerApplicationStatus { REQUESTED SUBMITTED UNDER_REVIEW APPROVED REJECTED }
+enum AffiliateStatus { PENDING APPROVED REJECTED SUSPENDED INACTIVE }
+enum AffiliateCommissionType { PERCENT FIXED }
+enum AffiliateCommissionSource { SUBSCRIPTION MANUAL }
+enum AffiliateCommissionStatus { PENDING PAID VOID }
 enum PropertyValuationSource { MANUAL RENTCAST }
 ```
 
@@ -622,6 +628,9 @@ erDiagram
 
     User ||--o| Subscription : ""
     Subscription ||--o{ SubscriptionPayment : ""
+    User ||--o| AffiliateProfile : ""
+    AffiliateProfile ||--o{ User : "referidos"
+    AffiliateProfile ||--o{ AffiliateCommission : ""
 
     BorrowerProfile ||--o{ BorrowerApplication : ""
     LenderCompany ||--o{ BorrowerApplication : "exige/revisa"

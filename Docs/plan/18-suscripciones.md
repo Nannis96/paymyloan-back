@@ -114,7 +114,7 @@ Se agregan a `src/config/env.ts` (validadas con Zod como el resto) y a la tabla 
 
 ## 18.6 Enganche con afiliados
 
-Tras confirmar un pago (`SUBSCRIPTION_PAID`) con `isFirstPayment=true`, el servicio llama **fuera de la transacción** a `onFirstSubscriptionPayment({ userId, subscriptionId, subscriptionPaymentId, amountCents })`. En esta fase es una función vacía exportada desde `subscription.service.ts`; el módulo [19](19-afiliados.md) la implementa. Un fallo de la comisión nunca revierte el pago (mismo criterio que `notify()`).
+Tras confirmar un pago (`SUBSCRIPTION_PAID`) con `isFirstPayment=true`, el servicio llama **fuera de la transacción** a `onFirstSubscriptionPayment({ userId, subscriptionId, subscriptionPaymentId, amountCents })`. `subscription.service.ts` la exporta y delega en `accrueCommissionForSubscription` del módulo [19](19-afiliados.md). Un fallo de la comisión nunca revierte el pago (mismo criterio que `notify()`).
 
 ---
 
@@ -183,4 +183,4 @@ Estado efectivo (también el filtro `status`): si `hasAccess=false` → `EXPIRED
 
 ---
 
-[← Índice del plan](README.md)  ·  [Anterior: 17. Fase 2 — plan actualizado](17-fase-2-actualizada.md)
+[← Índice del plan](README.md)  ·  [Anterior: 17. Fase 2 — plan actualizado](17-fase-2-actualizada.md)  ·  [Siguiente: 19. Afiliados](19-afiliados.md)

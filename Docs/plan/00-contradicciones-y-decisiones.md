@@ -363,6 +363,20 @@ Detalle completo en [18. Suscripciones](18-suscripciones.md), que es la fuente d
 | `D-SU-6` | Sin enlace con afiliados | El primer pago con monto > 0 llama a `onFirstSubscriptionPayment`; solo los Borrowers tienen suscripción, así que la comisión de [19. Afiliados](19-afiliados.md) solo nace cuando el referido se suscribe como Borrower |
 | `D-SU-7` | Borrowers ya existentes | La migración les crea una suscripción `TRIALING` con 7 días nuevos desde el despliegue |
 
+## Decisiones 2026-11-02 (ronda afiliados)
+
+Detalle completo en [19. Afiliados](19-afiliados.md), que es la fuente de verdad.
+
+| ID | Situación previa | Decisión |
+|---|---|---|
+| `D-AF-1` | `AD-007`/`AB-06`: "rol o perfil de afiliado", sin definir; `UserRole` sin `AFFILIATE` | **No es un rol.** Cualquier usuario autenticado puede serlo (Lender, Borrower, etc.); no toca `UserRole` ni el JWT |
+| `D-AF-2` | Se pensó un booleano en `User` | Perfil con estado (`AffiliateProfile.status`: `PENDING`/`APPROVED`/`REJECTED`/`SUSPENDED`/`INACTIVE`); `isAffiliate` es el booleano **calculado** (`status = APPROVED`) — un booleano suelto no puede expresar "pidió y espera aprobación" y se desincroniza |
+| `D-AF-3` | Sin definir quién autoriza | `AFFILIATE_APPROVAL_MODE=admin\|self`. `admin` (default): el Admin aprueba; `self`: el usuario se prende/apaga solo. El Admin siempre puede suspender |
+| `D-AF-4` | — | Código único e inmutable generado en la primera aprobación; link `{CORS_ORIGIN}/register?ref={code}`; `register` acepta `referralCode` y lo ignora en silencio si es inválido |
+| `D-AF-5` | — | Comisión **solo** al primer pago de suscripción (monto > 0) del referido, por lo tanto solo cuando se suscribe como Borrower; engancha con `onFirstSubscriptionPayment` ([18 §18.6](18-suscripciones.md)) |
+| `D-AF-6` | — | El Admin define la tarifa por afiliado (`PERCENT`/`FIXED`); el monto se guarda ya calculado con copia de la tarifa. Default de `.env` en `0` hasta que el negocio fije números |
+| `D-AF-7` | Stripe Connect bloqueado (`A-3`) | Pago **manual** del Admin (`mark-paid`); `payableAt` opcional por afiliado (`payoutDelayDays`) o por comisión; nada se paga solo. Stripe en etapa 2 sin cambiar la API |
+
 ---
 
 [← Índice del plan](README.md)  ·  [Siguiente: 1. Resumen de arquitectura propuesta](01-resumen-arquitectura.md)

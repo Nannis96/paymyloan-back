@@ -3,6 +3,7 @@ import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { accrueCommissionForSubscription } from "@/services/affiliates.service";
 import type {
   AdminCancelSubscriptionInput,
   AdminListSubscriptionsQuery,
@@ -181,8 +182,8 @@ export async function listMyPayments(userId: string, query: Pick<PaginationQuery
   return buildPaginatedResult(items, total, query);
 }
 
-// §18.6. Vacía hasta el módulo de afiliados (Docs/plan/19); nunca debe
-// revertir el pago, por eso se llama después de confirmarlo.
+// §18.6 → Docs/plan/19 §19.4. Se llama después de confirmar el pago y
+// accrueCommissionForSubscription nunca lanza, así que no puede revertirlo.
 export interface FirstSubscriptionPaymentEvent {
   userId: string;
   subscriptionId: string;
@@ -190,7 +191,7 @@ export interface FirstSubscriptionPaymentEvent {
   amountCents: number;
 }
 export async function onFirstSubscriptionPayment(event: FirstSubscriptionPaymentEvent): Promise<void> {
-  void event;
+  await accrueCommissionForSubscription(event);
 }
 
 // ---------------------------------------------------------------- Admin ---

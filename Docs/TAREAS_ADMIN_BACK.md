@@ -17,7 +17,7 @@ Front que las consume: `paymyloan/Docs/TAREAS_ADMIN_DASHBOARD.md`. `⛔` = decis
 
 ### Módulos sin backend (vistas placeholder)
 - [ ] **AB-05** *(suscripciones diseñadas en [plan/18](plan/18-suscripciones.md); `SubscriptionPayment` aporta la línea de suscripciones)* Revenue: `GET /api/admin/revenue` con el desglose mensual (closing fees ya sale de `overview`; falta suscripciones, interest share, net). ⛔ Bloqueado por Stripe Connect (`A-3`), `PB-019` y definiciones de negocio (riesgos #31/#32). (`AD-006`)
-- [ ] **AB-06** Affiliates: modelo + `GET/POST /api/admin/affiliates` (referidos, comisión, payouts). No existe en plan ni schema → ⛔ definir modelo primero. (`AD-007`)
+- [ ] **AB-06** *(diseñado en [plan/19](plan/19-afiliados.md): `AFF-01`..`AFF-08`, endpoints `/api/admin/affiliates/*`)* Affiliates: modelo + `GET/POST /api/admin/affiliates` (referidos, comisión, payouts). No existe en plan ni schema → ⛔ definir modelo primero. (`AD-007`)
 - [ ] **AB-07** Promo codes: modelo `PromoCode` + `GET/POST/PATCH/DELETE /api/admin/promo-codes`. Solo aparece en el sidebar → ⛔ definir qué descuenta (suscripción, closing fee). (`AD-009`)
 - [ ] **AB-08** Catalog: la vista tiene tabs, categoría, "pricing" y "status" → parece un catálogo de productos/planes. ⛔ definir qué es antes de modelarlo; si es el catálogo de planes de suscripción, depende de AB-05.
 - [ ] **AB-09** Settings de plataforma: `GET/PATCH /api/admin/settings` (PML fee, flags). ⛔ definir qué parámetros son editables por el Admin hoy hardcodeados/en `env`.

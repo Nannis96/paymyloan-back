@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/affiliates/:id/suspend
+  type: http
+  seq: 34
+}
+
+post {
+  url: {{baseUrl}}/api/admin/affiliates/{{affiliateId}}/suspend
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "reason": "Abuse" }
+}

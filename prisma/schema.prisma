@@ -265,6 +265,14 @@ model User {
 
   subscription Subscription? @relation("UserSubscription")
 
+  // Afiliados (Fase 21, Docs/plan/19-afiliados.md).
+  affiliateProfile             AffiliateProfile?     @relation("UserAffiliateProfile")
+  affiliatesApproved           AffiliateProfile[]    @relation("AffiliateApprovedBy")
+  referredByAffiliateId        String?               @db.Uuid
+  referredByAffiliate          AffiliateProfile?     @relation("AffiliateReferrals", fields: [referredByAffiliateId], references: [id], onDelete: SetNull)
+  affiliateCommissionsReferred AffiliateCommission[] @relation("AffiliateCommissionReferredUser")
+  affiliateCommissionsPaid     AffiliateCommission[] @relation("AffiliateCommissionPaidBy")
+  affiliateCommissionsVoided   AffiliateCommission[] @relation("AffiliateCommissionVoidedBy")
   subscriptionsGranted         SubscriptionPayment[] @relation("SubscriptionPaymentGrantedBy")
 
   paymentMethods         PaymentMethod[]
@@ -1403,7 +1411,110 @@ model SubscriptionPayment {
   paidAt    DateTime @default(now())
   createdAt DateTime @default(now())
 
+  affiliateCommission AffiliateCommission?
 
   @@index([subscriptionId, paidAt])
   @@map("subscription_payments")
+}
+
+// -----------------------------------------------------------------------------
+// Afiliados (Fase 21, AFF-01..08 — Docs/plan/19-afiliados.md, D-AF-1..7).
+// No es un rol: cualquier User puede tener un AffiliateProfile. `isAffiliate`
+// es calculado (status = APPROVED), no se guarda.
+// -----------------------------------------------------------------------------
+
+enum AffiliateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+  INACTIVE
+}
+
+enum AffiliateCommissionType {
+  PERCENT
+  FIXED
+}
+
+enum AffiliateCommissionSource {
+  SUBSCRIPTION
+  MANUAL
+}
+
+enum AffiliateCommissionStatus {
+  PENDING
+  PAID
+  VOID
+}
+
+model AffiliateProfile {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation("UserAffiliateProfile", fields: [userId], references: [id], onDelete: Cascade)
+
+  status AffiliateStatus @default(PENDING)
+  code   String?         @unique // se genera en la primera aprobación y no cambia
+
+  // Nulos ⇒ rigen los defaults de env (AFFILIATE_DEFAULT_*).
+  commissionType  AffiliateCommissionType?
+  commissionValue Decimal?                 @db.Decimal(10, 2) // PERCENT 0-100; FIXED en dólares
+  payoutDelayDays Int?
+
+  statusReason String?
+
+  approvedById String?   @db.Uuid
+  approvedBy   User?     @relation("AffiliateApprovedBy", fields: [approvedById], references: [id])
+  approvedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  referrals   User[]                @relation("AffiliateReferrals")
+  commissions AffiliateCommission[]
+
+  @@index([status])
+  @@map("affiliate_profiles")
+}
+
+// Los montos se guardan ya calculados y nunca se recalculan.
+model AffiliateCommission {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  affiliateId String           @db.Uuid
+  affiliate   AffiliateProfile @relation(fields: [affiliateId], references: [id])
+
+  referredUserId String? @db.Uuid // nulo solo en ajustes manuales
+  referredUser   User?   @relation("AffiliateCommissionReferredUser", fields: [referredUserId], references: [id], onDelete: SetNull)
+
+  subscriptionPaymentId String?              @unique @db.Uuid // idempotencia: un pago, una comisión
+  subscriptionPayment   SubscriptionPayment? @relation(fields: [subscriptionPaymentId], references: [id], onDelete: SetNull)
+
+  source AffiliateCommissionSource
+
+  baseAmountCents Int?
+  commissionType  AffiliateCommissionType?
+  commissionValue Decimal?                 @db.Decimal(10, 2)
+
+  amountCents Int
+  currency    String
+
+  status    AffiliateCommissionStatus @default(PENDING)
+  payableAt DateTime
+
+  paidAt           DateTime?
+  paidById         String?   @db.Uuid
+  paidBy           User?     @relation("AffiliateCommissionPaidBy", fields: [paidById], references: [id])
+  paymentReference String?
+
+  voidedAt   DateTime?
+  voidedById String?   @db.Uuid
+  voidedBy   User?     @relation("AffiliateCommissionVoidedBy", fields: [voidedById], references: [id])
+  note       String?
+
+  createdAt DateTime @default(now())
+
+  @@index([affiliateId, status])
+  @@index([status, payableAt])
+  @@map("affiliate_commissions")
 }
