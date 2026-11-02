@@ -22,8 +22,12 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
     const result = await lenderBorrowersService.createBorrower(lenderUser.id, { name: "Nuevo Borrower", email });
     expect(result.emailSent).toBe(true);
     expect(result).not.toHaveProperty("temporaryPassword");
-    expect(result.borrower.user.isActive).toBe(true);
-    expect(result.borrower.user.mustChangePassword).toBe(true);
+    expect(Object.keys(result.borrower.user).sort()).toEqual(["email", "id", "name", "phone"]); // solo lo que el Lender cargó
+    const dbUser = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(dbUser.isActive).toBe(true);
+    expect(dbUser.mustChangePassword).toBe(true);
+    const seen = await lenderBorrowersService.listBorrowers(lenderUser.id, { page: 1, pageSize: 20 });
+    expect(seen.items.map((b) => b.id)).toContain(result.borrower.id); // el creador lo ve sin vínculo
     expect(result.borrower.lenderCompanies).toEqual([]);
     expect(await prisma.lenderBorrower.count({ where: { borrowerProfileId: result.borrower.id } })).toBe(0);
 

@@ -9,9 +9,12 @@ import { type SafeUser, toSafeUser } from "@/services/users.service";
 import type { CreateBorrowerInput, ListBorrowersQuery, UpdateBorrowerProfileInput } from "@/validations/borrowers.validation";
 import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagination";
 
+/** Lo único que el Lender aportó al crear al Borrower; es todo lo que ve de uno que creó y aún no está vinculado a sus empresas. */
+export type BorrowerContact = Pick<SafeUser, "id" | "name" | "email" | "phone">;
+
 export interface BorrowerListItem {
   id: string;
-  user: SafeUser;
+  user: SafeUser | BorrowerContact;
   addressLine1: string | null;
   city: string | null;
   state: string | null;
@@ -39,6 +42,11 @@ async function requireOwnedLenderCompanies(userId: string): Promise<OwnedLenderC
   return profile.lenderCompanies;
 }
 
+// Ve al Borrower si está vinculado a alguna de sus empresas o si lo creó él.
+function visibleToLender(userId: string, companyIds: string[]): Prisma.BorrowerProfileWhereInput {
+  return { OR: [{ createdByUserId: userId }, { lenders: { some: { lenderCompanyId: { in: companyIds }, status: "ACTIVE" } } }] };
+}
+
 type BorrowerProfileWithRelations = BorrowerProfile & {
   user: User;
   lenders: { lenderCompany: { id: string; companyName: string } }[];
@@ -46,9 +54,11 @@ type BorrowerProfileWithRelations = BorrowerProfile & {
 
 function mapBorrowerListItem(profile: BorrowerProfileWithRelations): BorrowerListItem {
   const { id, addressLine1, city, state, postalCode } = profile;
+  const { name, email, phone } = profile.user;
   return {
     id,
-    user: toSafeUser(profile.user),
+    // Sin vínculo (Borrower abierto que este Lender creó): solo lo que él mismo cargó.
+    user: profile.lenders.length > 0 ? toSafeUser(profile.user) : { id: profile.user.id, name, email, phone },
     addressLine1,
     city,
     state,
@@ -92,14 +102,8 @@ export async function createBorrower(userId: string, input: CreateBorrowerInput)
 // BE-046.
 export async function listBorrowers(userId: string, query: ListBorrowersQuery): Promise<PaginatedResult<BorrowerListItem>> {
   const companyIds = (await requireOwnedLenderCompanies(userId)).map((company) => company.id);
-  if (companyIds.length === 0) {
-    return buildPaginatedResult([], 0, query);
-  }
 
-  const where: Prisma.BorrowerProfileWhereInput = {
-    deletedAt: null,
-    lenders: { some: { lenderCompanyId: { in: companyIds }, status: "ACTIVE" } },
-  };
+  const where: Prisma.BorrowerProfileWhereInput = { deletedAt: null, AND: [visibleToLender(userId, companyIds)] };
   if (query.search) {
     where.user = {
       OR: [
@@ -131,15 +135,15 @@ export async function listBorrowers(userId: string, query: ListBorrowersQuery): 
 export async function getBorrowerForLender(userId: string, borrowerProfileId: string): Promise<BorrowerListItem> {
   const companyIds = (await requireOwnedLenderCompanies(userId)).map((company) => company.id);
 
-  const profile = await prisma.borrowerProfile.findUnique({
-    where: { id: borrowerProfileId },
+  const profile = await prisma.borrowerProfile.findFirst({
+    where: { id: borrowerProfileId, ...visibleToLender(userId, companyIds) },
     include: {
       user: true,
       lenders: { where: { lenderCompanyId: { in: companyIds }, status: "ACTIVE" }, include: { lenderCompany: { select: { id: true, companyName: true } } } },
     },
   });
 
-  if (!profile || profile.deletedAt || profile.lenders.length === 0) {
+  if (!profile || profile.deletedAt) {
     throw new AppError("Borrower not found", 404, "NOT_FOUND");
   }
 
