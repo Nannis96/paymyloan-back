@@ -113,8 +113,10 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
     expect(link.removedAt).not.toBeNull();
     expect(link.status).toBe("REMOVED");
 
-    const error = await lenderBorrowersService.getBorrowerForLender(lenderUser.id, created.borrower.id).catch((e) => e);
-    expect(error).toBeInstanceOf(AppError);
+    // Lo creó este Lender, así que lo sigue viendo, pero ya sin vínculo: solo datos de contacto.
+    const after = await lenderBorrowersService.getBorrowerForLender(lenderUser.id, created.borrower.id);
+    expect(after.lenderCompanies).toEqual([]);
+    expect(Object.keys(after.user).sort()).toEqual(["email", "id", "name", "phone"]);
   });
 
   it("removeBorrower bloqueado (409) si tiene un contrato ACTIVE/DELINQUENT con esa empresa", async () => {

@@ -153,6 +153,8 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
     const getAfterRemoveResponse = await getBorrowerByIdRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: ownerAuth }), {
       params: Promise.resolve({ id: borrowerId }),
     });
-    expect(getAfterRemoveResponse.status).toBe(404);
+    // Lo creó este Lender: sigue visible tras desvincular, sin empresas.
+    expect(getAfterRemoveResponse.status).toBe(200);
+    expect((await getAfterRemoveResponse.json()).data.lenderCompanies).toEqual([]);
   });
 });
