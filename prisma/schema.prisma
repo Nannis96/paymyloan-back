@@ -263,6 +263,10 @@ model User {
 
   notifications Notification[] @relation("UserNotifications")
 
+  subscription Subscription? @relation("UserSubscription")
+
+  subscriptionsGranted         SubscriptionPayment[] @relation("SubscriptionPaymentGrantedBy")
+
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
   refreshTokens          RefreshToken[]
@@ -1322,4 +1326,84 @@ model TwoFactorRecoveryCode {
   createdAt DateTime @default(now())
 
   @@map("two_factor_recovery_codes")
+}
+
+// -----------------------------------------------------------------------------
+// Suscripciones (Fase 20, SU-01..07 — Docs/plan/18-suscripciones.md, D-SU-1..7).
+// Una por User con BorrowerProfile. `EXPIRED` no se persiste: se deriva de
+// trialEndsAt/currentPeriodEnd al leer (subscription.service.ts#hasAccess).
+// -----------------------------------------------------------------------------
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  CANCELLED
+}
+
+enum SubscriptionPaymentStatus {
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum SubscriptionPaymentSource {
+  SIMULATED
+  ADMIN_GRANT
+  STRIPE
+}
+
+model Subscription {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  userId String @unique @db.Uuid
+  user   User   @relation("UserSubscription", fields: [userId], references: [id], onDelete: Cascade)
+
+  status     SubscriptionStatus @default(TRIALING)
+  priceCents Int // precio vigente al crearse; el cobro real usa SubscriptionPayment.amountCents
+
+  trialEndsAt        DateTime
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  cancelledAt        DateTime?
+
+  // Reservados para la etapa 2 (Stripe) — vacíos mientras BILLING_MODE=simulated.
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments SubscriptionPayment[]
+
+  @@map("subscriptions")
+}
+
+// Solo inserción (como AuditLog): un registro por cobro o grant.
+model SubscriptionPayment {
+  id String @id @default(dbgenerated("uuidv7()")) @db.Uuid
+
+  subscriptionId String       @db.Uuid
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  amountCents    Int // 0 para ADMIN_GRANT
+  currency       String
+  status         SubscriptionPaymentStatus
+  source         SubscriptionPaymentSource
+  isFirstPayment Boolean                   @default(false) // dispara la comisión de afiliado
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  grantedById String? @db.Uuid
+  grantedBy   User?   @relation("SubscriptionPaymentGrantedBy", fields: [grantedById], references: [id])
+  reason      String?
+
+  stripeInvoiceId String?
+
+  paidAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+
+  @@index([subscriptionId, paidAt])
+  @@map("subscription_payments")
 }

@@ -156,6 +156,12 @@ EMAIL_API_KEY=
 EMAIL_FROM=servicing@paymyloan.ai
 
 # nuevas — Stripe (pendiente de decisión Connect, ver sección 15)
+# Suscripciones (docs/plan/18)
+SUBSCRIPTION_PRICE_CENTS=900
+SUBSCRIPTION_TRIAL_DAYS=7
+SUBSCRIPTION_CURRENCY=usd
+BILLING_MODE=simulated
+
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PUBLISHABLE_KEY=

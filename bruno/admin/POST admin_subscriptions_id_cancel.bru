@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/subscriptions/:id/cancel
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseUrl}}/api/admin/subscriptions/{{subscriptionId}}/cancel
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "immediate": false }
+}

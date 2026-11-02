@@ -156,7 +156,7 @@ esta tabla dice en qué documento vive cada uno.
 | [PB-026](fase-13-rating-loan-requests.md#pb-026--tabla-loanquote-y-endpoints-de-cotización-nuevo-d-s2-21) | Tabla `LoanQuote` y endpoints de cotización (nuevo, `D-S2-21`) | P0 | M |
 | [PB-017](fase-13-rating-loan-requests.md#pb-017--selección-de-cotización-y-conversión-a-contract-reescrito-2026-09-11-d-s2-21) | Selección de cotización y conversión a `Contract` (reescrito 2026-09-11, `D-S2-21`) | P0 | L |
 | [PB-018](fase-13-rating-loan-requests.md#pb-018--borrowerapplication-vetting-99--endpoints) | `BorrowerApplication` (vetting, $99) + endpoints | P1 | L |
-| [PB-019](fase-13-rating-loan-requests.md#pb-019--borrowersubscription-9mes-trial-7-días--endpoints) | `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints | P2 | M |
+| [PB-019](fase-13-rating-loan-requests.md#pb-019--borrowersubscription-9mes-trial-7-días--endpoints) | ⚠️ Reemplazado por [18. Suscripciones](../18-suscripciones.md) (`SU-01`..`SU-07`) — `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints | P2 | M |
 | [PB-010](fase-14-dashboards-ratings.md#pb-010--get-apilendersidstats) | `GET /api/lenders/:id/stats` | P1 | M |
 | [PB-023](fase-14-dashboards-ratings.md#pb-023--lenderreview-el-deudor-califica-al-prestamista) | `LenderReview` (el Deudor califica al Prestamista) | P2 | M |
 | [PB-024](fase-14-dashboards-ratings.md#pb-024--dashboards-de-borrower-y-lender) | Dashboards de Borrower y Lender | P1 | L |

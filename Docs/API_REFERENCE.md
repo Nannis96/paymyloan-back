@@ -26,6 +26,7 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Prestamistas y Deudores — autoservicio](#prestamistas-y-deudores--autoservicio)
 - [Contratos](#contratos-srcappapicontracts)
 - [Pagos](#pagos-srcappapicontractsidpayments-srcappapitransactions)
+- [Suscripciones](#suscripciones-srcappapisubscription-srcappapiadminsubscriptions)
 - [Auditoría](#auditoría-srcappapiaudit-logs)
 - [Admin — Overview](#admin--overview-srcappapiadminoverview)
 - [Verificación de entidad](#verificación-de-entidad-srcappapiadminverificationsborrowersmeverificationlendersmecompaniescompanyidverification)
@@ -91,6 +92,10 @@ Fuente única: `src/config/env.ts` (`.env.example` documenta lo mismo con coment
 | `EMAIL_FROM` | `servicing@paymyloan.ai` | `src/lib/email.ts` | Remitente en los correos enviados vía Resend |
 | `RATE_LIMIT_LOGIN_MAX` | `5` | `login`, `login/2fa`, `password/forgot` | Intentos permitidos por ventana, por bucket+IP |
 | `RATE_LIMIT_LOGIN_WINDOW_MS` | `900000` (15 min) | idem | Duración de la ventana |
+| `SUBSCRIPTION_PRICE_CENTS` | `900` | `subscription.service.ts` | Precio mensual de la suscripción del Borrower, en centavos. Cambiarlo = editar y redesplegar; afecta solo cobros futuros ([plan/18](plan/18-suscripciones.md)) |
+| `SUBSCRIPTION_TRIAL_DAYS` | `7` | idem | Días de trial al crear la suscripción (`0` = vencida desde el inicio) |
+| `SUBSCRIPTION_CURRENCY` | `usd` | idem | Moneda guardada en cada pago |
+| `BILLING_MODE` | `simulated` | `subscription.service.ts#payMySubscription` | `simulated` registra el pago sin pasarela; `stripe` (etapa 2) hace que `pay` responda `409 BILLING_NOT_SIMULATED` |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PUBLISHABLE_KEY` | *(vacío)* | *(sin uso todavía)* | Reservadas para Fase 7 (Pagos) — bloqueadas por la decisión Stripe Connect vs. cuenta única |
 | `S3_BUCKET` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | *(vacío)* | *(sin uso todavía)* | Reservadas para Fase 11 (Documentos) |
 
@@ -1316,6 +1321,60 @@ Revierte `ScheduledPayment.amountPaid`/`status` de las filas que ese pago había
 
 ---
 
+## Suscripciones (`src/app/api/subscription/`, `src/app/api/admin/subscriptions/`)
+
+Fase 20 — diseño completo y reglas en [plan/18-suscripciones.md](plan/18-suscripciones.md) (`D-SU-1`..`D-SU-7`). Solo los usuarios con `BorrowerProfile` tienen suscripción (un Lender dual también, tras `become-borrower`). **Cobro simulado** (etapa 1): Stripe llega en la etapa 2 sin cambiar estas rutas.
+
+**Estado efectivo**: `TRIALING` / `ACTIVE` / `CANCELLED` (cancelada pero con acceso) / `EXPIRED` (derivado: sin trial ni periodo vigente). `hasAccess` = trial vigente o periodo pagado vigente.
+
+**Gate `403 SUBSCRIPTION_REQUIRED`**: sin `hasAccess`, el Borrower no puede iniciar un préstamo nuevo — `POST`/`publish` de `/api/borrowers/me/loan-requests`, `.../quotes/:quoteId/select` y `POST /api/contracts/:id/terms/:termsId/accept` **cuando el contrato está en `PENDING_ACCEPTANCE`** (las enmiendas de un préstamo ya activo no se bloquean). Pagos, payoff, lecturas, mensajería y `/api/subscription/*` nunca se bloquean.
+
+### `GET /api/subscription/me`
+
+- **Auth**: Autenticado, rol `BORROWER` (sin 2FA). Crea la suscripción si el Borrower aún no la tenía.
+- **Response `200`**: `{ id, status, hasAccess, daysLeftInTrial, trialEndsAt, currentPeriodEnd, cancelledAt, priceCents, currency, billingMode }`.
+- **Errores**: `401`/`403` · `404 SUBSCRIPTION_NOT_FOUND` (el usuario no tiene `BorrowerProfile`).
+
+### `POST /api/subscription/me/pay`
+
+Cobro simulado: inserta un `SubscriptionPayment` (`SIMULATED`, `SUCCEEDED`, monto `SUBSCRIPTION_PRICE_CENTS`), deja la suscripción `ACTIVE` y extiende un mes desde el fin del periodo/trial vigente (no se pierden días). El primer pago con monto > 0 lleva `isFirstPayment=true` (dispara la comisión de afiliado cuando exista el módulo).
+
+- **Response `201`**: `{ subscription: { ...GET /me }, payment: { id, amountCents, currency, status, source, isFirstPayment, periodStart, periodEnd, paidAt } }`.
+- **Errores**: `401`/`403` · `404 SUBSCRIPTION_NOT_FOUND` · `409 BILLING_NOT_SIMULATED`.
+
+### `POST /api/subscription/me/cancel`
+
+Marca `CANCELLED`; el acceso sigue hasta el fin del periodo/trial. Pagar de nuevo la reactiva.
+
+- **Response `200`**: la suscripción (misma forma que `GET /me`).
+- **Errores**: `401`/`403` · `404 SUBSCRIPTION_NOT_FOUND` · `409 SUBSCRIPTION_ALREADY_CANCELLED`.
+
+### `GET /api/subscription/me/payments`
+
+- **Query**: `page` (1), `pageSize` (20, máx. 100). **Response `200`**: `{ items: SubscriptionPayment[], page, pageSize, total, totalPages }`, más reciente primero.
+
+### `GET /api/admin/subscriptions`
+
+- **Auth**: `ADMIN` + 2FA (`D-P3-1`). **Query**: `status` (`TRIALING`/`ACTIVE`/`CANCELLED`/`EXPIRED`, efectivo), `search` (nombre o correo), `page`, `pageSize`.
+- **Response `200`**: paginado de `{ id, user: { id, name, email }, status, hasAccess, trialEndsAt, currentPeriodEnd, lastPaymentAt, priceCents }`.
+
+### `GET /api/admin/subscriptions/:id`
+
+- **Response `200`**: la suscripción (forma de `GET /me`) + `user` + `payments[]`. **Errores**: `400 VALIDATION_ERROR` (id) · `404 SUBSCRIPTION_NOT_FOUND`.
+
+### `POST /api/admin/subscriptions/:id/grant`
+
+- **Request body**: `{ "days": 30, "reason": "Cortesía" }` (`days` entero 1–365, `reason` obligatorio).
+- Extiende el acceso `days` días desde el fin vigente, deja `ACTIVE` e inserta un pago `ADMIN_GRANT` de monto `0` (nunca dispara comisión).
+- **Response `201`**: `{ subscription, payment }`. **Errores**: `400 VALIDATION_ERROR` · `404 SUBSCRIPTION_NOT_FOUND`.
+
+### `POST /api/admin/subscriptions/:id/cancel`
+
+- **Request body**: `{ "immediate": false }` (opcional, default `false`). Con `true` corta el acceso ya (`trialEndsAt` y `currentPeriodEnd` = ahora).
+- **Response `200`**: la suscripción. **Errores**: `404 SUBSCRIPTION_NOT_FOUND` · `409 SUBSCRIPTION_ALREADY_CANCELLED` (sin `immediate`).
+
+---
+
 ## Auditoría (`src/app/api/audit-logs`)
 
 ### `GET /api/audit-logs`
@@ -1727,6 +1786,10 @@ Todas las cotizaciones recibidas (cualquier `status`), para comparar.
 | `code` | HTTP | Cuándo |
 |---|---|---|
 | `INVALID_JSON` | 400 | El body no es JSON válido |
+| `SUBSCRIPTION_REQUIRED` | 403 | El Borrower no tiene trial ni periodo pagado vigente y quiso iniciar un préstamo nuevo (ver [Suscripciones](#suscripciones-srcappapisubscription-srcappapiadminsubscriptions)) |
+| `SUBSCRIPTION_NOT_FOUND` | 404 | Suscripción inexistente, o el usuario no tiene `BorrowerProfile` |
+| `SUBSCRIPTION_ALREADY_CANCELLED` | 409 | Cancelar una suscripción ya cancelada |
+| `BILLING_NOT_SIMULATED` | 409 | `POST /api/subscription/me/pay` con `BILLING_MODE≠simulated` |
 | `VALIDATION_ERROR` | 400 | El body no cumple el schema Zod del endpoint (primer error de validación) |
 | `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/marketplace/loan-requests/:id/quotes`, `POST /api/lenders/me/messages` y `GET /api/lenders/me/messages/threads/:borrowerProfileId` (Fase 17), y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
 | `INVALID_TOKEN` | 400 o 401 | Refresh token / pending token / access token / token de reset: inválido, manipulado o expirado. `password/reset` usa 400 (es un dato del body); el resto usa 401 |

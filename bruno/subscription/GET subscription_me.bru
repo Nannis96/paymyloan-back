@@ -1,0 +1,11 @@
+meta {
+  name: GET /subscription/me
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/subscription/me
+  body: none
+  auth: inherit
+}

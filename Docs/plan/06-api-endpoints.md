@@ -236,6 +236,22 @@ Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` `ACTIVE`
 
 Fuera de alcance en v1: adjuntos (sin `Document`/S3 todavía), tiempo real (REST + polling del cliente alcanza al volumen actual), notificaciones por email (depende de `Notification`/`PB-022`, Fase 11), Bookkeeper/Admin/Insurance Company como participantes, hilos grupales entre co-deudores.
 
+## 6.19 Suscripciones (nuevo, 2026-11-02, [18](18-suscripciones.md), Fase 20)
+
+Detalle de request/response y errores en [18 §18.7](18-suscripciones.md#187-api).
+
+| Método | Ruta | Rol |
+|---|---|---|
+| GET | `/api/subscription/me` | usuario con `BorrowerProfile` |
+| POST | `/api/subscription/me/pay` | idem (cobro simulado, `BILLING_MODE=simulated`) |
+| POST | `/api/subscription/me/cancel` | idem |
+| GET | `/api/subscription/me/payments` | idem |
+| GET | `/api/admin/subscriptions` | ADMIN |
+| GET | `/api/admin/subscriptions/:id` | ADMIN |
+| POST | `/api/admin/subscriptions/:id/grant` | ADMIN |
+| POST | `/api/admin/subscriptions/:id/cancel` | ADMIN |
+| POST | `/api/webhooks/stripe` | *(etapa 2)* |
+
 ---
 
 [← Índice del plan](README.md)  ·  [Anterior: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)  ·  [Siguiente: 7. Autenticación y autorización](07-autenticacion-y-autorizacion.md)

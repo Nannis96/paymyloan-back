@@ -1,0 +1,11 @@
+meta {
+  name: GET /admin/subscriptions/:id
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/api/admin/subscriptions/{{subscriptionId}}
+  body: none
+  auth: inherit
+}

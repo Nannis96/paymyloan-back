@@ -81,4 +81,10 @@ export const env = {
   // Rate limiting (BE-005)
   rateLimitLoginMax: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? 5),
   rateLimitLoginWindowMs: Number(process.env.RATE_LIMIT_LOGIN_WINDOW_MS ?? 900_000),
+
+  // Suscripciones (Fase 20, Docs/plan/18-suscripciones.md §18.2).
+  subscriptionPriceCents: Number(process.env.SUBSCRIPTION_PRICE_CENTS ?? 900),
+  subscriptionTrialDays: Number(process.env.SUBSCRIPTION_TRIAL_DAYS ?? 7),
+  subscriptionCurrency: process.env.SUBSCRIPTION_CURRENCY ?? "usd",
+  billingMode: process.env.BILLING_MODE === "stripe" ? "stripe" : "simulated",
 } as const;

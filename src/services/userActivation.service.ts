@@ -4,6 +4,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { sendEmail } from "@/lib/email";
+import { ensureSubscriptionIfBorrower } from "@/services/subscription.service";
 
 export interface IssueTemporaryPasswordResult {
   temporaryPassword: string;
@@ -98,6 +99,8 @@ export async function activateUserAccount(id: string, actorUserId: string): Prom
   } else {
     await prisma.user.update({ where: { id }, data: { isActive: true } });
   }
+
+  await ensureSubscriptionIfBorrower(id);
 
   await logAuditEvent({
     action: "USER_ACTIVATED",

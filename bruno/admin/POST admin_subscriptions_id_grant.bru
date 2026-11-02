@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/subscriptions/:id/grant
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/api/admin/subscriptions/{{subscriptionId}}/grant
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "days": 30, "reason": "Cortesía" }
+}
