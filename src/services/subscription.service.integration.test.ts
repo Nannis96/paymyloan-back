@@ -80,11 +80,17 @@ describe("subscription.service (Fase 20, Docs/plan/18)", () => {
     }
   });
 
+  it("cancelar en trial sin pagar: sin días gratis, sin acceso", async () => {
+    const { user } = await createTestBorrower();
+    const cancelled = await subscriptionService.cancelMySubscription(user.id);
+    expect(cancelled).toMatchObject({ status: "EXPIRED", hasAccess: false, daysLeftInTrial: 0 });
+  });
+
   it("cancelar conserva el acceso; cancelar dos veces → 409; pagar reactiva", async () => {
     const { user } = await createTestBorrower();
     await subscriptionService.payMySubscription(user.id);
     const cancelled = await subscriptionService.cancelMySubscription(user.id);
-    expect(cancelled).toMatchObject({ status: "CANCELLED", hasAccess: true });
+    expect(cancelled).toMatchObject({ status: "CANCELLED", hasAccess: true, daysLeftInTrial: 0 });
     await expectCode(subscriptionService.cancelMySubscription(user.id), "SUBSCRIPTION_ALREADY_CANCELLED");
 
     const paid = await subscriptionService.payMySubscription(user.id);

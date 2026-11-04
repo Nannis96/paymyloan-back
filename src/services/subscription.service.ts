@@ -170,9 +170,10 @@ export async function cancelMySubscription(userId: string): Promise<Subscription
   if (sub.status === "CANCELLED") {
     throw new AppError("Subscription is already cancelled", 409, "SUBSCRIPTION_ALREADY_CANCELLED");
   }
-  const updated = await prisma.subscription.update({ where: { id: sub.id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+  const now = new Date();
+  const updated = await prisma.subscription.update({ where: { id: sub.id }, data: { status: "CANCELLED", cancelledAt: now, ...(sub.trialEndsAt > now ? { trialEndsAt: now } : {}) } }); // cancelar quema los días de trial; el periodo ya pagado se conserva
   await logAuditEvent({ action: "SUBSCRIPTION_CANCELLED", entityType: "Subscription", entityId: sub.id, actorUserId: userId });
-  return toView(updated);
+  return toView(updated, now);
 }
 
 export async function listMyPayments(userId: string, query: Pick<PaginationQuery, "page" | "pageSize">): Promise<PaginatedResult<SubscriptionPayment>> {
