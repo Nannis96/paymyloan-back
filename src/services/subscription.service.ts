@@ -68,7 +68,7 @@ function toView(sub: Subscription, now = new Date()): SubscriptionView {
     trialEndsAt: sub.trialEndsAt,
     currentPeriodEnd: sub.currentPeriodEnd,
     cancelledAt: sub.cancelledAt,
-    priceCents: sub.priceCents,
+    priceCents: env.subscriptionPriceCents, // precio vigente (lo que se cobra), no el guardado al crear la fila
     currency: env.subscriptionCurrency,
     billingMode: env.billingMode,
   };
