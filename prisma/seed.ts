@@ -2,6 +2,7 @@ import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 import { DEV_PASSWORD, DEV_TOTP_SECRET } from "./seeds/ctx";
 import { seedContracts } from "./seeds/contracts";
+import { seedAffiliates } from "./seeds/affiliates";
 import { seedExtras } from "./seeds/extras";
 import { seedIdentity } from "./seeds/identity";
 import { seedMarketplace } from "./seeds/marketplace";
@@ -23,6 +24,7 @@ async function main() {
   await seedContracts(ctx);
   await seedPayments(ctx);
   await seedExtras(ctx);
+  await seedAffiliates();
 
   const counts = {
     users: await prisma.user.count(), contracts: await prisma.contract.count(), loanRequests: await prisma.loanRequest.count(),
