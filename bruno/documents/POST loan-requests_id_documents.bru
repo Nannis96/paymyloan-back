@@ -1,0 +1,20 @@
+meta {
+  name: POST /loan-requests/:id/documents
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/loan-requests/:id/documents
+  body: multipartForm
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+}
+
+body:multipart-form {
+  files: @file()
+  files: @file()
+}

@@ -261,7 +261,8 @@ model User {
 
   reviewsWritten Review[] @relation("ReviewAuthor")
 
-  notifications Notification[] @relation("UserNotifications")
+  notifications     Notification[] @relation("UserNotifications")
+  documentsUploaded Document[]     @relation("DocumentUploadedBy")
 
   paymentMethods         PaymentMethod[]
   auditLogs              AuditLog[]              @relation("AuditLogActor")
@@ -592,6 +593,7 @@ model Contract {
   transactions      Transaction[]
   autopays          Autopay[]
   auditLogs         AuditLog[]
+  documents         Document[]
 
   @@index([lenderCompanyId, status])
   @@index([lenderCompanyId, createdAt])
@@ -797,9 +799,10 @@ model LoanRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  targets  LoanRequestLenderTarget[]
-  quotes   LoanQuote[]
-  contract Contract?
+  targets   LoanRequestLenderTarget[]
+  quotes    LoanQuote[]
+  documents Document[]
+  contract  Contract?
 
   @@index([borrowerProfileId])
   @@index([visibility, status])
@@ -1322,4 +1325,40 @@ model TwoFactorRecoveryCode {
   createdAt DateTime @default(now())
 
   @@map("two_factor_recovery_codes")
+}
+
+// -----------------------------------------------------------------------------
+// Documentos (Fase 11, PB-002) — archivos cifrados en S3 (src/lib/documentCrypto.ts).
+// Cada archivo se cifra con su propia clave AES-256-GCM; esa clave se guarda
+// acá envuelta con DOCUMENTS_MASTER_KEY. Borrar la fila deja el objeto de S3
+// ilegible aunque quede una copia (versioning). Exactamente uno de
+// contractId/loanRequestId — CHECK en la migración. Sin borrado lógico: el
+// DELETE borra S3 + fila; queda el rastro en AuditLog.
+// -----------------------------------------------------------------------------
+model Document {
+  id String @id @db.Uuid
+
+  contractId String?   @db.Uuid
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: Restrict)
+
+  loanRequestId String?      @db.Uuid
+  loanRequest   LoanRequest? @relation(fields: [loanRequestId], references: [id], onDelete: Restrict)
+
+  originalFileName String @db.VarChar(255)
+  mimeType         String
+  sizeBytes        Int
+
+  s3Key      String @unique
+  wrappedKey Bytes
+  iv         Bytes
+  authTag    Bytes
+
+  uploadedByUserId String @db.Uuid
+  uploadedByUser   User   @relation("DocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([contractId, createdAt])
+  @@index([loanRequestId, createdAt])
+  @@map("documents")
 }

@@ -78,6 +78,9 @@ export type AuditAction =
   | "TRANSACTION_RETURNED"
   | "PAYMENT_METHOD_ADDED"
   | "PAYMENT_METHOD_REMOVED"
+  // Documentos (PB-002)
+  | "DOCUMENT_UPLOADED"
+  | "DOCUMENT_DELETED"
   // Acceso
   | "ACCESS_DENIED";
 

@@ -1,0 +1,20 @@
+meta {
+  name: POST /contracts/:id/documents
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/:id/documents
+  body: multipartForm
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:multipart-form {
+  files: @file()
+  files: @file()
+}

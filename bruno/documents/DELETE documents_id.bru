@@ -1,0 +1,15 @@
+meta {
+  name: DELETE /documents/:id
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/api/documents/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{documentId}}
+}

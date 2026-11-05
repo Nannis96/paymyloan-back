@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   // node_modules completo (ver Dockerfile, stage "runner").
   output: "standalone",
   poweredByHeader: false,
+  experimental: {
+    // src/proxy.ts corre sobre todo /api/* y Next 16 corta ahí el body a
+    // 10 MB por default. Subida de documentos (PB-002): hasta 10 archivos de
+    // 10 MB + overhead de multipart.
+    proxyClientMaxBodySize: "105mb",
+  },
   // El motor nativo de Prisma se carga con una ruta armada en runtime, no
   // con un import estático, así que el tracing automático de "standalone"
   // no siempre lo detecta. Se fuerza acá para que la imagen de producción

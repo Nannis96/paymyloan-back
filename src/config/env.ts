@@ -11,7 +11,7 @@ import { PHASE_PRODUCTION_BUILD } from "next/constants";
 // inseguros para no bloquear el flujo local (nunca llegan a producción,
 // justamente porque ahí sí se exige el valor real).
 
-export const REQUIRED_IN_PRODUCTION = ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "DATABASE_URL"] as const;
+export const REQUIRED_IN_PRODUCTION = ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET", "DATABASE_URL", "DOCUMENTS_MASTER_KEY"] as const;
 
 export function assertRequiredInProduction(source: NodeJS.ProcessEnv): void {
   if (source.NODE_ENV !== "production") return;
@@ -81,4 +81,11 @@ export const env = {
   // Rate limiting (BE-005)
   rateLimitLoginMax: Number(process.env.RATE_LIMIT_LOGIN_MAX ?? 5),
   rateLimitLoginWindowMs: Number(process.env.RATE_LIMIT_LOGIN_WINDOW_MS ?? 900_000),
+
+  // Documentos cifrados en S3 (PB-002). Credenciales de AWS: cadena estándar
+  // del SDK (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY o rol IAM), no pasan por acá.
+  awsRegion: process.env.AWS_REGION ?? "us-east-2",
+  s3Bucket: process.env.S3_BUCKET ?? "paymyloan-bucket",
+  // 32 bytes en base64. Placeholder de dev = "dev-insecure-documents-key-32byt".
+  documentsMasterKey: readSecret("DOCUMENTS_MASTER_KEY", "ZGV2LWluc2VjdXJlLWRvY3VtZW50cy1rZXktMzJieXQ="),
 } as const;

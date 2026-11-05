@@ -17,13 +17,14 @@ describe("assertRequiredInProduction (BE-002)", () => {
     ).toThrow(/JWT_REFRESH_SECRET/);
   });
 
-  it("no lanza en producción si están las tres obligatorias", () => {
+  it("no lanza en producción si están todas las obligatorias", () => {
     expect(() =>
       assertRequiredInProduction({
         NODE_ENV: "production",
         JWT_ACCESS_SECRET: "x",
         JWT_REFRESH_SECRET: "y",
         DATABASE_URL: "postgresql://...",
+        DOCUMENTS_MASTER_KEY: "z",
       }),
     ).not.toThrow();
   });

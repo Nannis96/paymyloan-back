@@ -24,6 +24,11 @@ const contractInclude = {
   property: true,
   currentTerms: { include: { feeItems: true } },
   borrowers: { where: { removedAt: null } },
+  // De qué LoanRequest nació (null si originationSource=DIRECT). Sus
+  // documentos/fotos: GET /api/loan-requests/:id/documents.
+  loanRequest: {
+    select: { id: true, status: true, projectType: true, totalLoanAmountRequested: true, requestedClosingDate: true, createdAt: true },
+  },
 } satisfies Prisma.ContractInclude;
 
 export type ContractDetail = Prisma.ContractGetPayload<{ include: typeof contractInclude }>;
