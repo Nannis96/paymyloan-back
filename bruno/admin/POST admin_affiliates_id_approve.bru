@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/affiliates/:id/approve
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{baseUrl}}/api/admin/affiliates/{{affiliateId}}/approve
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "commissionType": "PERCENT", "commissionValue": 10, "payoutDelayDays": 7 }
+}

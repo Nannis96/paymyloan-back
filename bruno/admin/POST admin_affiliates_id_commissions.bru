@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/affiliates/:id/commissions
+  type: http
+  seq: 36
+}
+
+post {
+  url: {{baseUrl}}/api/admin/affiliates/{{affiliateId}}/commissions
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "amountCents": 1000, "note": "Bonus" }
+}

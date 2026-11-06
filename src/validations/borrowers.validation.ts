@@ -17,14 +17,10 @@ const city = cityRequired.optional();
 const state = stateRequired.optional();
 const postalCode = postalCodeRequired.optional();
 
-// BE-045. `lenderCompanyId` es obligatorio solo si el Lender tiene más de
-// una LenderCompany — se valida en el service (D-P4-1), no acá, porque
-// depende de cuántas empresas tiene la sesión, no del shape del body.
 export const createBorrowerSchema = z.object({
   name,
   email,
   phone,
-  lenderCompanyId: z.string().trim().min(1).optional(),
 });
 export type CreateBorrowerInput = z.infer<typeof createBorrowerSchema>;
 

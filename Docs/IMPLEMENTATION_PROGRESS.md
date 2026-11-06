@@ -365,6 +365,41 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 ---
 
+## ✅ Fase 20 — Suscripciones (etapa 1 con cobro simulado, implementada 2026-11-02)
+
+> Fuente de verdad: [plan/18-suscripciones.md](plan/18-suscripciones.md) (`D-SU-1`..`D-SU-7`). Absorbe `PB-019`. Stripe real = etapa 2, fuera de esta entrega.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ Docs | `18-suscripciones.md` + decisiones, 03/04/06/15 y índices | 2026-11-02 |
+| ✅ SU-01 | Variables de entorno + schema + migración (con backfill) | |
+| ✅ SU-02 | `subscription.service.ts` (ensure, efectivo, pay, cancel, grant, hook de afiliados vacío) | |
+| ✅ SU-03 | Crear suscripción en `activateUserAccount` y `become-borrower` | |
+| ✅ SU-04 | Endpoints de Borrower `/api/subscription/me/*` | |
+| ✅ SU-05 | Gate `requireActiveSubscription` en rutas de préstamo nuevo | |
+| ✅ SU-06 | Endpoints de Admin `/api/admin/subscriptions/*` | |
+| ✅ SU-07 | Tests de integración, Bruno, `API_REFERENCE.md` | |
+
+---
+
+## ✅ Fase 21 — Afiliados (implementada 2026-11-02)
+
+> Fuente de verdad: [plan/19-afiliados.md](plan/19-afiliados.md) (`D-AF-1`..`D-AF-7`). Depende de la Fase 20 (suscripciones). Absorbe `AD-007`/`AB-06`.
+
+| # | Ítem | Notas |
+|---|---|---|
+| ✅ Docs | `19-afiliados.md` + decisiones, 03/04/06 y índices | 2026-11-02 |
+| ✅ AFF-01 | Variables de entorno + schema + migración | |
+| ✅ AFF-02 | `affiliates.service.ts` (máquina de estados, tarifa, `code`) | |
+| ✅ AFF-03 | Endpoints de usuario `/api/affiliates/me/*` | |
+| ✅ AFF-04 | Endpoints de Admin sobre afiliados | |
+| ✅ AFF-05 | `referralCode` en `register` + `isAffiliate` en `auth/me` | |
+| ✅ AFF-06 | Comisión al primer pago de suscripción (`onFirstSubscriptionPayment`) | |
+| ✅ AFF-07 | Endpoints de comisiones del Admin (`mark-paid`, `payableAt`, `void`, manual) | |
+| ✅ AFF-08 | Tests de integración, Bruno, `API_REFERENCE.md` | |
+
+---
+
 ## ⬜ Fase 9 — Docker / Deployment (cierre)
 
 | # | Ítem |
@@ -394,7 +429,7 @@ Lo que queda afuera es el flujo de EOI/bidding en sí, no la tabla.)*
 | Stripe Connect vs cuenta única | BE-065/066/070 y activar Autopay |
 | Proveedor de correo real (SendGrid / Postmark / Resend) | Confirmar BE-006 |
 | Motor de PDF (Chromium en imagen vs API externa) | PB-001 y toda la Fase 11 |
-| Precio de suscripción / modelo de cobro | Módulo de facturación (fuera de esta ronda) |
+| Stripe Billing real para la suscripción (etapa 2; precio ya fijo en `.env`) | Cobro real de [plan/18](plan/18-suscripciones.md) |
 | Préstamos "blanket" (una propiedad, varios contratos) | Riesgo aceptado, dirección embebida en `Contract` |
 | Networking de producción | BE-084 |
 | Definición de "interest share" y de "MRR" | `AD-006` — líneas de ingreso del panel de Admin |

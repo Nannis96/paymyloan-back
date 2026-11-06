@@ -1,3 +1,4 @@
+import { requireActiveSubscription } from "@/middlewares/requireActiveSubscription";
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
 import * as loanQuotesService from "@/services/loanQuotes.service";
@@ -39,5 +40,6 @@ export async function listReceivedQuotes(request: Request, loanRequestId: string
 
 export async function selectQuote(request: Request, loanRequestId: string, quoteId: string) {
   const session = await requireBorrowerSession(request);
+  await requireActiveSubscription(session);
   return loanQuotesService.selectQuote(session.userId, loanRequestId, quoteId);
 }

@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/affiliates/:id/reject
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{baseUrl}}/api/admin/affiliates/{{affiliateId}}/reject
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "reason": "Incomplete profile" }
+}

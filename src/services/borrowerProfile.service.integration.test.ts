@@ -29,10 +29,10 @@ describe("borrowerProfile.service (BE-050, D-P4-2)", () => {
   });
 
   it("getOwnProfile/updateOwnProfile editan los campos de contacto propios", async () => {
-    const { userId, lenderCompany } = await createActiveBorrowerWithPassword();
+    const { userId } = await createActiveBorrowerWithPassword();
 
     const own = await borrowerProfileService.getOwnProfile(userId);
-    expect(own.lenderCompanies.map((c) => c.id)).toContain(lenderCompany.id);
+    expect(own.lenderCompanies).toEqual([]); // Borrower abierto: sin vínculo hasta aceptar una cotización
 
     const updated = await borrowerProfileService.updateOwnProfile(userId, { addressLine1: "1 Main St", city: "Austin" });
     expect(updated.borrowerProfile.addressLine1).toBe("1 Main St");

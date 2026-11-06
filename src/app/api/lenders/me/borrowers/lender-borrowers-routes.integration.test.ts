@@ -47,7 +47,9 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const created = await lenderBorrowersService.createBorrower(lenderUser.id, { name: "HTTP Borrower", email: borrowerEmail });
     expect(created).not.toHaveProperty("temporaryPassword");
-    expect(created.borrower.lenderCompanies.map((c) => c.id)).toEqual([lenderCompany.id]);
+    expect(created.borrower.lenderCompanies).toEqual([]);
+    // Borrower abierto: el vínculo nace con la cotización/contrato; acá se simula.
+    await prisma.lenderBorrower.create({ data: { lenderCompanyId: lenderCompany.id, borrowerProfileId: created.borrower.id, invitedByUserId: lenderUser.id } });
 
     const temporaryPassword = sendEmailSpy.mock.calls[0][0].data.temporaryPassword as string;
     sendEmailSpy.mockRestore();
@@ -126,6 +128,8 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
     });
     sendEmailSpy.mockRestore();
     const borrowerId = created.borrower.id;
+    const ownerCompany = await prisma.lenderCompany.findFirstOrThrow({ where: { lenderProfile: { userId: ownerLenderUser.id } } });
+    await prisma.lenderBorrower.create({ data: { lenderCompanyId: ownerCompany.id, borrowerProfileId: borrowerId, invitedByUserId: ownerLenderUser.id } });
 
     const ownerGetResponse = await getBorrowerByIdRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: ownerAuth }), {
       params: Promise.resolve({ id: borrowerId }),
@@ -149,6 +153,8 @@ describe("rutas HTTP de /api/lenders/me/borrowers y /api/borrowers/me (BE-045..0
     const getAfterRemoveResponse = await getBorrowerByIdRoute(jsonRequest("GET", "http://localhost/x", undefined, { authorization: ownerAuth }), {
       params: Promise.resolve({ id: borrowerId }),
     });
-    expect(getAfterRemoveResponse.status).toBe(404);
+    // Lo creó este Lender: sigue visible tras desvincular, sin empresas.
+    expect(getAfterRemoveResponse.status).toBe(200);
+    expect((await getAfterRemoveResponse.json()).data.lenderCompanies).toEqual([]);
   });
 });

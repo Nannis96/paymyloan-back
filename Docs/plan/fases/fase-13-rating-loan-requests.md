@@ -63,6 +63,8 @@
 - **Criterios de aceptación**: camino dorado — Prestamista exige aplicación → Deudor paga → sube documentos → envía → Prestamista aprueba/rechaza.
 
 ## PB-019 — `BorrowerSubscription` ($9/mes, trial 7 días) + endpoints
+
+> ⚠️ **Reemplazado 2026-11-02** por la Fase 20 / [18. Suscripciones](../18-suscripciones.md) (tickets `SU-01`..`SU-07`): tabla `Subscription` por usuario, sin job `expireTrials` y con bloqueo suave definido (`D-SU-1`..`D-SU-4`). Lo de abajo queda como historia.
 - **Objetivo**: implementar `D-S2-3`.
 - **Prioridad/Complejidad/Dependencias**: P2 / M / ninguna (tabla independiente), cobro real bloqueado por `A-3`
 - **Implementación**: `BorrowerSubscription` se crea automáticamente al activar la cuenta del Deudor (`activateUserAccount`, `userActivation.service.ts` — independiente de si esa activación además genera una contraseña temporal, `D-P2-6`), en `TRIALING` con `trialEndsAt=createdAt+7d`. Un job (`src/jobs/expireTrials.ts`, nuevo) pasa `TRIALING → PAST_DUE` si vence sin `stripeSubscriptionId` activo — **no bloquea el uso de la plataforma** en esta fase (el documento fuente no especifica qué pasa si no se paga; no se inventa una suspensión sin confirmarlo con Spencer).

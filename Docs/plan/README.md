@@ -33,6 +33,8 @@ repartido y se convirtieron las referencias cruzadas en enlaces navegables.
 | 15 | [Riesgos y decisiones pendientes](15-riesgos-y-decisiones-pendientes.md) | Los pendientes que pueden cambiar el diseño (10 originales + 9 del 2026-09-04 + 8 del 2026-09-10) |
 | 16 | [Fase 1 — plan actualizado (2026-09-04)](16-fase-1-actualizada.md) | Backlog vigente de la Fase 1 — reemplaza a [fases/fase-01-database.md](fases/fase-01-database.md), incorpora roles nuevos, `LenderCompany`, `Property` |
 | 17 | [Fase 2 — plan actualizado (2026-09-07)](17-fase-2-actualizada.md) | Backlog vigente de la Fase 2, implementado — corrige `PB-013` (auto-registro LENDER+BORROWER) y agrega `BE-097` (activación por Admin); pide contraseña propia desde `D-P2-6` (2026-09-24) |
+| 18 | [Suscripciones (Fase 20, 2026-11-02)](18-suscripciones.md) | **Fuente de verdad** de la suscripción del Borrower: reglas, modelo, gate de acceso, API y tickets `SU-*`. Reemplaza a `BorrowerSubscription` (`D-S2-3`) |
+| 19 | [Afiliados (Fase 21, 2026-11-02)](19-afiliados.md) | **Fuente de verdad** del programa de afiliados: no-rol con estado, aprobación configurable, link de referido, comisión al primer pago de suscripción, pago manual del Admin y tickets `AFF-*` |
 
 ## Fases de implementación (backlog)
 
@@ -58,6 +60,8 @@ repartido y se convirtieron las referencias cruzadas en enlaces navegables.
 | 17 | [Mensajería Lender ↔ Borrower](fases/fase-17-messaging.md) | PB-027 → PB-030 |
 | 18 | [Ratings Lender ↔ Borrower](fases/fase-18-ratings-lender-borrower.md) | PB-031 → PB-034 (absorbe `PB-023`) |
 | 19 | [Notificaciones Lender ↔ Borrower](fases/fase-19-notificaciones.md) | PB-035 → PB-039 (absorbe `PB-022`) |
+| 20 | [Suscripciones](18-suscripciones.md#188-tickets) | SU-01 → SU-07 (absorbe `PB-019`) |
+| 21 | [Afiliados](19-afiliados.md#196-tickets) | AFF-01 → AFF-08 (absorbe `AD-007`/`AB-06`) |
 
 ## Cómo leerlo
 

@@ -88,4 +88,18 @@ export const env = {
   s3Bucket: process.env.S3_BUCKET ?? "paymyloan-bucket",
   // 32 bytes en base64. Placeholder de dev = "dev-insecure-documents-key-32byt".
   documentsMasterKey: readSecret("DOCUMENTS_MASTER_KEY", "ZGV2LWluc2VjdXJlLWRvY3VtZW50cy1rZXktMzJieXQ="),
+
+  // Suscripciones (Fase 20, Docs/plan/18-suscripciones.md §18.2).
+  subscriptionPriceCents: Number(process.env.SUBSCRIPTION_PRICE_CENTS ?? 900),
+  subscriptionTrialDays: Number(process.env.SUBSCRIPTION_TRIAL_DAYS ?? 7),
+  subscriptionCurrency: process.env.SUBSCRIPTION_CURRENCY ?? "usd",
+  billingMode: process.env.BILLING_MODE === "stripe" ? "stripe" : "simulated",
+  // Freno (D-SU-8): en producción el cobro simulado queda apagado salvo opt-in explícito.
+  allowSimulatedBilling: process.env.ALLOW_SIMULATED_BILLING === "true",
+
+  // Afiliados (Fase 21, Docs/plan/19-afiliados.md §19.2).
+  affiliateApprovalMode: process.env.AFFILIATE_APPROVAL_MODE === "self" ? "self" : "admin",
+  affiliateDefaultCommissionType: process.env.AFFILIATE_DEFAULT_COMMISSION_TYPE === "FIXED" ? "FIXED" : "PERCENT",
+  affiliateDefaultCommissionValue: Number(process.env.AFFILIATE_DEFAULT_COMMISSION_VALUE ?? 0),
+  affiliateDefaultPayoutDelayDays: process.env.AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS ? Number(process.env.AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS) : null,
 } as const;

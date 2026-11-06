@@ -1,3 +1,4 @@
+import { requireActiveSubscription } from "@/middlewares/requireActiveSubscription";
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
 import * as loanRequestsService from "@/services/loanRequests.service";
@@ -27,6 +28,7 @@ async function requireLenderSession(request: Request) {
 // PB-011.
 export async function createLoanRequest(request: Request, body: unknown) {
   const session = await requireBorrowerSession(request);
+  await requireActiveSubscription(session);
   const input = parseOrThrow(createLoanRequestSchema, body);
   return loanRequestsService.createLoanRequest(session.userId, input);
 }
@@ -50,6 +52,7 @@ export async function updateLoanRequest(request: Request, id: string, body: unkn
 
 export async function publishLoanRequest(request: Request, id: string) {
   const session = await requireBorrowerSession(request);
+  await requireActiveSubscription(session);
   return loanRequestsService.publishLoanRequest(session.userId, id);
 }
 

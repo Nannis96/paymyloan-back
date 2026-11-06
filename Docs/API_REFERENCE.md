@@ -26,6 +26,8 @@ Decisiones de diseño detrás de cada endpoint de auth: [plan/07](plan/07-autent
 - [Prestamistas y Deudores — autoservicio](#prestamistas-y-deudores--autoservicio)
 - [Contratos](#contratos-srcappapicontracts)
 - [Pagos](#pagos-srcappapicontractsidpayments-srcappapitransactions)
+- [Suscripciones](#suscripciones-srcappapisubscription-srcappapiadminsubscriptions)
+- [Afiliados](#afiliados-srcappapiaffiliates-srcappapiadminaffiliates)
 - [Auditoría](#auditoría-srcappapiaudit-logs)
 - [Admin — Overview](#admin--overview-srcappapiadminoverview)
 - [Verificación de entidad](#verificación-de-entidad-srcappapiadminverificationsborrowersmeverificationlendersmecompaniescompanyidverification)
@@ -92,6 +94,14 @@ Fuente única: `src/config/env.ts` (`.env.example` documenta lo mismo con coment
 | `EMAIL_FROM` | `servicing@paymyloan.ai` | `src/lib/email.ts` | Remitente en los correos enviados vía Resend |
 | `RATE_LIMIT_LOGIN_MAX` | `5` | `login`, `login/2fa`, `password/forgot` | Intentos permitidos por ventana, por bucket+IP |
 | `RATE_LIMIT_LOGIN_WINDOW_MS` | `900000` (15 min) | idem | Duración de la ventana |
+| `SUBSCRIPTION_PRICE_CENTS` | `900` | `subscription.service.ts` | Precio mensual de la suscripción del Borrower, en centavos. Cambiarlo = editar y redesplegar; afecta solo cobros futuros ([plan/18](plan/18-suscripciones.md)) |
+| `SUBSCRIPTION_TRIAL_DAYS` | `7` | idem | Días de trial al crear la suscripción (`0` = vencida desde el inicio) |
+| `SUBSCRIPTION_CURRENCY` | `usd` | idem | Moneda guardada en cada pago |
+| `AFFILIATE_APPROVAL_MODE` | `admin` | `affiliates.service.ts#applyAffiliate` | `admin`: el Admin aprueba las solicitudes; `self`: el usuario se prende/apaga solo ([plan/19](plan/19-afiliados.md)) |
+| `AFFILIATE_DEFAULT_COMMISSION_TYPE` / `AFFILIATE_DEFAULT_COMMISSION_VALUE` | `PERCENT` / `0` | `resolveTerms` | Tarifa para afiliados sin tarifa propia. Valor `0` = no se genera comisión |
+| `AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS` | *(vacío)* | `computePayableAt` | Retraso por defecto antes de poder pagar una comisión; vacío = inmediato |
+| `ALLOW_SIMULATED_BILLING` | `false` | `subscription.service.ts#payMySubscription` | En producción el cobro simulado responde `403 SIMULATED_BILLING_DISABLED` salvo que sea `true` ([plan/18](plan/18-suscripciones.md), `D-SU-8`) |
+| `BILLING_MODE` | `simulated` | `subscription.service.ts#payMySubscription` | `simulated` registra el pago sin pasarela; `stripe` (etapa 2) hace que `pay` responda `409 BILLING_NOT_SIMULATED` |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PUBLISHABLE_KEY` | *(vacío)* | *(sin uso todavía)* | Reservadas para Fase 7 (Pagos) — bloqueadas por la decisión Stripe Connect vs. cuenta única |
 | `AWS_REGION` | `us-east-2` | `src/lib/s3.ts` | Región del bucket de documentos |
 | `S3_BUCKET` | `paymyloan-bucket` | `src/lib/s3.ts` | Bucket privado de documentos (todo bajo el prefijo `documents/`) |
@@ -274,6 +284,7 @@ Auto-registro de `LENDER` o `BORROWER` — el usuario crea su propia cuenta, sin
   | `phone` | string | opcional — exactamente 10 dígitos (`^\d{10}$`) |
   | `password` | string | 8–72 caracteres, al menos 1 mayúscula y 1 número (`D-P2-6`) |
   | `role` | string | **solo** `LENDER` o `BORROWER` — `ADMIN`/`BOOKKEEPER`/`INSURANCE_COMPANY` no pueden auto-registrarse |
+  | `referralCode` | string | opcional — 4–16 caracteres, se normaliza a mayúsculas. Código de un afiliado `APPROVED` ([Afiliados](#afiliados-srcappapiaffiliates-srcappapiadminaffiliates)); uno inexistente o de un afiliado no aprobado **se ignora en silencio** (no bloquea el registro) |
 
   ```json
   {
@@ -394,6 +405,9 @@ Perfil propio + el detalle de rol correspondiente. Como el JWT no lleva `lenderI
       "user": /* SafeUser */ {},
       // roles activos (D-P7-1) — puede incluir LENDER y BORROWER a la vez
       "roles": ["BORROWER", "LENDER"],
+      // Fase 21: true solo si el AffiliateProfile está APPROVED; affiliateStatus es null si nunca pidió serlo
+      "isAffiliate": false,
+      "affiliateStatus": null,
       // presente si existe un LenderProfile (no depende de `user.role`)
       "lenderProfile": {
         "id": "...",
@@ -1320,6 +1334,114 @@ Revierte `ScheduledPayment.amountPaid`/`status` de las filas que ese pago había
 
 ---
 
+## Suscripciones (`src/app/api/subscription/`, `src/app/api/admin/subscriptions/`)
+
+Fase 20 — diseño completo y reglas en [plan/18-suscripciones.md](plan/18-suscripciones.md) (`D-SU-1`..`D-SU-7`). Solo los usuarios con `BorrowerProfile` tienen suscripción (un Lender dual también, tras `become-borrower`). **Cobro simulado** (etapa 1): Stripe llega en la etapa 2 sin cambiar estas rutas.
+
+**Estado efectivo**: `TRIALING` / `ACTIVE` / `CANCELLED` (cancelada pero con acceso) / `EXPIRED` (derivado: sin trial ni periodo vigente). `hasAccess` = trial vigente o periodo pagado vigente.
+
+**Gate `403 SUBSCRIPTION_REQUIRED`**: sin `hasAccess`, el Borrower no puede iniciar un préstamo nuevo — `POST`/`publish` de `/api/borrowers/me/loan-requests`, `.../quotes/:quoteId/select` y `POST /api/contracts/:id/terms/:termsId/accept` **cuando el contrato está en `PENDING_ACCEPTANCE`** (las enmiendas de un préstamo ya activo no se bloquean). Pagos, payoff, lecturas, mensajería y `/api/subscription/*` nunca se bloquean.
+
+### `GET /api/subscription/me`
+
+- **Auth**: Autenticado, rol `BORROWER` (sin 2FA). Crea la suscripción si el Borrower aún no la tenía.
+- **Response `200`**: `{ id, status, hasAccess, daysLeftInTrial, trialEndsAt, currentPeriodEnd, cancelledAt, priceCents, currency, billingMode }`.
+- **Errores**: `401`/`403` · `404 SUBSCRIPTION_NOT_FOUND` (el usuario no tiene `BorrowerProfile`).
+
+### `POST /api/subscription/me/pay`
+
+Cobro simulado: inserta un `SubscriptionPayment` (`SIMULATED`, `SUCCEEDED`, monto `SUBSCRIPTION_PRICE_CENTS`), deja la suscripción `ACTIVE` y extiende un mes desde el fin del periodo/trial vigente (no se pierden días). El primer pago con monto > 0 lleva `isFirstPayment=true` (dispara la comisión de afiliado cuando exista el módulo).
+
+- **Response `201`**: `{ subscription: { ...GET /me }, payment: { id, amountCents, currency, status, source, isFirstPayment, periodStart, periodEnd, paidAt } }`.
+- **Errores**: `401`/`403` · `403 SIMULATED_BILLING_DISABLED` (producción sin `ALLOW_SIMULATED_BILLING=true`) · `404 SUBSCRIPTION_NOT_FOUND` · `409 BILLING_NOT_SIMULATED`.
+
+### `POST /api/subscription/me/cancel`
+
+Marca `CANCELLED`; el acceso sigue hasta el fin del periodo/trial. Pagar de nuevo la reactiva.
+
+- **Response `200`**: la suscripción (misma forma que `GET /me`).
+- **Errores**: `401`/`403` · `404 SUBSCRIPTION_NOT_FOUND` · `409 SUBSCRIPTION_ALREADY_CANCELLED`.
+
+### `GET /api/subscription/me/payments`
+
+- **Query**: `page` (1), `pageSize` (20, máx. 100). **Response `200`**: `{ items: SubscriptionPayment[], page, pageSize, total, totalPages }`, más reciente primero.
+
+### `GET /api/admin/subscriptions`
+
+- **Auth**: `ADMIN` + 2FA (`D-P3-1`). **Query**: `status` (`TRIALING`/`ACTIVE`/`CANCELLED`/`EXPIRED`, efectivo), `search` (nombre o correo), `page`, `pageSize`.
+- **Response `200`**: paginado de `{ id, user: { id, name, email }, status, hasAccess, trialEndsAt, currentPeriodEnd, lastPaymentAt, priceCents }`.
+
+### `GET /api/admin/subscriptions/:id`
+
+- **Response `200`**: la suscripción (forma de `GET /me`) + `user` + `payments[]`. **Errores**: `400 VALIDATION_ERROR` (id) · `404 SUBSCRIPTION_NOT_FOUND`.
+
+### `POST /api/admin/subscriptions/:id/grant`
+
+- **Request body**: `{ "days": 30, "reason": "Cortesía" }` (`days` entero 1–365, `reason` obligatorio).
+- Extiende el acceso `days` días desde el fin vigente, deja `ACTIVE` e inserta un pago `ADMIN_GRANT` de monto `0` (nunca dispara comisión).
+- **Response `201`**: `{ subscription, payment }`. **Errores**: `400 VALIDATION_ERROR` · `404 SUBSCRIPTION_NOT_FOUND`.
+
+### `POST /api/admin/subscriptions/:id/cancel`
+
+- **Request body**: `{ "immediate": false }` (opcional, default `false`). Con `true` corta el acceso ya (`trialEndsAt` y `currentPeriodEnd` = ahora).
+- **Response `200`**: la suscripción. **Errores**: `404 SUBSCRIPTION_NOT_FOUND` · `409 SUBSCRIPTION_ALREADY_CANCELLED` (sin `immediate`).
+
+---
+
+## Afiliados (`src/app/api/affiliates/`, `src/app/api/admin/affiliates/`)
+
+Fase 21 — reglas y diseño en [plan/19-afiliados.md](plan/19-afiliados.md) (`D-AF-1`..`D-AF-7`). **Afiliado no es un rol**: cualquier usuario autenticado puede serlo. `isAffiliate` = `status === APPROVED`. Estados: `PENDING` · `APPROVED` · `REJECTED` · `SUSPENDED` (Admin) · `INACTIVE` (lo apagó el propio usuario).
+
+**Comisión**: se genera una sola vez por referido, en su **primer pago de suscripción con monto > 0**, si el afiliado sigue `APPROVED` y la comisión calculada es > 0. `PERCENT` → `round(pago × valor / 100)`; `FIXED` → `round(valor × 100)` centavos. El monto queda guardado (cambiar la tarifa después no lo altera). Pago **manual** del Admin (`mark-paid`).
+
+**Forma de un perfil** (`POST apply`, `DELETE me`, `approve`, `reject`, `suspend`, `PATCH commission`): `{ id, isAffiliate, status, code, link, commissionType, commissionValue, payoutDelayDays, statusReason }`. `link` = `{CORS_ORIGIN}/register?ref={code}`; `code` es `null` hasta la primera aprobación y no cambia nunca. `commissionType`/`commissionValue`/`payoutDelayDays` ya vienen resueltos (tarifa propia o default de `.env`).
+
+**Forma de una comisión**: `{ id, affiliateId, referredUserId, subscriptionPaymentId, source (SUBSCRIPTION|MANUAL), baseAmountCents, commissionType, commissionValue, amountCents, currency, status (PENDING|PAID|VOID), payableAt, paidAt, paidById, paymentReference, voidedAt, voidedById, note, createdAt }`.
+
+### Público
+
+#### `GET /api/affiliates/validate?code=ABC123XY`
+- Sin sesión. **Response `200`**: `{ "valid": true }` solo si el código es de un afiliado `APPROVED`; inexistente, de un afiliado no aprobado o mal formado → `{ "valid": false }` (nunca `400`). No devuelve datos del afiliado.
+- **Rate limit**: 30 consultas por IP cada 15 min → `429 RATE_LIMITED`. Solo es comodidad para el front: `POST /api/auth/register` no la necesita.
+
+### Usuario (cualquier sesión autenticada, sin 2FA)
+
+#### `POST /api/affiliates/me/apply`
+- Modo `admin` → `PENDING`; modo `self` → `APPROVED` al instante. Un `INACTIVE` vuelve a `APPROVED` sin pedir permiso; un `REJECTED` vuelve a `PENDING`.
+- **Response `201`**: el perfil. **Errores**: `401` · `409 AFFILIATE_ALREADY_ACTIVE` (`APPROVED`/`PENDING`) · `409 AFFILIATE_SUSPENDED`.
+
+#### `DELETE /api/affiliates/me`
+- `APPROVED → INACTIVE`. Sus referidos y comisiones se conservan. **Response `200`**: el perfil. **Errores**: `401` · `409 AFFILIATE_NOT_ACTIVE`.
+
+#### `GET /api/affiliates/me`
+- **Response `200`**: sin perfil `{ "isAffiliate": false, "status": null }`; con perfil, el perfil + `referralsCount`, `subscribedCount`, `pendingCents`, `paidCents`.
+
+#### `GET /api/affiliates/me/referrals`
+- **Query**: `page`, `pageSize`. **Response `200`**: paginado de `{ name, joinedAt, subscribed }` (sin correo ni teléfono).
+
+#### `GET /api/affiliates/me/commissions`
+- **Query**: `status` (`PENDING`/`PAID`/`VOID`), `page`, `pageSize`. **Response `200`**: paginado de comisiones.
+
+### Admin (`ADMIN` + 2FA, `D-P3-1`)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/api/admin/affiliates` | Paginado. Filtros `status`, `search` (nombre, correo o código), `page`, `pageSize`. Ítem: perfil + `user:{id,name,email}`, `referralsCount`, `pendingCents`, `paidCents`, `createdAt` |
+| GET | `/api/admin/affiliates/:id` | Perfil + `user` + totales + `referrals[]` (hasta 50) + `commissions[]` (últimas 20) |
+| POST | `/api/admin/affiliates/:id/approve` | Body opcional `{ commissionType, commissionValue, payoutDelayDays }` (tipo y valor van juntos; `PERCENT` ≤ 100). Desde `PENDING`/`REJECTED`/`SUSPENDED`. Genera `code` la primera vez y notifica al usuario |
+| POST | `/api/admin/affiliates/:id/reject` | Body `{ reason }`. Solo desde `PENDING` |
+| POST | `/api/admin/affiliates/:id/suspend` | Body `{ reason }`. Solo desde `APPROVED` |
+| PATCH | `/api/admin/affiliates/:id/commission` | Body `{ commissionType, commissionValue, payoutDelayDays? }` (`null` = inmediato). Solo afecta comisiones futuras |
+| POST | `/api/admin/affiliates/:id/commissions` | Comisión manual `{ amountCents (>0), referredUserId?, note, payableAt? }` → `201`. `409 AFFILIATE_INVALID_STATE` si el afiliado nunca fue aprobado |
+| GET | `/api/admin/affiliates/commissions` | Paginado. Filtros `status`, `affiliateId`, `payable=true` (`PENDING` con `payableAt` ya cumplida) |
+| PATCH | `/api/admin/affiliates/commissions/:id` | Body `{ payableAt }`. Solo `PENDING` |
+| POST | `/api/admin/affiliates/commissions/:id/mark-paid` | Body `{ paymentReference?, force? }`. Solo `PENDING`; con `payableAt` futuro → `409 AFFILIATE_COMMISSION_NOT_PAYABLE_YET` salvo `force: true`. Notifica al afiliado |
+| POST | `/api/admin/affiliates/commissions/:id/void` | Body `{ note }`. Solo `PENDING` |
+
+**Errores comunes del bloque**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 AFFILIATE_NOT_FOUND` (afiliado o comisión) · `409 AFFILIATE_INVALID_STATE` (transición no permitida) · `409 AFFILIATE_COMMISSION_NOT_PENDING`.
+
+---
+
 ## Auditoría (`src/app/api/audit-logs`)
 
 ### `GET /api/audit-logs`
@@ -1782,6 +1904,18 @@ curl -X POST "$API/api/contracts/$CONTRACT_ID/documents" -H "Authorization: Bear
 | `code` | HTTP | Cuándo |
 |---|---|---|
 | `INVALID_JSON` | 400 | El body no es JSON válido |
+| `AFFILIATE_NOT_FOUND` | 404 | Afiliado o comisión inexistente ([Afiliados](#afiliados-srcappapiaffiliates-srcappapiadminaffiliates)) |
+| `AFFILIATE_ALREADY_ACTIVE` | 409 | `apply` estando `APPROVED` o `PENDING` |
+| `AFFILIATE_SUSPENDED` | 409 | `apply` estando `SUSPENDED` |
+| `AFFILIATE_NOT_ACTIVE` | 409 | `DELETE /api/affiliates/me` sin estar `APPROVED` |
+| `AFFILIATE_INVALID_STATE` | 409 | Transición no permitida; comisión manual a un afiliado nunca aprobado |
+| `AFFILIATE_COMMISSION_NOT_PENDING` | 409 | `mark-paid` / `void` / `PATCH` sobre una comisión ya `PAID` o `VOID` |
+| `AFFILIATE_COMMISSION_NOT_PAYABLE_YET` | 409 | `mark-paid` con `payableAt` futuro y sin `force` |
+| `SUBSCRIPTION_REQUIRED` | 403 | El Borrower no tiene trial ni periodo pagado vigente y quiso iniciar un préstamo nuevo (ver [Suscripciones](#suscripciones-srcappapisubscription-srcappapiadminsubscriptions)) |
+| `SUBSCRIPTION_NOT_FOUND` | 404 | Suscripción inexistente, o el usuario no tiene `BorrowerProfile` |
+| `SUBSCRIPTION_ALREADY_CANCELLED` | 409 | Cancelar una suscripción ya cancelada |
+| `SIMULATED_BILLING_DISABLED` | 403 | `POST /api/subscription/me/pay` en producción sin `ALLOW_SIMULATED_BILLING=true` |
+| `BILLING_NOT_SIMULATED` | 409 | `POST /api/subscription/me/pay` con `BILLING_MODE≠simulated` |
 | `VALIDATION_ERROR` | 400 | El body no cumple el schema Zod del endpoint (primer error de validación) |
 | `LENDER_COMPANY_REQUIRED` | 400 | `POST /api/marketplace/loan-requests/:id/quotes`, `POST /api/lenders/me/messages` y `GET /api/lenders/me/messages/threads/:borrowerProfileId` (Fase 17), y (mientras estuvo activo) `POST /api/lenders/me/borrowers` (`D-P5-1`, deshabilitado) — el Lender tiene más de una `LenderCompany` y no mandó `lenderCompanyId` |
 | `INVALID_TOKEN` | 400 o 401 | Refresh token / pending token / access token / token de reset: inválido, manipulado o expirado. `password/reset` usa 400 (es un dato del body); el resto usa 401 |

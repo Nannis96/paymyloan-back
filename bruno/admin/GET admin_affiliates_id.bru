@@ -1,0 +1,11 @@
+meta {
+  name: GET /admin/affiliates/:id
+  type: http
+  seq: 31
+}
+
+get {
+  url: {{baseUrl}}/api/admin/affiliates/{{affiliateId}}
+  body: none
+  auth: inherit
+}

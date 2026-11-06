@@ -6,66 +6,36 @@ import * as emailLib from "@/lib/email";
 import * as authService from "@/services/auth.service";
 import * as lenderBorrowersService from "@/services/lenderBorrowers.service";
 
+// El Borrower nace abierto (sin vínculo); estos tests lo vinculan como lo haría una cotización aceptada.
+async function linkBorrower(borrowerProfileId: string, lenderCompanyId: string, invitedByUserId: string) {
+  await prisma.lenderBorrower.create({ data: { lenderCompanyId, borrowerProfileId, invitedByUserId } });
+}
+
 describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
   afterAll(resetPhase1Tables);
 
-  it("createBorrower con una sola LenderCompany la resuelve sin pedir lenderCompanyId, y nunca devuelve la contraseña", async () => {
-    const { lenderUser, lenderCompany } = await createTestLenderCompany();
+  it("createBorrower crea un Borrower abierto (sin vínculo a empresas) y nunca devuelve la contraseña", async () => {
+    const { lenderUser } = await createTestLenderCompany();
     const email = `create-borrower-${Date.now()}@test.local`;
 
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const result = await lenderBorrowersService.createBorrower(lenderUser.id, { name: "Nuevo Borrower", email });
     expect(result.emailSent).toBe(true);
     expect(result).not.toHaveProperty("temporaryPassword");
-    expect(result.borrower.user.isActive).toBe(true);
-    expect(result.borrower.user.mustChangePassword).toBe(true);
-    expect(result.borrower.lenderCompanies.map((c) => c.id)).toEqual([lenderCompany.id]);
+    expect(Object.keys(result.borrower.user).sort()).toEqual(["email", "id", "name", "phone"]); // solo lo que el Lender cargó
+    const dbUser = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(dbUser.isActive).toBe(true);
+    expect(dbUser.mustChangePassword).toBe(true);
+    const seen = await lenderBorrowersService.listBorrowers(lenderUser.id, { page: 1, pageSize: 20 });
+    expect(seen.items.map((b) => b.id)).toContain(result.borrower.id); // el creador lo ve sin vínculo
+    expect(result.borrower.lenderCompanies).toEqual([]);
+    expect(await prisma.lenderBorrower.count({ where: { borrowerProfileId: result.borrower.id } })).toBe(0);
 
     const temporaryPassword = sendEmailSpy.mock.calls[0][0].data.temporaryPassword as string;
     sendEmailSpy.mockRestore();
 
     const login = await authService.login({ email, password: temporaryPassword });
     expect(login.requiresTwoFactor).toBe(false);
-  });
-
-  it("createBorrower con más de una LenderCompany exige lenderCompanyId, y un valor ajeno responde 404 (nunca se usa)", async () => {
-    const { lenderUser, lenderProfile } = await createTestLenderCompany();
-    const secondCompany = await prisma.lenderCompany.create({
-      data: {
-        lenderProfileId: lenderProfile.id,
-        companyName: "Segunda Empresa LLC",
-        ein: `ein-second-${Date.now()}`,
-        addressLine1: "2 Second St",
-        city: "Austin",
-        state: "TX",
-        postalCode: "78703",
-        createdByUserId: lenderUser.id,
-      },
-    });
-
-    const withoutCompanyId = await lenderBorrowersService
-      .createBorrower(lenderUser.id, { name: "Sin Empresa", email: `no-company-${Date.now()}@test.local` })
-      .catch((e) => e);
-    expect(withoutCompanyId).toBeInstanceOf(AppError);
-    expect((withoutCompanyId as AppError).code).toBe("LENDER_COMPANY_REQUIRED");
-
-    const otherLenderCompany = await createTestLenderCompany();
-    const foreignAttempt = await lenderBorrowersService
-      .createBorrower(lenderUser.id, {
-        name: "Empresa Ajena",
-        email: `foreign-company-${Date.now()}@test.local`,
-        lenderCompanyId: otherLenderCompany.lenderCompany.id,
-      })
-      .catch((e) => e);
-    expect(foreignAttempt).toBeInstanceOf(AppError);
-    expect((foreignAttempt as AppError).statusCode).toBe(404);
-
-    const result = await lenderBorrowersService.createBorrower(lenderUser.id, {
-      name: "Con Empresa",
-      email: `with-company-${Date.now()}@test.local`,
-      lenderCompanyId: secondCompany.id,
-    });
-    expect(result.borrower.lenderCompanies.map((c) => c.id)).toEqual([secondCompany.id]);
   });
 
   it("listBorrowers ve deudores de todas las LenderCompany del Lender", async () => {
@@ -84,16 +54,10 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
     });
 
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
-    await lenderBorrowersService.createBorrower(lenderUser.id, {
-      name: "Borrower A",
-      email: `borrower-a-${Date.now()}@test.local`,
-      lenderCompanyId: companyA.id,
-    });
-    await lenderBorrowersService.createBorrower(lenderUser.id, {
-      name: "Borrower B",
-      email: `borrower-b-${Date.now()}@test.local`,
-      lenderCompanyId: companyB.id,
-    });
+    const a = await lenderBorrowersService.createBorrower(lenderUser.id, { name: "Borrower A", email: `borrower-a-${Date.now()}@test.local` });
+    const b = await lenderBorrowersService.createBorrower(lenderUser.id, { name: "Borrower B", email: `borrower-b-${Date.now()}@test.local` });
+    await linkBorrower(a.borrower.id, companyA.id, lenderUser.id);
+    await linkBorrower(b.borrower.id, companyB.id, lenderUser.id);
     sendEmailSpy.mockRestore();
 
     const result = await lenderBorrowersService.listBorrowers(lenderUser.id, { page: 1, pageSize: 20 });
@@ -108,6 +72,7 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
       name: "No es mío",
       email: `not-mine-${Date.now()}@test.local`,
     });
+    await linkBorrower(created.borrower.id, stranger.lenderCompany.id, stranger.lenderUser.id);
     sendEmailSpy.mockRestore();
 
     const error = await lenderBorrowersService.getBorrowerForLender(lenderUser.id, created.borrower.id).catch((e) => e);
@@ -116,12 +81,13 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
   });
 
   it("updateBorrower edita los campos de contacto del BorrowerProfile", async () => {
-    const { lenderUser } = await createTestLenderCompany();
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const created = await lenderBorrowersService.createBorrower(lenderUser.id, {
       name: "A Editar",
       email: `to-edit-${Date.now()}@test.local`,
     });
+    await linkBorrower(created.borrower.id, lenderCompany.id, lenderUser.id);
     sendEmailSpy.mockRestore();
 
     const updated = await lenderBorrowersService.updateBorrower(lenderUser.id, created.borrower.id, { addressLine1: "1 Main St" });
@@ -129,12 +95,13 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
   });
 
   it("removeBorrower desvincula (removedAt) sin borrar el BorrowerProfile (M-3)", async () => {
-    const { lenderUser } = await createTestLenderCompany();
+    const { lenderUser, lenderCompany } = await createTestLenderCompany();
     const sendEmailSpy = vi.spyOn(emailLib, "sendEmail").mockResolvedValue(undefined);
     const created = await lenderBorrowersService.createBorrower(lenderUser.id, {
       name: "A Desvincular",
       email: `to-unlink-${Date.now()}@test.local`,
     });
+    await linkBorrower(created.borrower.id, lenderCompany.id, lenderUser.id);
     sendEmailSpy.mockRestore();
 
     await lenderBorrowersService.removeBorrower(lenderUser.id, created.borrower.id);
@@ -146,8 +113,10 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
     expect(link.removedAt).not.toBeNull();
     expect(link.status).toBe("REMOVED");
 
-    const error = await lenderBorrowersService.getBorrowerForLender(lenderUser.id, created.borrower.id).catch((e) => e);
-    expect(error).toBeInstanceOf(AppError);
+    // Lo creó este Lender, así que lo sigue viendo, pero ya sin vínculo: solo datos de contacto.
+    const after = await lenderBorrowersService.getBorrowerForLender(lenderUser.id, created.borrower.id);
+    expect(after.lenderCompanies).toEqual([]);
+    expect(Object.keys(after.user).sort()).toEqual(["email", "id", "name", "phone"]);
   });
 
   it("removeBorrower bloqueado (409) si tiene un contrato ACTIVE/DELINQUENT con esa empresa", async () => {
@@ -157,6 +126,7 @@ describe("lenderBorrowers.service (BE-045..049, D-P4-1)", () => {
       name: "Con Contrato",
       email: `with-contract-${Date.now()}@test.local`,
     });
+    await linkBorrower(created.borrower.id, lenderCompany.id, lenderUser.id);
     sendEmailSpy.mockRestore();
 
     const property = await createTestProperty(lenderCompany.id, lenderUser.id);

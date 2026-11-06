@@ -1,4 +1,4 @@
-import { Prisma, type User, type UserRole } from "@prisma/client";
+import { Prisma, type AffiliateStatus, type User, type UserRole } from "@prisma/client";
 import { durationToMs, generateOpaqueToken, hashOpaqueToken, signAccessToken, signPendingToken, verifyPendingToken } from "@/auth/jwt";
 import { hashPassword, verifyDummyPassword, verifyPassword } from "@/auth/password";
 import { verifyCode as verifyTotpCode } from "@/auth/totp";
@@ -6,6 +6,7 @@ import { env } from "@/config/env";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { getAffiliateStatusForUser, resolveReferralCode } from "@/services/affiliates.service";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
 import { getActiveRoles } from "@/services/userRoles.service";
 import type { LoginInput, LoginTwoFactorInput, RegisterInput } from "@/validations/auth.validation";
@@ -240,6 +241,9 @@ export interface MeResult {
   // D-P7-1: roles activos del usuario — puede incluir LENDER y BORROWER a
   // la vez.
   roles: UserRole[];
+  // Fase 21: `isAffiliate` = AffiliateProfile.status === APPROVED.
+  isAffiliate: boolean;
+  affiliateStatus: AffiliateStatus | null;
   lenderProfile?: {
     id: string;
     lenderCompanies: { id: string; companyName: string; status: string; isOpenToDeals: boolean }[];
@@ -263,8 +267,9 @@ export async function getMe(userId: string): Promise<MeResult> {
     throw new AppError("User not found", 404, "USER_NOT_FOUND");
   }
 
-  const [roles, lenderProfile, borrowerProfile] = await Promise.all([
+  const [roles, affiliate, lenderProfile, borrowerProfile] = await Promise.all([
     getActiveRoles(user.id),
+    getAffiliateStatusForUser(user.id),
     prisma.lenderProfile.findUnique({
       where: { userId: user.id },
       include: { lenderCompanies: { where: { deletedAt: null } } },
@@ -275,7 +280,7 @@ export async function getMe(userId: string): Promise<MeResult> {
     }),
   ]);
 
-  const result: MeResult = { user: toSafeUser(user), roles };
+  const result: MeResult = { user: toSafeUser(user), roles, ...affiliate };
 
   if (lenderProfile && !lenderProfile.deletedAt) {
     result.lenderProfile = {
@@ -332,6 +337,7 @@ export async function register(input: RegisterInput): Promise<{ message: string 
   }
 
   const password = await hashPassword(input.password);
+  const referredByAffiliateId = await resolveReferralCode(input.referralCode);
 
   let createdUserId: string;
   try {
@@ -344,6 +350,7 @@ export async function register(input: RegisterInput): Promise<{ message: string 
           role: input.role,
           password,
           isActive: false,
+          referredByAffiliateId,
         },
       });
 
@@ -370,7 +377,7 @@ export async function register(input: RegisterInput): Promise<{ message: string 
     entityType: "User",
     entityId: createdUserId,
     actorUserId: createdUserId,
-    metadata: { selfRegistered: true },
+    metadata: { selfRegistered: true, referred: referredByAffiliateId !== null },
   });
 
   return { message: REGISTER_RESPONSE_MESSAGE };

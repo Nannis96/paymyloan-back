@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { referralCodeSchema } from "@/validations/affiliates.validation";
 import { phone } from "@/validations/users.validation";
 
 const email = z.email("Invalid email").trim().toLowerCase();
@@ -21,6 +22,8 @@ export const registerSchema = z.object({
   phone,
   password: registerPassword,
   role: z.enum(["LENDER", "BORROWER"]),
+  // Fase 21: código de afiliado; uno inválido o de un afiliado no aprobado se ignora.
+  referralCode: referralCodeSchema.optional(),
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 

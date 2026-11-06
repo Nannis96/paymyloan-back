@@ -2,6 +2,7 @@ import { hashPassword, verifyPassword } from "@/auth/password";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { ensureSubscription } from "@/services/subscription.service";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
 import type { BecomeBorrowerInput, ChangePasswordInput, UpdateBorrowerProfileInput } from "@/validations/borrowers.validation";
 
@@ -96,6 +97,7 @@ export async function becomeBorrower(userId: string, input: BecomeBorrowerInput)
     actorUserId: userId,
     metadata: { secondRole: true },
   });
+  await ensureSubscription(userId);
 
   return loadOwnProfile(userId);
 }

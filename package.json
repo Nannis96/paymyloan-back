@@ -20,7 +20,8 @@
     "test:integration": "export DATABASE_URL=postgresql://paymyloan:paymyloan@localhost:5433/paymyloan_test?schema=public NODE_ENV=test && pnpm exec prisma migrate deploy && vitest run --config vitest.integration.config.mts"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "seed:affiliates": "tsx prisma/seed-affiliates.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1162.0",

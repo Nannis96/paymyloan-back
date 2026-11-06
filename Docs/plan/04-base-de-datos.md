@@ -529,18 +529,9 @@ enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 - **Constraint**: ninguno de unicidad — un mismo `code` puede repetirse solo para `CUSTOM` (varios fees personalizados); para los demás códigos, la regla de "uno por versión" es de servicio, no de BD (un Prestamista podría en teoría querer dos `PROCESSING` — no se bloquea a nivel de esquema, se decide en Fase 6 si hace falta prevenirlo).
 - Late fee y pre-pay penalty **no** viven acá — siguen en `ContractTerms` directamente (ya existía `lateFeeType`/`lateFeeAmount`; se agrega `prePayPenaltyType`/`prePayPenaltyAmount`, ver tabla de arriba) porque no son montos fijos conocidos al momento de la firma.
 
-**`BorrowerSubscription`** (`D-S2-3`) — suscripción mensual del Deudor ($9/mes tras 7 días de prueba).
+**`Subscription`** / **`SubscriptionPayment`** (`D-SU-1`, reemplaza a `BorrowerSubscription` de `D-S2-3`) — suscripción mensual del Deudor ($9/mes tras 7 días de prueba, precio en `.env`). Campos, reglas y migración en [18. Suscripciones §18.3](18-suscripciones.md#183-modelo-de-datos) — **fuente de verdad**; no se duplican acá.
 
-| Campo | Tipo | Obligatorio | Notas |
-|---|---|---|---|
-| id | Uuid | Sí | PK |
-| borrowerProfileId | Uuid → BorrowerProfile | Sí (único) | 1:1 |
-| status | enum `BorrowerSubscriptionStatus` (`TRIALING`/`ACTIVE`/`PAST_DUE`/`CANCELLED`) | Sí | default `TRIALING` |
-| trialEndsAt | DateTime | Sí | `createdAt + 7 días` |
-| currentPeriodEnd | DateTime? | No | |
-| stripeSubscriptionId | String? | No | reservado — cobro real bloqueado por `A-3`, igual que `Autopay` |
-| cancelledAt | DateTime? | No | |
-| createdAt / updatedAt | DateTime | Sí | |
+**`AffiliateProfile`** / **`AffiliateCommission`** (`D-AF-1`..`D-AF-7`) — afiliados y sus comisiones, más `User.referredByAffiliateId`. Campos, reglas y migración en [19. Afiliados §19.3](19-afiliados.md#193-modelo-de-datos) — **fuente de verdad**; no se duplican acá.
 
 **`BorrowerApplication`** (`D-S2-6`) — vetting completo ($99).
 
@@ -607,8 +598,14 @@ enum ProjectType { RENTAL FIX_AND_FLIP SLOW_FLIP COMMERCIAL NEW_CONSTRUCTION }
 enum ContractFeeCategory { LENDER PLATFORM }
 enum ContractFeeCode { ORIGINATION_POINTS PROCESSING UNDERWRITING DOC_PREP CUSTOM MARKETPLACE_CONNECTION }
 enum FeeAmountType { FLAT PERCENTAGE }
-enum BorrowerSubscriptionStatus { TRIALING ACTIVE PAST_DUE CANCELLED }
+enum SubscriptionStatus { TRIALING ACTIVE CANCELLED }
+enum SubscriptionPaymentStatus { SUCCEEDED FAILED REFUNDED }
+enum SubscriptionPaymentSource { SIMULATED ADMIN_GRANT STRIPE }
 enum BorrowerApplicationStatus { REQUESTED SUBMITTED UNDER_REVIEW APPROVED REJECTED }
+enum AffiliateStatus { PENDING APPROVED REJECTED SUSPENDED INACTIVE }
+enum AffiliateCommissionType { PERCENT FIXED }
+enum AffiliateCommissionSource { SUBSCRIPTION MANUAL }
+enum AffiliateCommissionStatus { PENDING PAID VOID }
 enum PropertyValuationSource { MANUAL RENTCAST }
 ```
 
@@ -629,7 +626,11 @@ erDiagram
 
     ContractTerms ||--o{ ContractFeeItem : ""
 
-    BorrowerProfile ||--o| BorrowerSubscription : ""
+    User ||--o| Subscription : ""
+    Subscription ||--o{ SubscriptionPayment : ""
+    User ||--o| AffiliateProfile : ""
+    AffiliateProfile ||--o{ User : "referidos"
+    AffiliateProfile ||--o{ AffiliateCommission : ""
 
     BorrowerProfile ||--o{ BorrowerApplication : ""
     LenderCompany ||--o{ BorrowerApplication : "exige/revisa"

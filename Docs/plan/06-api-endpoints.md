@@ -236,6 +236,45 @@ Reseñas 1–5 estrellas + comentario entre las partes de un `Contract` `ACTIVE`
 
 Fuera de alcance en v1: adjuntos (sin `Document`/S3 todavía), tiempo real (REST + polling del cliente alcanza al volumen actual), notificaciones por email (depende de `Notification`/`PB-022`, Fase 11), Bookkeeper/Admin/Insurance Company como participantes, hilos grupales entre co-deudores.
 
+## 6.19 Suscripciones (nuevo, 2026-11-02, [18](18-suscripciones.md), Fase 20)
+
+Detalle de request/response y errores en [18 §18.7](18-suscripciones.md#187-api).
+
+| Método | Ruta | Rol |
+|---|---|---|
+| GET | `/api/subscription/me` | usuario con `BorrowerProfile` |
+| POST | `/api/subscription/me/pay` | idem (cobro simulado, `BILLING_MODE=simulated`) |
+| POST | `/api/subscription/me/cancel` | idem |
+| GET | `/api/subscription/me/payments` | idem |
+| GET | `/api/admin/subscriptions` | ADMIN |
+| GET | `/api/admin/subscriptions/:id` | ADMIN |
+| POST | `/api/admin/subscriptions/:id/grant` | ADMIN |
+| POST | `/api/admin/subscriptions/:id/cancel` | ADMIN |
+| POST | `/api/webhooks/stripe` | *(etapa 2)* |
+
+## 6.20 Afiliados (nuevo, 2026-11-02, [19](19-afiliados.md), Fase 21)
+
+Detalle de request/response y errores en [19 §19.5](19-afiliados.md#195-api).
+
+| Método | Ruta | Rol |
+|---|---|---|
+| GET | `/api/affiliates/validate?code=` | público (rate limit por IP) |
+| POST | `/api/affiliates/me/apply` | cualquier sesión |
+| DELETE | `/api/affiliates/me` | cualquier sesión |
+| GET | `/api/affiliates/me` | cualquier sesión |
+| GET | `/api/affiliates/me/referrals` | cualquier sesión |
+| GET | `/api/affiliates/me/commissions` | cualquier sesión |
+| GET | `/api/admin/affiliates` | ADMIN |
+| GET | `/api/admin/affiliates/:id` | ADMIN |
+| POST | `/api/admin/affiliates/:id/approve` · `/reject` · `/suspend` | ADMIN |
+| PATCH | `/api/admin/affiliates/:id/commission` | ADMIN |
+| POST | `/api/admin/affiliates/:id/commissions` | ADMIN (comisión manual) |
+| GET | `/api/admin/affiliates/commissions` | ADMIN |
+| PATCH | `/api/admin/affiliates/commissions/:id` | ADMIN (`payableAt`) |
+| POST | `/api/admin/affiliates/commissions/:id/mark-paid` · `/void` | ADMIN |
+
+También: `POST /api/auth/register` acepta `referralCode`; `GET /api/auth/me` agrega `isAffiliate` y `affiliateStatus`.
+
 ---
 
 [← Índice del plan](README.md)  ·  [Anterior: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)  ·  [Siguiente: 7. Autenticación y autorización](07-autenticacion-y-autorizacion.md)

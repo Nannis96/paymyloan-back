@@ -1,0 +1,15 @@
+meta {
+  name: POST /admin/affiliates/commissions/:id/mark-paid
+  type: http
+  seq: 39
+}
+
+post {
+  url: {{baseUrl}}/api/admin/affiliates/commissions/{{commissionId}}/mark-paid
+  body: json
+  auth: inherit
+}
+
+body:json {
+  { "paymentReference": "wire-123", "force": false }
+}

@@ -1,3 +1,5 @@
+import { prisma } from "@/db/prisma";
+import { requireActiveSubscription } from "@/middlewares/requireActiveSubscription";
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
 import * as contractFeesService from "@/services/contractFees.service";
@@ -124,6 +126,9 @@ export async function submitContractTerms(request: Request, id: string, termsId:
 // BE-061.
 export async function acceptContractTerms(request: Request, id: string, termsId: string) {
   const session = await requireBorrowerSession(request);
+  // Solo la aceptación que activa un préstamo nuevo; enmiendas de uno ya activo no se bloquean (D-SU-4).
+  const contract = await prisma.contract.findUnique({ where: { id }, select: { status: true } });
+  if (contract?.status === "PENDING_ACCEPTANCE") await requireActiveSubscription(session);
   return contractsService.acceptContractTerms(session.userId, id, termsId, getRequestMeta(request));
 }
 
