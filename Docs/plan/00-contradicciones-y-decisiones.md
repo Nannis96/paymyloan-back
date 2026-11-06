@@ -379,6 +379,21 @@ Detalle completo en [19. Afiliados](19-afiliados.md), que es la fuente de verdad
 | `D-AF-7` | Stripe Connect bloqueado (`A-3`) | Pago **manual** del Admin (`mark-paid`); `payableAt` opcional por afiliado (`payoutDelayDays`) o por comisión; nada se paga solo. Stripe en etapa 2 sin cambiar la API |
 | `D-AF-8` | El front no podía saber si un `?ref=` era válido antes de registrar | Endpoint público `GET /api/affiliates/validate?code=` que solo devuelve `{ valid }` (limitado por IP, 30/15 min). Cosmético: `register` sigue ignorando en silencio un código inválido |
 
+## Decisiones 2026-11-05 (ronda documentos cifrados, PB-002)
+
+Implementación en [Fase 11 §PB-002](fases/fase-11-documentos-pdf.md#pb-002--tabla-document--storage-s3-privado--urls-firmadas); contrato HTTP en [API_REFERENCE §Documentos](../API_REFERENCE.md#documentos-srcappapicontractsiddocuments-srcappapiloan-requestsiddocuments-srcappapidocuments).
+
+| ID | Situación previa | Decisión |
+|---|---|---|
+| `D-DOC-1` | PB-002 planeaba subir/bajar con URLs firmadas directas a S3 | Los archivos se **cifran en el backend antes de subir** (pedido explícito) → el archivo pasa siempre por la API: `multipart` para subir, `GET /api/documents/:id/content` descifra para ver. No hay URLs firmadas (el navegador recibiría bytes cifrados) |
+| `D-DOC-2` | — | Cifrado de sobre AES-256-GCM (`node:crypto`, sin dependencias): clave aleatoria por archivo, envuelta con `DOCUMENTS_MASTER_KEY` (`.env`) y guardada en la fila (`wrappedKey`/`iv`/`authTag`). Rotar la maestra = re-envolver claves en BD, no re-subir. GCM detecta archivos alterados. AWS KMS queda como mejora si cumplimiento pide custodia de la clave (`wrapKey`/`unwrapKey` es el único punto a cambiar). SSE-S3 del bucket se mantiene como segunda capa |
+| `D-DOC-3` | `D-S2-8`: `Document` cuelga de `contractId`/`loanRequestId`/`applicationId` | Implementados `contractId` y `loanRequestId`. `applicationId` queda para cuando exista `BorrowerApplication` (PB-018). "Exactamente uno" es un `CHECK` en la migración (`num_nonnulls(...) = 1`), no regla de servicio |
+| `D-DOC-4` | A-5: `Document` con borrado lógico (`deletedAt`), nunca `DELETE` físico | **Excepción a A-5 para `Document`** (pedido explícito: eliminar lo que ya no se quiere): `DELETE` borra el objeto de S3 y la fila. El rastro queda en `AuditLog` (`DOCUMENT_DELETED`, con nombre de archivo). Al borrar la fila desaparece la clave del archivo, así que una copia residual en S3 (versioning) queda ilegible |
+| `D-DOC-5` | `DocumentType`/`DocumentVisibility`/`DocumentStatus` diseñados en 04 | **No se implementan** todavía: imagen vs documento sale del `mimeType`; la visibilidad la da el acceso al padre. Se agregan cuando llegue un caso que los use (Commitment Letter, PB-003) |
+| `D-DOC-6` | — | Permisos: suben `LENDER` y `BORROWER` con acceso al padre; lee también `ADMIN`; **borra solo quien subió**. En una `LoanRequest` `PUBLIC`, el Lender que solo la ve en el marketplace **solo puede ver** (subir → 403); sí suben el Borrower dueño, un Lender destinatario (`LoanRequestLenderTarget`) y el Lender cuyo contrato nació de ella |
+| `D-DOC-7` | — | Formatos PDF/JPEG/PNG/WEBP/HEIC detectados por los primeros bytes (no por extensión ni `Content-Type` del cliente); 1–10 archivos por request, 10 MB cada uno; lote **todo o nada** (si uno falla, se borran los ya subidos). Requiere `experimental.proxyClientMaxBodySize="105mb"` en `next.config.ts` (`src/proxy.ts` corta en 10 MB por default) |
+| `D-DOC-8` | `Contract.loanRequestId` ya existía (`D-S2-19`) pero la API solo devolvía el id | `GET /api/contracts/:id` (y el resto de respuestas de contrato) incluyen `loanRequest: { id, status, projectType, totalLoanAmountRequested, requestedClosingDate, createdAt } \| null` — desde el contrato se sabe qué loan request lo originó y se llega a sus fotos |
+
 ---
 
 [← Índice del plan](README.md)  ·  [Siguiente: 1. Resumen de arquitectura propuesta](01-resumen-arquitectura.md)

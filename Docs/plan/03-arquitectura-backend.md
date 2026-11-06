@@ -172,11 +172,13 @@ STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PUBLISHABLE_KEY=
 
-# nuevas — S3 (solo si se construye el módulo de Documentos, fase 2)
-S3_BUCKET=
-S3_REGION=
-S3_ACCESS_KEY_ID=
-S3_SECRET_ACCESS_KEY=
+# Documentos cifrados en S3 (PB-002, D-DOC-1/2). Credenciales: cadena estándar
+# del SDK de AWS (o rol IAM). DOCUMENTS_MASTER_KEY obligatoria en producción.
+AWS_REGION=us-east-2
+S3_BUCKET=paymyloan-bucket
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+DOCUMENTS_MASTER_KEY=   # openssl rand -base64 32 — si se pierde, los documentos son irrecuperables
 
 # nuevas — rate limiting
 RATE_LIMIT_LOGIN_MAX=5

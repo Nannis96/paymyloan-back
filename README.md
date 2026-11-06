@@ -304,7 +304,8 @@ recomendado del resto. Resumen:
 - **Fase 13, resto** — `LoanRequestInvite` (invitar por correo a alguien
   sin cuenta), integración RentCast, `BorrowerApplication` (vetting),
   `BorrowerSubscription`.
-- **Fase 11 (Documentos)** — motor de PDF, storage S3, Commitment Letter.
+- **Fase 11 (Documentos)** — ✅ documentos e imágenes cifrados en S3 (`PB-002`,
+  ver `Docs/API_REFERENCE.md` §Documentos); faltan motor de PDF y Commitment Letter.
 - **Fase 12 (Payoff)**, **Fase 14 (Dashboards/Ratings)**, **Fase 15
   (Exports)** — sin empezar.
 - Conectar el frontend a este backend (hoy `paymyloan` no le apunta a

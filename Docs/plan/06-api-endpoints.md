@@ -133,7 +133,7 @@ Convención: toda ruta requiere `Authorization: Bearer <access_token>` salvo que
 | POST | `/api/borrowers/me/loan-requests/:id/targets` | BORROWER | `D-S2-22`, nuevo — agrega una o más `LenderCompany` (ya en la plataforma) elegidas para pedirles cotización (`LoanRequestLenderTarget`), sin importar `visibility` |
 | DELETE | `/api/borrowers/me/loan-requests/:id/targets/:lenderCompanyId` | BORROWER | `D-S2-22` — quita un Prestamista de la lista (mientras no haya cotizado) |
 | POST | `/api/borrowers/me/loan-requests/:id/invites` | BORROWER | `D-S2-14` — invita por email a alguien que puede no tener cuenta todavía (`LoanRequestInvite`) — distinto de `targets`, arriba |
-| POST | `/api/borrowers/me/loan-requests/:id/photos` | BORROWER | sube `Document(type=LOAN_REQUEST_PHOTO)` |
+| ~~POST~~ | ~~`/api/borrowers/me/loan-requests/:id/photos`~~ | BORROWER | **Reemplazado** por `POST /api/loan-requests/:id/documents` (§6.21) |
 | GET | `/api/borrowers/me/loan-requests/:id/quotes` | BORROWER | `D-S2-21`, nuevo — lista las `LoanQuote` recibidas, para comparar |
 | POST | `/api/borrowers/me/loan-requests/:id/quotes/:quoteId/select` | BORROWER | `D-S2-21`, nuevo — elige una cotización: crea `Contract(DRAFT, originationSource=MARKETPLACE, loanRequestId)` pre-llenado desde ella (`BE-051`); el resto de cotizaciones `SUBMITTED` → `DECLINED`; `LoanRequest.status → MATCHED`. `D-P5-3` (cierra `D-P5-1`): también crea/reactiva el `LenderBorrower(ACTIVE)` ganador y agrega al Deudor como `ContractBorrower` |
 | GET | `/api/marketplace/loan-requests` | LENDER | listado de `LoanRequest(PUBLISHED)` visibles para el Lender — `PUBLIC` (identidad/dirección exacta ocultas) más los `PRIVATE` donde está en `LoanRequestLenderTarget` |
@@ -274,6 +274,20 @@ Detalle de request/response y errores en [19 §19.5](19-afiliados.md#195-api).
 | POST | `/api/admin/affiliates/commissions/:id/mark-paid` · `/void` | ADMIN |
 
 También: `POST /api/auth/register` acepta `referralCode`; `GET /api/auth/me` agrega `isAffiliate` y `affiliateStatus`.
+
+
+## 6.21 Documentos (nuevo, 2026-11-05, [Fase 11 §PB-002](fases/fase-11-documentos-pdf.md#pb-002--tabla-document--storage-s3-privado--urls-firmadas))
+
+Cifrados en el backend antes de S3 (`D-DOC-1`). Detalle de request/response y errores en [API_REFERENCE §Documentos](../API_REFERENCE.md#documentos-srcappapicontractsiddocuments-srcappapiloan-requestsiddocuments-srcappapidocuments).
+
+| Método | Ruta | Rol |
+|---|---|---|
+| POST | `/api/contracts/:id/documents` | LENDER, BORROWER con acceso al contrato (`multipart`, campo `files`, 1–10) |
+| GET | `/api/contracts/:id/documents` | LENDER, BORROWER asociado, ADMIN |
+| POST | `/api/loan-requests/:id/documents` | BORROWER dueño, LENDER destinatario o con contrato (no el que solo la ve por `PUBLIC`, `D-DOC-6`) |
+| GET | `/api/loan-requests/:id/documents` | lo anterior + LENDER que la ve en el marketplace + ADMIN |
+| GET | `/api/documents/:id/content` | quien puede leer el padre — devuelve el archivo descifrado |
+| DELETE | `/api/documents/:id` | solo quien lo subió |
 
 ---
 

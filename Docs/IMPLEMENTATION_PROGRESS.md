@@ -71,7 +71,7 @@ Ver detalle completo en el plan aprobado y, para la ronda 2026-09-04, en [16. Fa
 | ✅ BE-019 | Tabla `WebhookEvent` | |
 | ✅ BE-020 | Tabla `AuditLog` (`lenderCompanyId` + `contractId` + acciones nuevas) + helper `logAuditEvent()` en `src/lib/audit.ts` | Se agregó `contractId` a `AuditLog`: el ERD de `04-base-de-datos.md` ya mostraba la relación `Contract ↔ AuditLog` pero la tabla de campos nunca la había listado — inconsistencia heredada del plan original, corregida durante la implementación. |
 | ✅ BE-021 | Tablas `RefreshToken`, `PasswordResetToken`, `TwoFactorRecoveryCode` | |
-| ⬜ BE-022 | Tabla `Document` (opcional) | Diferida a Fase 11, según lo planeado — no implementada. |
+| ✅ BE-022 | Tabla `Document` (opcional) | Implementada en Fase 11 (`PB-002`, 2026-11-05). |
 | ✅ BE-023 | Seed inicial (`prisma/seed.ts`, `pnpm run db:seed`) | Admin + 3 Lenders (uno con 2 `LenderCompany`, una `isOpenToDeals=false`; uno auto-registrado sin Admin — `lender3@paymyloan.dev`, `D-P1-10`) + 3 Borrowers auto-registrados (uno vinculado a 2 lenders) + 1 Bookkeeper + 1 Insurance Company + 3 `Property` + 2 `Contract` (`DRAFT` y `ACTIVE` con calendario simplificado, `Transaction`+`TransactionAllocation` de ejemplo). Idempotente: corrido dos veces seguidas, la segunda detecta el admin existente y no repite nada. |
 
 **Verificado end-to-end:** `type-check`, `lint`, 14 tests unitarios + 32 de integración (contra Postgres real en `db-test`, nunca mocks — cubren unicidad de `role`/`ein`/`contractNumber`/tokens, el vínculo N:M multi-lender de `LenderBorrower`/`LenderCompanyBookkeeper`, `LenderProfile.createdByAdminId` nulo (auto-registro, `D-P1-10`), la FK circular `Contract.currentTermsId`, `Transaction.type=PAYOFF_PAYMENT`, `AuditLog` sin `updatedAt`, y `logAuditEvent()`), seed corrido dos veces contra la base de desarrollo, y camino dorado por `curl` contra el contenedor `api` real (`POST /api/users` rechaza sin `role`, acepta con `role` y devuelve `role`/`isActive` en la respuesta).
@@ -255,12 +255,12 @@ Detalle ticket por ticket (decisiones de diseño, qué cambió respecto al backl
 
 ---
 
-## ⬜ Fase 11 — Documentos y generación de PDF
+## 🟡 Fase 11 — Documentos y generación de PDF (parcial — `PB-002`)
 
 | # | Ítem |
 |---|---|
 | ⬜ PB-001 | Motor de PDF (`src/lib/pdf.ts`) — pendiente decisión: Chromium en imagen vs API externa |
-| ⬜ PB-002 | Tabla `Document` + storage S3 privado + URLs firmadas |
+| ✅ PB-002 | Tabla `Document` + S3 privado — **cifrado en el backend en vez de URLs firmadas** (2026-11-05, `D-DOC-1`..`D-DOC-8`): subida múltiple a contratos y loan requests, vista descifrada, borrado solo por quien subió; el contrato expone su loan request de origen. Detalle en [fase-11 §PB-002](plan/fases/fase-11-documentos-pdf.md#pb-002--tabla-document--storage-s3-privado--urls-firmadas) |
 | ⬜ PB-003 | Commitment letter (la aceptación en plataforma es la firma) |
 | ⬜ PB-004 | Envío del documento por correo a las partes |
 

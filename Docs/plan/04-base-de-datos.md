@@ -360,6 +360,8 @@ enum DocumentVisibility { SHARED LENDER_ONLY BORROWER_ONLY ADMIN_ONLY }
 enum DocumentStatus { ACTIVE ARCHIVED DELETED }
 ```
 
+> **`Document` implementado 2026-11-05 (PB-002)** con un modelo más chico que el de arriba — fuente de verdad: `prisma/schema.prisma` y [`D-DOC-1`..`D-DOC-8`](00-contradicciones-y-decisiones.md#decisiones-2026-11-05-ronda-documentos-cifrados-pb-002). Columnas: `id`, `contractId?`, `loanRequestId?`, `originalFileName`, `mimeType`, `sizeBytes`, `s3Key` (único, `documents/{contracts|loan-requests}/{padreId}/{id}`), `wrappedKey`/`iv`/`authTag` (cifrado, `D-DOC-2`), `uploadedByUserId`, `createdAt`. Sin `deletedAt` (borrado físico, excepción a A-5 — `D-DOC-4`) y sin `DocumentType`/`DocumentVisibility`/`DocumentStatus` (`D-DOC-5`). FKs con `onDelete: Restrict` para no dejar objetos huérfanos en S3.
+
 **Cambios respecto al plan anterior**: `UserRole` gana `BOOKKEEPER`/`INSURANCE_COMPANY`; `LenderStatus` se elimina y se reemplaza por `LenderCompanyStatus` (mismos valores, distinto dueño); `TenantLinkStatus` es nuevo (compartido por `LenderBorrower` y `LenderCompanyBookkeeper`); `TransactionType` recupera `PAYOFF_PAYMENT`; `AutopayStatus`/`AutopayAmountType` son nuevos (M-6); `PropertyType` no cambia de valores, cambia de tabla dueña.
 
 ## 4.5 Índices y constraints principales
@@ -648,7 +650,7 @@ erDiagram
 
 ### Reglas de negocio nuevas (extiende §4.6)
 
-15. `Document` exige exactamente uno de `contractId`/`loanRequestId`/`applicationId` — regla de servicio, no de constraint de BD (`D-S2-8`).
+15. `Document` exige exactamente uno de `contractId`/`loanRequestId`/`applicationId` — regla de servicio, no de constraint de BD (`D-S2-8`). **Implementado 2026-11-05** como `CHECK (num_nonnulls("contractId", "loanRequestId") = 1)` en la migración, sin `applicationId` todavía (`D-DOC-3`).
 16. `ContractFeeItem.computedAmount` nunca se recalcula tras crearse — un cambio de monto/tasa implica una nueva versión de `ContractTerms` con sus propios `ContractFeeItem` (mismo principio de inmutabilidad ya aplicado a `ContractTerms.status=ACCEPTED`, regla 3).
 17. `LoanRequest.visibility=PUBLIC` nunca expone `borrowerProfileId`/identidad del Deudor ni la dirección exacta de la propiedad en listados — solo tras seleccionar una cotización.
 18. Un `Contract.originationSource=MARKETPLACE` siempre tiene exactamente un `ContractFeeItem(code=MARKETPLACE_CONNECTION)` en **cada** versión de su `ContractTerms` (v1 y cualquier versión posterior de `BE-060`), recalculado sobre el `principalAmount` vigente de esa versión — confirmado con Spencer, no se congela en el monto de la cotización original (`D-S2-5`). `DIRECT`/`PRIVATE_INVITE` nunca lo tienen, en ninguna versión. Esta regla solo es evaluable desde Fase 13 en adelante — `originationSource` no existe durante Fase 6 (`D-S2-19`).

@@ -140,7 +140,7 @@ esta tabla dice en qué documento vive cada uno.
 | [BE-085](fase-10-opcional.md#be-085--módulo-de-documentos-s3-privado-urls-firmadas) | Módulo de Documentos (S3 privado, URLs firmadas) | P3 | L |
 | [PB-020](fase-06-contracts.md#pb-020--contractfeeitem--closing-fee-summary-table-nuevo-d-s2-2) | `ContractFeeItem` — Closing Fee Summary Table (nuevo, `D-S2-2`) | P0 | L |
 | [PB-001](fase-11-documentos-pdf.md#pb-001--motor-de-pdf) | Motor de PDF (`src/lib/pdf.ts`) | P1 | M |
-| [PB-002](fase-11-documentos-pdf.md#pb-002--tabla-document--storage-s3-privado--urls-firmadas) | Tabla `Document` + storage S3 privado + URLs firmadas | P0 | L |
+| [PB-002](fase-11-documentos-pdf.md#pb-002--tabla-document--storage-s3-privado--urls-firmadas) | ✅ Tabla `Document` + storage S3 privado (cifrado en backend, `D-DOC-1`) | P0 | L |
 | [PB-003](fase-11-documentos-pdf.md#pb-003--commitment-letter--generación--distribución-automática) | Commitment Letter — generación + distribución automática | P0 | L |
 | [PB-004](fase-11-documentos-pdf.md#pb-004--envío-de-documentos-por-correo-a-las-partes) | Envío de documentos por correo a las partes | P1 | S |
 | [PB-021](fase-11-documentos-pdf.md#pb-021--ach-draft-mode-tras-la-commitment-letter) | ACH draft mode tras la Commitment Letter | P2 | M |
