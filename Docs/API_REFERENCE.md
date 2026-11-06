@@ -1731,7 +1731,7 @@ Documentos (PDF) e imágenes (JPEG, PNG, WEBP, HEIC) colgados de un **contrato**
 - **Quién sube**: `LENDER` y `BORROWER` con acceso al padre (escritura de `LENDER` exige 2FA, `D-P3-1`).
 - **Quién ve**: los mismos, más `ADMIN`.
 - **Quién borra**: **solo quien lo subió** (`403 FORBIDDEN` para el resto con acceso; `404` para quien no tiene acceso).
-- **Acceso a una loan request**: el Borrower dueño; un Lender que la ve en el marketplace (`PUBLISHED` y `PUBLIC` o dirigida a su empresa) o cuyo contrato nació de ella; `ADMIN`. Acceso a un contrato: el mismo de `GET /api/contracts/:id`.
+- **Acceso a una loan request**: el Borrower dueño y un Lender a quien va dirigida (`PUBLISHED` + target de su empresa) o cuyo contrato nació de ella ven y suben; un Lender que solo la ve por ser `PUBLIC` en el marketplace **solo ve** (subir → `403 FORBIDDEN`); `ADMIN` ve todo. Acceso a un contrato: el mismo de `GET /api/contracts/:id`.
 - **De contrato a loan request**: `GET /api/contracts/:id` incluye `loanRequestId` y `loanRequest: { id, status, projectType, totalLoanAmountRequested, requestedClosingDate, createdAt } | null` (null si el contrato fue directo). Las fotos/documentos de esa loan request se listan con `GET /api/loan-requests/:loanRequestId/documents`.
 
 Forma de `DocumentMeta`: `{ id, contractId|null, loanRequestId|null, originalFileName, mimeType, sizeBytes, uploadedByUserId, createdAt }`.

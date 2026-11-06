@@ -127,7 +127,7 @@ describe("documentos cifrados (PB-002)", () => {
     expect(bucket.size).toBe(before);
   });
 
-  it("loan request: dueño y Lender del marketplace suben; el contrato expone de qué loan request nació", async () => {
+  it("loan request: el dueño sube; el Lender solo ve si es PUBLIC y sube si va dirigida a él; el contrato expone de qué loan request nació", async () => {
     const l = await lender();
     const b = await borrower();
     const otherBorrower = await borrower();
@@ -148,8 +148,17 @@ describe("documentos cifrados (PB-002)", () => {
     const url = `http://localhost/api/loan-requests/${loanRequest.id}/documents`;
 
     expect((await LR_UPLOAD(upload(url, b.auth, [[PNG, "kitchen.png"]]), ctx(loanRequest.id))).status).toBe(201);
-    expect((await LR_UPLOAD(upload(url, l.auth, [[PDF, "terms.pdf"]]), ctx(loanRequest.id))).status).toBe(201);
     expect((await LR_DOCS(get(url, otherBorrower.auth), ctx(loanRequest.id))).status).toBe(404);
+
+    // PUBLIC: el Lender del marketplace ve, pero no sube.
+    const publicUpload = await LR_UPLOAD(upload(url, l.auth, [[PDF, "terms.pdf"]]), ctx(loanRequest.id));
+    expect(publicUpload.status).toBe(403);
+    expect((await (await LR_DOCS(get(url, l.auth), ctx(loanRequest.id))).json()).data).toHaveLength(1);
+
+    // Dirigida a su empresa: sí sube.
+    await prisma.loanRequest.update({ where: { id: loanRequest.id }, data: { visibility: "PRIVATE" } });
+    await prisma.loanRequestLenderTarget.create({ data: { loanRequestId: loanRequest.id, lenderCompanyId: l.company.id, invitedByUserId: b.user.id } });
+    expect((await LR_UPLOAD(upload(url, l.auth, [[PDF, "terms.pdf"]]), ctx(loanRequest.id))).status).toBe(201);
     expect((await (await LR_DOCS(get(url, l.auth), ctx(loanRequest.id))).json()).data).toHaveLength(2);
 
     const contract = await prisma.contract.create({

@@ -46,10 +46,11 @@ export function sanitizeFileName(name: string): string {
   return clean || "file";
 }
 
-// LoanRequest: el Borrower dueño; un Lender que la ve en el marketplace
-// (PUBLISHED y PUBLIC o dirigida a él) o cuyo contrato nació de ella; el
-// Admin siempre. 404 en cualquier otro caso (anti-enumeración, §7.5).
-async function requireLoanRequestAccess(session: Session, loanRequestId: string) {
+// LoanRequest: el Borrower dueño; un Lender cuyo contrato nació de ella o a
+// quien va dirigida (PUBLISHED + target activo); el Admin siempre. Un Lender
+// que solo la ve por ser PUBLIC en el marketplace puede leer pero no subir
+// (403). 404 en cualquier otro caso (anti-enumeración, §7.5).
+async function requireLoanRequestAccess(session: Session, loanRequestId: string, forWrite: boolean) {
   const loanRequest = await prisma.loanRequest.findUnique({
     where: { id: loanRequestId },
     include: { targets: { where: { removedAt: null } }, contract: { select: { lenderCompanyId: true, deletedAt: true } } },
@@ -69,20 +70,27 @@ async function requireLoanRequestAccess(session: Session, loanRequestId: string)
     });
     const ids = companies.map((company) => company.id);
     const ownsContract = loanRequest.contract && !loanRequest.contract.deletedAt && ids.includes(loanRequest.contract.lenderCompanyId);
-    const seesListing =
-      loanRequest.status === "PUBLISHED" &&
-      (loanRequest.visibility === "PUBLIC" || loanRequest.targets.some((target) => ids.includes(target.lenderCompanyId)));
-    if (ownsContract || seesListing) return loanRequest;
+    const published = loanRequest.status === "PUBLISHED";
+    const targeted = published && loanRequest.targets.some((target) => ids.includes(target.lenderCompanyId));
+    if (ownsContract || targeted) return loanRequest;
+    if (published && loanRequest.visibility === "PUBLIC") {
+      if (forWrite) throw new AppError("Lenders can only view documents of a public loan request", 403, "FORBIDDEN");
+      return loanRequest;
+    }
   }
 
   throw new AppError("Loan request not found", 404, "NOT_FOUND");
 }
 
-async function requireParentAccess(session: Session, parent: { contractId: string | null; loanRequestId: string | null }) {
+async function requireParentAccess(
+  session: Session,
+  parent: { contractId: string | null; loanRequestId: string | null },
+  forWrite = false,
+) {
   if (parent.contractId) {
     await requireContractAccess(session, parent.contractId);
   } else if (parent.loanRequestId) {
-    await requireLoanRequestAccess(session, parent.loanRequestId);
+    await requireLoanRequestAccess(session, parent.loanRequestId, forWrite);
   }
 }
 
@@ -94,7 +102,7 @@ function toParentColumns(parent: DocumentParent) {
 
 export async function uploadDocuments(session: Session, parent: DocumentParent, files: File[]) {
   const columns = toParentColumns(parent);
-  await requireParentAccess(session, columns);
+  await requireParentAccess(session, columns, true);
 
   if (files.length === 0) throw new AppError("At least one file is required in field 'files'", 400, "VALIDATION_ERROR");
   if (files.length > MAX_FILES_PER_UPLOAD) {
