@@ -8,6 +8,7 @@ import {
   addLoanRequestTargetSchema,
   createLoanRequestSchema,
   listLoanRequestsQuerySchema,
+  updateLoanRequestFieldsSchema,
   updateLoanRequestSchema,
 } from "@/validations/loanRequests.validation";
 
@@ -47,10 +48,12 @@ export async function getLoanRequest(request: Request, id: string) {
   return loanRequestsService.getOwnLoanRequest(session.userId, id);
 }
 
-export async function updateLoanRequest(request: Request, id: string, body: unknown) {
+// PB-002: `files` opcionales (multipart). Con archivos, `data` puede venir vacío.
+export async function updateLoanRequest(request: Request, id: string, body: unknown, files: File[] = []) {
   const session = await requireBorrowerSession(request);
-  const input = parseOrThrow(updateLoanRequestSchema, body);
-  return loanRequestsService.updateLoanRequest(session.userId, id, input);
+  const input = parseOrThrow(files.length > 0 ? updateLoanRequestFieldsSchema : updateLoanRequestSchema, body ?? {});
+  const documents = await prepareDocuments(files);
+  return loanRequestsService.updateLoanRequest(session.userId, id, input, documents);
 }
 
 export async function publishLoanRequest(request: Request, id: string) {

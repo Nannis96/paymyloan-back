@@ -27,16 +27,17 @@ export const createLoanRequestSchema = z.object({
 export type CreateLoanRequestInput = z.infer<typeof createLoanRequestSchema>;
 
 // BE-054-style: editable solo mientras DRAFT (validado en el service).
-export const updateLoanRequestSchema = z
-  .object({
-    property: propertyUpdateSchema.optional(),
-    projectType: projectType.optional(),
-    purchasePrice: money.optional(),
-    rehabAmount: nonNegativeMoney.optional(),
-    totalLoanAmountRequested: money.optional(),
-    requestedClosingDate: z.coerce.date().optional(),
-    requestedTimelineNotes: z.string().trim().max(1000).optional(),
-  })
+// Sin el "al menos un campo": un PATCH multipart puede traer solo archivos (PB-002).
+export const updateLoanRequestFieldsSchema = z.object({
+  property: propertyUpdateSchema.optional(),
+  projectType: projectType.optional(),
+  purchasePrice: money.optional(),
+  rehabAmount: nonNegativeMoney.optional(),
+  totalLoanAmountRequested: money.optional(),
+  requestedClosingDate: z.coerce.date().optional(),
+  requestedTimelineNotes: z.string().trim().max(1000).optional(),
+});
+export const updateLoanRequestSchema = updateLoanRequestFieldsSchema
   .refine((data) => Object.keys(data).length > 0, { message: "Must include at least one field to update" });
 export type UpdateLoanRequestInput = z.infer<typeof updateLoanRequestSchema>;
 

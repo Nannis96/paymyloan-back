@@ -298,10 +298,18 @@ export async function getContract(session: Session, contractId: string): Promise
 // §8.2). Recibe la `Session` completa (no solo `userId`) — Fase 7 extiende
 // esta edición al Admin (pedido explícito), que `requireContractAccess`
 // resuelve sin restricción de tenant.
-export async function updateContract(session: Session, contractId: string, input: UpdateContractInput): Promise<ContractDetail> {
+// `documents` (opcional, PB-002): validaciones primero; después cambios +
+// documentos en una sola transacción — todo o nada.
+export async function updateContract(
+  session: Session,
+  contractId: string,
+  input: UpdateContractInput,
+  documents: PreparedDocument[] = [],
+): Promise<ContractDetail & { documents: DocumentMeta[] }> {
   const { userId } = session;
   const contract = await requireContractAccess(session, contractId);
 
+  let currentTermsId: string | undefined;
   if (input.terms) {
     if (!contract.currentTermsId) {
       throw new AppError("Contract has no current terms", 409, "NO_CURRENT_TERMS");
@@ -310,26 +318,35 @@ export async function updateContract(session: Session, contractId: string, input
     if (currentTerms.status !== "DRAFT") {
       throw new AppError("Financial terms can only be edited while the current version is DRAFT — propose a new version instead", 409, "TERMS_NOT_EDITABLE");
     }
-    await prisma.contractTerms.update({ where: { id: currentTerms.id }, data: input.terms });
+    currentTermsId = currentTerms.id;
   }
 
-  if (input.property) {
-    await prisma.property.update({ where: { id: contract.propertyId }, data: input.property });
-  }
-
-  if (input.insuranceCompanyId !== undefined) {
-    if (input.insuranceCompanyId) {
-      const insuranceCompany = await prisma.insuranceCompanyProfile.findUnique({ where: { id: input.insuranceCompanyId } });
-      if (!insuranceCompany || insuranceCompany.deletedAt) {
-        throw new AppError("Insurance company not found", 404, "NOT_FOUND");
-      }
+  if (input.insuranceCompanyId) {
+    const insuranceCompany = await prisma.insuranceCompanyProfile.findUnique({ where: { id: input.insuranceCompanyId } });
+    if (!insuranceCompany || insuranceCompany.deletedAt) {
+      throw new AppError("Insurance company not found", 404, "NOT_FOUND");
     }
-    await prisma.contract.update({ where: { id: contractId }, data: { insuranceCompanyId: input.insuranceCompanyId } });
   }
+
+  const created = await withStoredDocuments(documents, () =>
+    prisma.$transaction(async (tx) => {
+      if (input.terms && currentTermsId) {
+        await tx.contractTerms.update({ where: { id: currentTermsId }, data: input.terms });
+      }
+      if (input.property) {
+        await tx.property.update({ where: { id: contract.propertyId }, data: input.property });
+      }
+      if (input.insuranceCompanyId !== undefined) {
+        await tx.contract.update({ where: { id: contractId }, data: { insuranceCompanyId: input.insuranceCompanyId } });
+      }
+      return createDocumentRows(tx, documents, { contractId }, userId);
+    }),
+  );
 
   await logAuditEvent({ action: "CONTRACT_UPDATED", entityType: "Contract", entityId: contractId, actorUserId: userId, lenderCompanyId: contract.lenderCompanyId, contractId });
+  await auditDocumentsUploaded(userId, created);
 
-  return prisma.contract.findUniqueOrThrow({ where: { id: contractId }, include: contractInclude });
+  return { ...(await prisma.contract.findUniqueOrThrow({ where: { id: contractId }, include: contractInclude })), documents: created };
 }
 
 // BE-055 (08-contratos.md §8.1): solo DRAFT sin ninguna Transaction.

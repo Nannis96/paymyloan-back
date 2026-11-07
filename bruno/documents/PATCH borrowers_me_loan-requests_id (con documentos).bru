@@ -1,0 +1,19 @@
+meta {
+  name: PATCH /borrowers/me/loan-requests/:id (con documentos)
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests/:id
+  body: multipartForm
+  auth: inherit
+}
+
+params:path {
+  id: {{loanRequestId}}
+}
+
+body:multipart-form {
+  files: @file()
+}

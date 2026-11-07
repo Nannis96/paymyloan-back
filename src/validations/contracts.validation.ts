@@ -93,12 +93,13 @@ export type CreateContractInput = z.infer<typeof createContractSchema>;
 // BE-054. `terms` solo se aplica si la ContractTerms vigente está DRAFT
 // (validado en el service, no acá) — property/insuranceCompanyId son
 // editables en cualquier estado (08-contratos.md §8.2).
-export const updateContractSchema = z
-  .object({
-    property: propertyUpdateSchema.optional(),
-    terms: contractTermsFields.partial().optional(),
-    insuranceCompanyId: uuid.nullable().optional(),
-  })
+// Sin el "al menos un campo": un PATCH multipart puede traer solo archivos (PB-002).
+export const updateContractFieldsSchema = z.object({
+  property: propertyUpdateSchema.optional(),
+  terms: contractTermsFields.partial().optional(),
+  insuranceCompanyId: uuid.nullable().optional(),
+});
+export const updateContractSchema = updateContractFieldsSchema
   .refine((data) => data.property !== undefined || data.terms !== undefined || data.insuranceCompanyId !== undefined, {
     message: "Must include at least one field to update",
   });

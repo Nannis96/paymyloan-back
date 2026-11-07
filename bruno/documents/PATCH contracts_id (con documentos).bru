@@ -1,0 +1,20 @@
+meta {
+  name: PATCH /contracts/:id (con documentos)
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/api/contracts/:id
+  body: multipartForm
+  auth: inherit
+}
+
+params:path {
+  id: {{contractId}}
+}
+
+body:multipart-form {
+  data: {"property":{"city":"Dallas"}}
+  files: @file()
+}

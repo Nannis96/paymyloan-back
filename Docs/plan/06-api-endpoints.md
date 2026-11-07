@@ -289,7 +289,7 @@ Cifrados en el backend antes de S3 (`D-DOC-1`). Detalle de request/response y er
 | GET | `/api/documents/:id/content` | quien puede leer el padre — devuelve el archivo descifrado |
 | DELETE | `/api/documents/:id` | solo quien lo subió |
 
-Además, `POST /api/contracts` y `POST /api/borrowers/me/loan-requests` aceptan los archivos en la misma llamada de creación (multipart: JSON en `data` + `files`, `D-DOC-9`).
+Además, `POST`/`PATCH` de `/api/contracts` y de `/api/borrowers/me/loan-requests` aceptan los archivos en la misma llamada (multipart: JSON en `data` + `files`; `data` opcional en el `PATCH` — `D-DOC-9`/`D-DOC-10`).
 
 ---
 

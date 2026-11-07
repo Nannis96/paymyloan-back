@@ -1130,7 +1130,14 @@ Lista + filtros `status` y `search` (número de contrato o dirección de la prop
   }
   ```
 
-- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_EDITABLE` · `409 NO_CURRENT_TERMS`.
+- **Con documentos (opcional, PB-002)**: `multipart/form-data` con el JSON (como texto) en `data` y 1–10 archivos en `files` (PDF/JPEG/PNG/WEBP/HEIC, 10 MB c/u), cifrados igual que en [Documentos](#documentos-srcappapicontractsiddocuments-srcappapiloan-requestsiddocuments-srcappapidocuments). Con archivos, `data` es **opcional** (se puede mandar solo `files` para adjuntar sin cambiar nada más). Cambios y documentos se guardan **en la misma transacción**: si un archivo es inválido, S3 falla o el cambio no pasa sus reglas (p. ej. `409 TERMS_NOT_EDITABLE`), no se guarda ni el cambio ni ningún archivo. La respuesta agrega `documents: DocumentMeta[]` (los recién subidos). Solo el `LENDER` puede adjuntar acá: el `ADMIN` puede editar pero no subir archivos (`403 FORBIDDEN`, `D-DOC-6`).
+
+  ```bash
+  curl -X PATCH "$API/api/contracts/$CONTRACT_ID" -H "Authorization: Bearer $TOKEN" \
+    -F 'data={"property":{"city":"Dallas"}}' -F "files=@tasacion.pdf"
+  ```
+
+- **Errores**: `400 VALIDATION_ERROR` · `400 INVALID_JSON`/`INVALID_FORM_DATA`/`FILE_TOO_LARGE`/`UNSUPPORTED_FILE_TYPE` (archivos) · `502 STORAGE_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` · `409 TERMS_NOT_EDITABLE` · `409 NO_CURRENT_TERMS`.
 
 ### `DELETE /api/contracts/:id`
 
@@ -1656,7 +1663,13 @@ Propios. `PATCH` (incluye `property`) solo mientras `status=DRAFT`.
   { "totalLoanAmountRequested": 270000, "requestedTimelineNotes": "Flexible on closing date, 30-45 days." }
   ```
 
-- **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_EDITABLE` (`PATCH` fuera de `DRAFT`).
+- **Con documentos en el `PATCH` (opcional, PB-002)**: `multipart/form-data` con el JSON (como texto) en `data` y 1–10 archivos en `files` (PDF/JPEG/PNG/WEBP/HEIC, 10 MB c/u), cifrados igual que en [Documentos](#documentos-srcappapicontractsiddocuments-srcappapiloan-requestsiddocuments-srcappapidocuments). Con archivos, `data` es **opcional** (se puede mandar solo `files` para adjuntar sin cambiar nada más). Cambios y documentos se guardan **en la misma transacción**: si un archivo es inválido, S3 falla o el cambio no pasa sus reglas (solo `DRAFT` → `409 LOAN_REQUEST_NOT_EDITABLE`), no se guarda ni el cambio ni ningún archivo. La respuesta agrega `documents: DocumentMeta[]` (los recién subidos). Para una solicitud ya publicada, usar `POST /api/loan-requests/:id/documents`.
+
+  ```bash
+  curl -X PATCH "$API/api/borrowers/me/loan-requests/$ID" -H "Authorization: Bearer $TOKEN" -F "files=@bano.jpg"
+  ```
+
+- **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `400 INVALID_JSON`/`INVALID_FORM_DATA`/`FILE_TOO_LARGE`/`UNSUPPORTED_FILE_TYPE` (archivos) · `502 STORAGE_ERROR` · `401`/`403` · `404 NOT_FOUND` · `409 LOAN_REQUEST_NOT_EDITABLE` (`PATCH` fuera de `DRAFT`).
 
 ### `POST /api/borrowers/me/loan-requests/:id/publish` / `.../withdraw`
 
@@ -1870,7 +1883,7 @@ Documentos (PDF) e imágenes (JPEG, PNG, WEBP, HEIC) colgados de un **contrato**
 - **Acceso a una loan request**: el Borrower dueño y un Lender a quien va dirigida (`PUBLISHED` + target de su empresa) o cuyo contrato nació de ella ven y suben; un Lender que solo la ve por ser `PUBLIC` en el marketplace **solo ve** (subir → `403 FORBIDDEN`); `ADMIN` ve todo. Acceso a un contrato: el mismo de `GET /api/contracts/:id`.
 - **De contrato a loan request**: `GET /api/contracts/:id` incluye `loanRequestId` y `loanRequest: { id, status, projectType, totalLoanAmountRequested, requestedClosingDate, createdAt } | null` (null si el contrato fue directo). Las fotos/documentos de esa loan request se listan con `GET /api/loan-requests/:loanRequestId/documents`.
 
-- **Al crear**: `POST /api/contracts` y `POST /api/borrowers/me/loan-requests` también aceptan archivos en la misma llamada (multipart, campo `data` + `files`), con el mismo cifrado y todo o nada junto con el alta — ver cada endpoint.
+- **Al crear o editar**: `POST`/`PATCH` de `/api/contracts` y de `/api/borrowers/me/loan-requests` también aceptan archivos en la misma llamada (multipart, campo `data` + `files`; en el `PATCH` `data` es opcional), con el mismo cifrado y todo o nada junto con el alta o el cambio — ver cada endpoint.
 
 Forma de `DocumentMeta`: `{ id, contractId|null, loanRequestId|null, originalFileName, mimeType, sizeBytes, uploadedByUserId, createdAt }`.
 
@@ -1970,7 +1983,7 @@ curl -X POST "$API/api/contracts/$CONTRACT_ID/documents" -H "Authorization: Bear
 | `TWO_FACTOR_NOT_ENABLED` | 409 | `/2fa/disable` o `/2fa/recovery-codes` cuando el usuario no tiene 2FA activo |
 | `TWO_FACTOR_SETUP_REQUIRED` | 409 | `/2fa/verify` sin haber llamado antes a `/2fa/setup` |
 | `CONTRACT_NOT_DELETABLE` | 409 | `DELETE /api/contracts/:id` con `status` distinto de `DRAFT` |
-| `INVALID_FORM_DATA` | 400 | `POST .../documents` cuyo body no es `multipart/form-data`, o `POST /api/contracts`/`POST /api/borrowers/me/loan-requests` en multipart sin el campo `data` |
+| `INVALID_FORM_DATA` | 400 | `POST .../documents` cuyo body no es `multipart/form-data`, o `POST /api/contracts`/`POST /api/borrowers/me/loan-requests` en multipart sin el campo `data` (en los `PATCH` es opcional) |
 | `FILE_TOO_LARGE` | 400 | `POST .../documents` con un archivo vacío o de más de 10 MB |
 | `UNSUPPORTED_FILE_TYPE` | 400 | `POST .../documents` con un archivo que no es PDF/JPEG/PNG/WEBP/HEIC (detectado por contenido) |
 | `STORAGE_ERROR` | 502 | `POST .../documents`: S3 rechazó la subida — no queda guardado ningún archivo del lote |

@@ -109,15 +109,18 @@ export async function getOwnLoanRequest(userId: string, id: string): Promise<Loa
 }
 
 // BE-054-style: editable (property incluida) solo mientras DRAFT.
-export async function updateLoanRequest(userId: string, id: string, input: UpdateLoanRequestInput): Promise<LoanRequestDetail> {
+// `documents` (opcional, PB-002): se guardan en la misma transacción que los
+// cambios — todo o nada. Mismas reglas que el PATCH: dueño y solo DRAFT.
+export async function updateLoanRequest(
+  userId: string,
+  id: string,
+  input: UpdateLoanRequestInput,
+  documents: PreparedDocument[] = [],
+): Promise<LoanRequestDetail & { documents: DocumentMeta[] }> {
   const borrowerProfile = await requireBorrowerProfile(userId);
   const loanRequest = await requireOwnLoanRequest(borrowerProfile.id, id);
   if (loanRequest.status !== "DRAFT") {
     throw new AppError("Loan request can only be edited while DRAFT", 409, "LOAN_REQUEST_NOT_EDITABLE");
-  }
-
-  if (input.property) {
-    await prisma.property.update({ where: { id: loanRequest.propertyId }, data: input.property });
   }
 
   const data: Prisma.LoanRequestUpdateInput = {};
@@ -127,12 +130,22 @@ export async function updateLoanRequest(userId: string, id: string, input: Updat
   if (input.totalLoanAmountRequested !== undefined) data.totalLoanAmountRequested = input.totalLoanAmountRequested;
   if (input.requestedClosingDate !== undefined) data.requestedClosingDate = input.requestedClosingDate;
   if (input.requestedTimelineNotes !== undefined) data.requestedTimelineNotes = input.requestedTimelineNotes;
-  if (Object.keys(data).length > 0) {
-    await prisma.loanRequest.update({ where: { id }, data });
-  }
+
+  const created = await withStoredDocuments(documents, () =>
+    prisma.$transaction(async (tx) => {
+      if (input.property) {
+        await tx.property.update({ where: { id: loanRequest.propertyId }, data: input.property });
+      }
+      if (Object.keys(data).length > 0) {
+        await tx.loanRequest.update({ where: { id }, data });
+      }
+      return createDocumentRows(tx, documents, { loanRequestId: id }, userId);
+    }),
+  );
 
   await logAuditEvent({ action: "LOAN_REQUEST_UPDATED", entityType: "LoanRequest", entityId: id, actorUserId: userId });
-  return requireOwnLoanRequest(borrowerProfile.id, id);
+  await auditDocumentsUploaded(userId, created);
+  return { ...(await requireOwnLoanRequest(borrowerProfile.id, id)), documents: created };
 }
 
 export async function publishLoanRequest(userId: string, id: string): Promise<LoanRequestDetail> {

@@ -1,6 +1,7 @@
 import { getLoanRequest, updateLoanRequest } from "@/controllers/loanRequests.controller";
 import { handleRouteError } from "@/errors/errorHandler";
-import { apiError, apiSuccess } from "@/lib/apiResponse";
+import { apiSuccess } from "@/lib/apiResponse";
+import { readJsonOrMultipart } from "@/lib/requestBody";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -19,15 +20,10 @@ export async function GET(request: Request, { params }: RouteContext) {
 export async function PATCH(request: Request, { params }: RouteContext) {
   const { id } = await params;
 
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return apiError("Invalid JSON in request body", 400, "INVALID_JSON");
-  }
-
-  try {
-    const result = await updateLoanRequest(request, id, body);
+    // JSON, o multipart con el JSON en `data` (opcional) + `files` (PB-002).
+    const { body, files } = await readJsonOrMultipart(request, { dataOptional: true });
+    const result = await updateLoanRequest(request, id, body, files);
     return apiSuccess(result);
   } catch (error) {
     return handleRouteError(error, request);

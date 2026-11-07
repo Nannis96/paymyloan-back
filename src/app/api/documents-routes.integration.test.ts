@@ -13,8 +13,9 @@ vi.mock("@/lib/s3", () => ({
   deleteObject: async (key: string) => void bucket.delete(key),
 }));
 
+import { PATCH as UPDATE_LOAN_REQUEST } from "@/app/api/borrowers/me/loan-requests/[id]/route";
 import { POST as CREATE_LOAN_REQUEST } from "@/app/api/borrowers/me/loan-requests/route";
-import { GET as CONTRACT_GET } from "@/app/api/contracts/[id]/route";
+import { GET as CONTRACT_GET, PATCH as UPDATE_CONTRACT } from "@/app/api/contracts/[id]/route";
 import { POST as CREATE_CONTRACT } from "@/app/api/contracts/route";
 import { GET as CONTRACT_DOCS, POST as CONTRACT_UPLOAD } from "@/app/api/contracts/[id]/documents/route";
 import { GET as CONTENT } from "@/app/api/documents/[id]/content/route";
@@ -209,11 +210,11 @@ const LOAN_REQUEST_BODY = {
   visibility: "PUBLIC",
 };
 
-function multipart(url: string, auth: string, data: unknown, files: Array<[Buffer, string]>) {
+function multipart(url: string, auth: string, data: unknown, files: Array<[Buffer, string]>, method = "POST") {
   const form = new FormData();
   if (data !== undefined) form.append("data", JSON.stringify(data));
   for (const [bytes, name] of files) form.append("files", new File([new Uint8Array(bytes)], name));
-  return new Request(url, { method: "POST", headers: { authorization: auth }, body: form });
+  return new Request(url, { method, headers: { authorization: auth }, body: form });
 }
 
 describe("crear contrato / loan request con documentos (PB-002)", () => {
@@ -273,5 +274,76 @@ describe("crear contrato / loan request con documentos (PB-002)", () => {
 
     const listed = await LR_DOCS(get(`http://localhost/api/loan-requests/${loanRequest.id}/documents`, b.auth), ctx(loanRequest.id));
     expect((await listed.json()).data).toHaveLength(2);
+  });
+});
+
+describe("PATCH contrato / loan request con documentos (PB-002)", () => {
+  afterAll(resetPhase1Tables);
+
+  async function draftContract(auth: string) {
+    const response = await CREATE_CONTRACT(multipart("http://localhost/api/contracts", auth, CONTRACT_BODY, []));
+    return (await response.json()).data as { id: string };
+  }
+
+  it("PATCH /api/contracts/:id: cambios + archivos juntos, o solo archivos; JSON vacío sigue siendo 400", async () => {
+    const l = await lender();
+    const contract = await draftContract(l.auth);
+    const url = `http://localhost/api/contracts/${contract.id}`;
+
+    const both = await UPDATE_CONTRACT(multipart(url, l.auth, { property: { city: "Dallas" } }, [[PDF, "appraisal.pdf"]], "PATCH"), ctx(contract.id));
+    expect(both.status).toBe(200);
+    const updated = (await both.json()).data;
+    expect(updated.property.city).toBe("Dallas");
+    expect(updated.documents).toHaveLength(1);
+
+    const onlyFiles = await UPDATE_CONTRACT(multipart(url, l.auth, undefined, [[PNG, "roof.png"]], "PATCH"), ctx(contract.id));
+    expect(onlyFiles.status).toBe(200);
+    expect((await onlyFiles.json()).data.documents).toHaveLength(1);
+    expect(await prisma.document.count({ where: { contractId: contract.id } })).toBe(2);
+
+    const empty = await UPDATE_CONTRACT(new Request(url, { method: "PATCH", headers: { authorization: l.auth, "content-type": "application/json" }, body: "{}" }), ctx(contract.id));
+    expect(empty.status).toBe(400);
+  });
+
+  it("todo o nada: si S3 falla no se guardan los cambios; el Admin no puede subir archivos", async () => {
+    const l = await lender();
+    const contract = await draftContract(l.auth);
+    const url = `http://localhost/api/contracts/${contract.id}`;
+
+    s3.failPuts = true;
+    try {
+      const down = await UPDATE_CONTRACT(multipart(url, l.auth, { property: { city: "Houston" } }, [[PDF, "x.pdf"]], "PATCH"), ctx(contract.id));
+      expect(down.status).toBe(502);
+    } finally {
+      s3.failPuts = false;
+    }
+    const property = await prisma.contract.findUniqueOrThrow({ where: { id: contract.id }, include: { property: true } });
+    expect(property.property.city).toBe("Austin");
+
+    const { user: admin, secret } = await createTestUserWithTwoFactor("ADMIN", PASSWORD);
+    const adminAuth = `Bearer ${await issueAccessTokenFor(admin, PASSWORD, secret)}`;
+    const byAdmin = await UPDATE_CONTRACT(multipart(url, adminAuth, undefined, [[PDF, "x.pdf"]], "PATCH"), ctx(contract.id));
+    expect(byAdmin.status).toBe(403);
+    expect(await prisma.document.count({ where: { contractId: contract.id } })).toBe(0);
+  });
+
+  it("PATCH /api/borrowers/me/loan-requests/:id: archivos en DRAFT; publicada responde 409 sin guardar nada", async () => {
+    const b = await borrower();
+    const created = await CREATE_LOAN_REQUEST(multipart("http://localhost/api/borrowers/me/loan-requests", b.auth, LOAN_REQUEST_BODY, []));
+    const loanRequest = (await created.json()).data as { id: string };
+    const url = `http://localhost/api/borrowers/me/loan-requests/${loanRequest.id}`;
+
+    const ok = await UPDATE_LOAN_REQUEST(multipart(url, b.auth, { rehabAmount: 25_000 }, [[PNG, "bath.png"]], "PATCH"), ctx(loanRequest.id));
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()).data;
+    expect(Number(body.rehabAmount)).toBe(25_000);
+    expect(body.documents).toHaveLength(1);
+
+    await prisma.loanRequest.update({ where: { id: loanRequest.id }, data: { status: "PUBLISHED" } });
+    const objectsBefore = bucket.size;
+    const published = await UPDATE_LOAN_REQUEST(multipart(url, b.auth, undefined, [[PNG, "yard.png"]], "PATCH"), ctx(loanRequest.id));
+    expect(published.status).toBe(409);
+    expect(bucket.size).toBe(objectsBefore);
+    expect(await prisma.document.count({ where: { loanRequestId: loanRequest.id } })).toBe(1);
   });
 });

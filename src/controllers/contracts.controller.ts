@@ -1,4 +1,5 @@
 import { prisma } from "@/db/prisma";
+import { AppError } from "@/errors/AppError";
 import { requireActiveSubscription } from "@/middlewares/requireActiveSubscription";
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
@@ -15,6 +16,7 @@ import {
   listContractsQuerySchema,
   proposeContractTermsSchema,
   rejectContractTermsSchema,
+  updateContractFieldsSchema,
   updateContractSchema,
 } from "@/validations/contracts.validation";
 
@@ -75,10 +77,16 @@ export async function getContract(request: Request, id: string) {
 }
 
 // BE-054. Fase 7 (pedido explícito): también editable por el Admin.
-export async function updateContract(request: Request, id: string, body: unknown) {
+// PB-002: `files` opcionales (multipart). Con archivos, `data` puede venir
+// vacío; suben solo LENDER/BORROWER (D-DOC-6), no el Admin.
+export async function updateContract(request: Request, id: string, body: unknown, files: File[] = []) {
   const session = await requireLenderOrAdminSession(request);
-  const input = parseOrThrow(updateContractSchema, body);
-  return contractsService.updateContract(session, id, input);
+  if (files.length > 0 && !session.roles.includes("LENDER")) {
+    throw new AppError("Only lenders and borrowers can upload documents", 403, "FORBIDDEN");
+  }
+  const input = parseOrThrow(files.length > 0 ? updateContractFieldsSchema : updateContractSchema, body ?? {});
+  const documents = await prepareDocuments(files);
+  return contractsService.updateContract(session, id, input, documents);
 }
 
 // BE-055.
