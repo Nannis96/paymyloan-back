@@ -1,6 +1,7 @@
 import { createContract, listContracts } from "@/controllers/contracts.controller";
 import { handleRouteError } from "@/errors/errorHandler";
-import { apiError, apiSuccess } from "@/lib/apiResponse";
+import { apiSuccess } from "@/lib/apiResponse";
+import { readJsonOrMultipart } from "@/lib/requestBody";
 
 // GET /api/contracts — lista + filtros + paginación, por rol (BE-052).
 export async function GET(request: Request) {
@@ -15,16 +16,12 @@ export async function GET(request: Request) {
 
 // POST /api/contracts — crea Property + Contract(DRAFT) + ContractTerms(v1,
 // DRAFT) en una transacción (BE-051, D-P6-2).
+// JSON, o multipart/form-data con el JSON en `data` + archivos en `files`
+// (cifrados, todo o nada — PB-002).
 export async function POST(request: Request) {
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return apiError("Invalid JSON in request body", 400, "INVALID_JSON");
-  }
-
-  try {
-    const result = await createContract(request, body);
+    const { body, files } = await readJsonOrMultipart(request);
+    const result = await createContract(request, body, files);
     return apiSuccess(result, 201);
   } catch (error) {
     return handleRouteError(error, request);

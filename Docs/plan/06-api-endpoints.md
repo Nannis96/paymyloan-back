@@ -289,6 +289,8 @@ Cifrados en el backend antes de S3 (`D-DOC-1`). Detalle de request/response y er
 | GET | `/api/documents/:id/content` | quien puede leer el padre — devuelve el archivo descifrado |
 | DELETE | `/api/documents/:id` | solo quien lo subió |
 
+Además, `POST /api/contracts` y `POST /api/borrowers/me/loan-requests` aceptan los archivos en la misma llamada de creación (multipart: JSON en `data` + `files`, `D-DOC-9`).
+
 ---
 
 [← Índice del plan](README.md)  ·  [Anterior: 5. Qué NO debemos copiar de Owner](05-que-no-copiar-de-owner.md)  ·  [Siguiente: 7. Autenticación y autorización](07-autenticacion-y-autorizacion.md)

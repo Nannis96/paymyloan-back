@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { auditDocumentsUploaded, createDocumentRows, withStoredDocuments, type DocumentMeta, type PreparedDocument } from "@/services/documents.service";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
@@ -47,10 +48,17 @@ function notifyQuoteRequested(lenderCompanyId: string, loanRequest: { id: string
   });
 }
 
-export async function createLoanRequest(userId: string, input: CreateLoanRequestInput): Promise<LoanRequestDetail> {
+// `documents` (opcional, ya validados/cifrados por prepareDocuments) se
+// guardan en la misma transacción: si algo falla no queda ni la loan request
+// ni los archivos en S3.
+export async function createLoanRequest(
+  userId: string,
+  input: CreateLoanRequestInput,
+  documents: PreparedDocument[] = [],
+): Promise<LoanRequestDetail & { documents: DocumentMeta[] }> {
   const borrowerProfile = await requireBorrowerProfile(userId);
 
-  const loanRequestId = await prisma.$transaction(async (tx) => {
+  const { loanRequestId, created } = await withStoredDocuments(documents, () => prisma.$transaction(async (tx) => {
     const property = await tx.property.create({ data: { ...input.property, createdByUserId: userId } });
     const loanRequest = await tx.loanRequest.create({
       data: {
@@ -65,12 +73,15 @@ export async function createLoanRequest(userId: string, input: CreateLoanRequest
         visibility: input.visibility,
       },
     });
-    return loanRequest.id;
-  });
+    const created = await createDocumentRows(tx, documents, { loanRequestId: loanRequest.id }, userId);
+    return { loanRequestId: loanRequest.id, created };
+  }));
 
   await logAuditEvent({ action: "LOAN_REQUEST_CREATED", entityType: "LoanRequest", entityId: loanRequestId, actorUserId: userId });
+  await auditDocumentsUploaded(userId, created);
 
-  return prisma.loanRequest.findUniqueOrThrow({ where: { id: loanRequestId }, include: loanRequestInclude });
+  const loanRequest = await prisma.loanRequest.findUniqueOrThrow({ where: { id: loanRequestId }, include: loanRequestInclude });
+  return { ...loanRequest, documents: created };
 }
 
 export async function listOwnLoanRequests(userId: string, query: ListLoanRequestsQuery): Promise<PaginatedResult<LoanRequestDetail>> {

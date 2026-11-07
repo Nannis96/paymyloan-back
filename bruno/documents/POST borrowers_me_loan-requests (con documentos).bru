@@ -1,0 +1,16 @@
+meta {
+  name: POST /borrowers/me/loan-requests (con documentos)
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/borrowers/me/loan-requests
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  data: {"property":{"addressLine1":"1 Main St","city":"Austin","state":"TX","postalCode":"78701","propertyType":"SINGLE_FAMILY"},"projectType":"FIX_AND_FLIP","purchasePrice":100000,"rehabAmount":20000,"totalLoanAmountRequested":90000,"requestedClosingDate":"2027-01-01","visibility":"PUBLIC"}
+  files: @file()
+}

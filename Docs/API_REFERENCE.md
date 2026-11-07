@@ -1087,8 +1087,15 @@ Crea el contrato en un solo paso.
 
   Notas: `lenderCompanyId` solo hace falta si el Lender tiene más de una `LenderCompany`; `insuranceCompanyId` y `borrowerProfileIds` son opcionales; `prePayPenaltyType`/`prePayPenaltyAmount` viajan juntos o ninguno de los dos.
 
-- **Response `201`**: `Contract` completo (ver forma abajo), `status: "DRAFT"`, `currentTerms` con `versionNumber: 1` y `status: "DRAFT"`.
-- **Errores**: `400 VALIDATION_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId`/`insuranceCompanyId`/algún `borrowerProfileId` ajeno o no vinculado) · `409 NO_LENDER_COMPANY` · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`) · `409 PROPERTY_SELF_ENCUMBERED` (`D-P7-3`).
+- **Con documentos (opcional, PB-002)**: mandar `multipart/form-data` con el mismo JSON (como texto) en el campo `data` y 1–10 archivos en `files` (PDF/JPEG/PNG/WEBP/HEIC, 10 MB c/u). Se cifran igual que en [Documentos](#documentos-srcappapicontractsiddocuments-srcappapiloan-requestsiddocuments-srcappapidocuments) y se guardan **en la misma transacción**: si un archivo es inválido, S3 falla o el alta no pasa sus validaciones, no se crea el contrato ni queda ningún archivo. Sin archivos, el JSON de siempre sigue funcionando igual.
+
+  ```bash
+  curl -X POST "$API/api/contracts" -H "Authorization: Bearer $TOKEN" \
+    -F 'data={"property":{...},"terms":{...}}' -F "files=@pagare.pdf" -F "files=@fachada.jpg"
+  ```
+
+- **Response `201`**: `Contract` completo (ver forma abajo), `status: "DRAFT"`, `currentTerms` con `versionNumber: 1` y `status: "DRAFT"`, más `documents: DocumentMeta[]` (vacío si no se mandaron archivos).
+- **Errores**: `400 VALIDATION_ERROR` · `400 INVALID_JSON`/`INVALID_FORM_DATA`/`FILE_TOO_LARGE`/`UNSUPPORTED_FILE_TYPE` (archivos) · `502 STORAGE_ERROR` · `400 LENDER_COMPANY_REQUIRED` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 NOT_FOUND` (`lenderCompanyId`/`insuranceCompanyId`/algún `borrowerProfileId` ajeno o no vinculado) · `409 NO_LENDER_COMPANY` · `409 SELF_LENDING_NOT_ALLOWED` (`D-P7-2`) · `409 PROPERTY_SELF_ENCUMBERED` (`D-P7-3`).
 
 ### `GET /api/contracts`
 
@@ -1626,8 +1633,15 @@ En cualquier punto entre el paso 3 y el 7, el Deudor puede arrepentirse y bajar 
   }
   ```
 
-- **Response `201`**: `LoanRequest` completo, `status: "DRAFT"`, `property.lenderCompanyId: null`.
-- **Errores**: `400 VALIDATION_ERROR` · `401`/`403` · `404 BORROWER_NOT_FOUND`.
+- **Con documentos (opcional, PB-002)**: mandar `multipart/form-data` con el mismo JSON (como texto) en el campo `data` y 1–10 archivos en `files` (PDF/JPEG/PNG/WEBP/HEIC, 10 MB c/u). Se cifran igual que en [Documentos](#documentos-srcappapicontractsiddocuments-srcappapiloan-requestsiddocuments-srcappapidocuments) y se guardan **en la misma transacción**: si un archivo es inválido, S3 falla o el alta no pasa sus validaciones, no se crea la loan request ni queda ningún archivo. Sin archivos, el JSON de siempre sigue funcionando igual.
+
+  ```bash
+  curl -X POST "$API/api/borrowers/me/loan-requests" -H "Authorization: Bearer $TOKEN" \
+    -F 'data={"property":{...},"projectType":"FIX_AND_FLIP",...}' -F "files=@cocina.jpg" -F "files=@presupuesto.pdf"
+  ```
+
+- **Response `201`**: `LoanRequest` completo, `status: "DRAFT"`, `property.lenderCompanyId: null`, más `documents: DocumentMeta[]` (vacío si no se mandaron archivos).
+- **Errores**: `400 VALIDATION_ERROR` · `400 INVALID_JSON`/`INVALID_FORM_DATA`/`FILE_TOO_LARGE`/`UNSUPPORTED_FILE_TYPE` (archivos) · `502 STORAGE_ERROR` · `401`/`403` · `404 BORROWER_NOT_FOUND`.
 
 ### `GET`/`PATCH /api/borrowers/me/loan-requests/:id`
 
@@ -1856,6 +1870,8 @@ Documentos (PDF) e imágenes (JPEG, PNG, WEBP, HEIC) colgados de un **contrato**
 - **Acceso a una loan request**: el Borrower dueño y un Lender a quien va dirigida (`PUBLISHED` + target de su empresa) o cuyo contrato nació de ella ven y suben; un Lender que solo la ve por ser `PUBLIC` en el marketplace **solo ve** (subir → `403 FORBIDDEN`); `ADMIN` ve todo. Acceso a un contrato: el mismo de `GET /api/contracts/:id`.
 - **De contrato a loan request**: `GET /api/contracts/:id` incluye `loanRequestId` y `loanRequest: { id, status, projectType, totalLoanAmountRequested, requestedClosingDate, createdAt } | null` (null si el contrato fue directo). Las fotos/documentos de esa loan request se listan con `GET /api/loan-requests/:loanRequestId/documents`.
 
+- **Al crear**: `POST /api/contracts` y `POST /api/borrowers/me/loan-requests` también aceptan archivos en la misma llamada (multipart, campo `data` + `files`), con el mismo cifrado y todo o nada junto con el alta — ver cada endpoint.
+
 Forma de `DocumentMeta`: `{ id, contractId|null, loanRequestId|null, originalFileName, mimeType, sizeBytes, uploadedByUserId, createdAt }`.
 
 ### `POST /api/contracts/:id/documents` · `POST /api/loan-requests/:id/documents`
@@ -1954,7 +1970,7 @@ curl -X POST "$API/api/contracts/$CONTRACT_ID/documents" -H "Authorization: Bear
 | `TWO_FACTOR_NOT_ENABLED` | 409 | `/2fa/disable` o `/2fa/recovery-codes` cuando el usuario no tiene 2FA activo |
 | `TWO_FACTOR_SETUP_REQUIRED` | 409 | `/2fa/verify` sin haber llamado antes a `/2fa/setup` |
 | `CONTRACT_NOT_DELETABLE` | 409 | `DELETE /api/contracts/:id` con `status` distinto de `DRAFT` |
-| `INVALID_FORM_DATA` | 400 | `POST .../documents` cuyo body no es `multipart/form-data` |
+| `INVALID_FORM_DATA` | 400 | `POST .../documents` cuyo body no es `multipart/form-data`, o `POST /api/contracts`/`POST /api/borrowers/me/loan-requests` en multipart sin el campo `data` |
 | `FILE_TOO_LARGE` | 400 | `POST .../documents` con un archivo vacío o de más de 10 MB |
 | `UNSUPPORTED_FILE_TYPE` | 400 | `POST .../documents` con un archivo que no es PDF/JPEG/PNG/WEBP/HEIC (detectado por contenido) |
 | `STORAGE_ERROR` | 502 | `POST .../documents`: S3 rechazó la subida — no queda guardado ningún archivo del lote |

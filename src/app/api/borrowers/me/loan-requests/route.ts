@@ -1,6 +1,7 @@
 import { createLoanRequest, listLoanRequests } from "@/controllers/loanRequests.controller";
 import { handleRouteError } from "@/errors/errorHandler";
-import { apiError, apiSuccess } from "@/lib/apiResponse";
+import { apiSuccess } from "@/lib/apiResponse";
+import { readJsonOrMultipart } from "@/lib/requestBody";
 
 // GET /api/borrowers/me/loan-requests — propios, cualquier status (PB-011).
 export async function GET(request: Request) {
@@ -15,16 +16,12 @@ export async function GET(request: Request) {
 
 // POST /api/borrowers/me/loan-requests — crea LoanRequest(DRAFT) + Property
 // embebida (D-P6-2/D-S2-25, PB-011).
+// JSON, o multipart/form-data con el JSON en `data` + archivos en `files`
+// (cifrados, todo o nada — PB-002).
 export async function POST(request: Request) {
-  let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    return apiError("Invalid JSON in request body", 400, "INVALID_JSON");
-  }
-
-  try {
-    const result = await createLoanRequest(request, body);
+    const { body, files } = await readJsonOrMultipart(request);
+    const result = await createLoanRequest(request, body, files);
     return apiSuccess(result, 201);
   } catch (error) {
     return handleRouteError(error, request);

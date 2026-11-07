@@ -3,13 +3,19 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // S3 en memoria — lo único simulado; Postgres es real (mismo criterio que el
 // resto de *.integration.test.ts).
 const bucket = vi.hoisted(() => new Map<string, Buffer>());
+const s3 = vi.hoisted(() => ({ failPuts: false }));
 vi.mock("@/lib/s3", () => ({
-  putObject: async (key: string, body: Buffer) => void bucket.set(key, Buffer.from(body)),
+  putObject: async (key: string, body: Buffer) => {
+    if (s3.failPuts) throw new Error("S3 down");
+    bucket.set(key, Buffer.from(body));
+  },
   getObject: async (key: string) => bucket.get(key) ?? Promise.reject(new Error("NoSuchKey")),
   deleteObject: async (key: string) => void bucket.delete(key),
 }));
 
+import { POST as CREATE_LOAN_REQUEST } from "@/app/api/borrowers/me/loan-requests/route";
 import { GET as CONTRACT_GET } from "@/app/api/contracts/[id]/route";
+import { POST as CREATE_CONTRACT } from "@/app/api/contracts/route";
 import { GET as CONTRACT_DOCS, POST as CONTRACT_UPLOAD } from "@/app/api/contracts/[id]/documents/route";
 import { GET as CONTENT } from "@/app/api/documents/[id]/content/route";
 import { DELETE as DELETE_DOC } from "@/app/api/documents/[id]/route";
@@ -174,5 +180,98 @@ describe("documentos cifrados (PB-002)", () => {
     const detail = (await (await CONTRACT_GET(get(`http://localhost/api/contracts/${contract.id}`, l.auth), ctx(contract.id))).json()).data;
     expect(detail.loanRequestId).toBe(loanRequest.id);
     expect(detail.loanRequest).toMatchObject({ id: loanRequest.id, status: "PUBLISHED" });
+  });
+});
+
+// Creación con archivos en la misma llamada: multipart con el JSON en `data`.
+const PROPERTY = { addressLine1: "1 Main St", city: "Austin", state: "TX", postalCode: "78701", propertyType: "SINGLE_FAMILY" };
+const CONTRACT_BODY = {
+  property: PROPERTY,
+  terms: {
+    structure: "AMORTIZED",
+    principalAmount: 100_000,
+    interestRate: 6,
+    amortizationTermMonths: 12,
+    firstPaymentDate: "2027-01-01",
+    paymentDueDay: 1,
+    maturityDate: "2027-12-01",
+    lateFeeType: "FLAT",
+    lateFeeAmount: 50,
+  },
+};
+const LOAN_REQUEST_BODY = {
+  property: PROPERTY,
+  projectType: "FIX_AND_FLIP",
+  purchasePrice: 100_000,
+  rehabAmount: 20_000,
+  totalLoanAmountRequested: 90_000,
+  requestedClosingDate: "2027-01-01",
+  visibility: "PUBLIC",
+};
+
+function multipart(url: string, auth: string, data: unknown, files: Array<[Buffer, string]>) {
+  const form = new FormData();
+  if (data !== undefined) form.append("data", JSON.stringify(data));
+  for (const [bytes, name] of files) form.append("files", new File([new Uint8Array(bytes)], name));
+  return new Request(url, { method: "POST", headers: { authorization: auth }, body: form });
+}
+
+describe("crear contrato / loan request con documentos (PB-002)", () => {
+  afterAll(resetPhase1Tables);
+
+  it("POST /api/contracts guarda contrato + documentos cifrados juntos; JSON sin archivos sigue funcionando", async () => {
+    const l = await lender();
+    const url = "http://localhost/api/contracts";
+
+    const response = await CREATE_CONTRACT(multipart(url, l.auth, CONTRACT_BODY, [[PDF, "promissory.pdf"], [PNG, "front.png"]]));
+    expect(response.status).toBe(201);
+    const contract = (await response.json()).data;
+    expect(contract.documents.map((d: { contractId: string }) => d.contractId)).toEqual([contract.id, contract.id]);
+    for (const doc of contract.documents) expect(bucket.get(`documents/${doc.id}`)?.includes(Buffer.from("confidential"))).toBe(false);
+
+    const content = await CONTENT(get("http://x/c", l.auth), ctx(contract.documents[0].id));
+    expect(Buffer.from(await content.arrayBuffer())).toEqual(PDF);
+
+    const json = await CREATE_CONTRACT(new Request(url, { method: "POST", headers: { authorization: l.auth, "content-type": "application/json" }, body: JSON.stringify(CONTRACT_BODY) }));
+    expect(json.status).toBe(201);
+    expect((await json.json()).data.documents).toEqual([]);
+  });
+
+  it("todo o nada: archivo inválido (400) o S3 caído (502) no crean el contrato ni dejan archivos", async () => {
+    const l = await lender();
+    const url = "http://localhost/api/contracts";
+    const contractsBefore = await prisma.contract.count();
+    const objectsBefore = bucket.size;
+
+    const bad = await CREATE_CONTRACT(multipart(url, l.auth, CONTRACT_BODY, [[PDF, "ok.pdf"], [Buffer.from("MZ exe"), "x.pdf"]]));
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error.code).toBe("UNSUPPORTED_FILE_TYPE");
+
+    s3.failPuts = true;
+    try {
+      const down = await CREATE_CONTRACT(multipart(url, l.auth, CONTRACT_BODY, [[PDF, "ok.pdf"]]));
+      expect(down.status).toBe(502);
+    } finally {
+      s3.failPuts = false;
+    }
+
+    const noData = await CREATE_CONTRACT(multipart(url, l.auth, undefined, [[PDF, "ok.pdf"]]));
+    expect((await noData.json()).error.code).toBe("INVALID_FORM_DATA");
+
+    expect(await prisma.contract.count()).toBe(contractsBefore);
+    expect(bucket.size).toBe(objectsBefore);
+  });
+
+  it("POST /api/borrowers/me/loan-requests guarda la solicitud con sus fotos/documentos", async () => {
+    const b = await borrower();
+    const response = await CREATE_LOAN_REQUEST(
+      multipart("http://localhost/api/borrowers/me/loan-requests", b.auth, LOAN_REQUEST_BODY, [[PNG, "kitchen.png"], [PDF, "budget.pdf"]]),
+    );
+    expect(response.status).toBe(201);
+    const loanRequest = (await response.json()).data;
+    expect(loanRequest.documents).toHaveLength(2);
+
+    const listed = await LR_DOCS(get(`http://localhost/api/loan-requests/${loanRequest.id}/documents`, b.auth), ctx(loanRequest.id));
+    expect((await listed.json()).data).toHaveLength(2);
   });
 });

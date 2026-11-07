@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { auditDocumentsUploaded, createDocumentRows, withStoredDocuments, type DocumentMeta, type PreparedDocument } from "@/services/documents.service";
 import type { Session } from "@/middlewares/withAuth";
 import { requireContractAccess } from "@/middlewares/requireContractAccess";
 import { prisma } from "@/db/prisma";
@@ -169,7 +170,14 @@ async function createContractCore(
 
 // BE-051. Crea Property (D-P6-2, sin endpoint propio) + Contract(DRAFT) +
 // ContractTerms(v1, DRAFT) en una sola $transaction (08-contratos.md §8.2).
-export async function createContract(userId: string, input: CreateContractInput): Promise<ContractDetail> {
+// `documents` (opcional, ya validados/cifrados por prepareDocuments) se
+// suben después de las validaciones de negocio y se guardan en la misma
+// transacción que el contrato: todo o nada.
+export async function createContract(
+  userId: string,
+  input: CreateContractInput,
+  documents: PreparedDocument[] = [],
+): Promise<ContractDetail & { documents: DocumentMeta[] }> {
   const lenderCompanyId = await resolveTargetLenderCompanyId(userId, input.lenderCompanyId);
 
   if (input.insuranceCompanyId) {
@@ -184,12 +192,12 @@ export async function createContract(userId: string, input: CreateContractInput)
   await assertNotSelfLending(lenderCompanyId, borrowerProfileIds);
   await assertPropertyNotSelfEncumbered(userId, input.property);
 
-  const contractId = await prisma.$transaction(async (tx) => {
+  const { contractId, created } = await withStoredDocuments(documents, () => prisma.$transaction(async (tx) => {
     const property = await tx.property.create({
       data: { ...input.property, lenderCompanyId, createdByUserId: userId },
     });
 
-    return createContractCore(tx, {
+    const contractId = await createContractCore(tx, {
       lenderCompanyId,
       propertyId: property.id,
       insuranceCompanyId: input.insuranceCompanyId,
@@ -197,7 +205,9 @@ export async function createContract(userId: string, input: CreateContractInput)
       terms: input.terms,
       borrowerProfileIds,
     });
-  });
+    const created = await createDocumentRows(tx, documents, { contractId }, userId);
+    return { contractId, created };
+  }));
 
   const contract = await prisma.contract.findUniqueOrThrow({ where: { id: contractId }, include: contractInclude });
 
@@ -210,7 +220,9 @@ export async function createContract(userId: string, input: CreateContractInput)
     contractId: contract.id,
   });
 
-  return contract;
+  await auditDocumentsUploaded(userId, created);
+
+  return { ...contract, documents: created };
 }
 
 // BE-052. LENDER ve todas sus LenderCompany (D-P4-1); BORROWER ve donde es

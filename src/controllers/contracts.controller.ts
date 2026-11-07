@@ -4,6 +4,7 @@ import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
 import * as contractFeesService from "@/services/contractFees.service";
 import * as contractsService from "@/services/contracts.service";
+import { prepareDocuments } from "@/services/documents.service";
 import { getRequestMeta } from "@/lib/requestMeta";
 import { parseOrThrow } from "@/validations/parse";
 import {
@@ -52,10 +53,12 @@ async function requireLenderOrAdminSession(request: Request) {
 }
 
 // BE-051.
-export async function createContract(request: Request, body: unknown) {
+// BE-051 + PB-002: `files` opcionales (multipart), se guardan cifrados con el contrato.
+export async function createContract(request: Request, body: unknown, files: File[] = []) {
   const session = await requireLenderSession(request);
   const input = parseOrThrow(createContractSchema, body);
-  return contractsService.createContract(session.userId, input);
+  const documents = await prepareDocuments(files);
+  return contractsService.createContract(session.userId, input, documents);
 }
 
 // BE-052.

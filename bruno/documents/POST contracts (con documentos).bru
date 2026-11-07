@@ -1,0 +1,16 @@
+meta {
+  name: POST /contracts (con documentos)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/contracts
+  body: multipartForm
+  auth: inherit
+}
+
+body:multipart-form {
+  data: {"property":{"addressLine1":"1 Main St","city":"Austin","state":"TX","postalCode":"78701","propertyType":"SINGLE_FAMILY"},"terms":{"structure":"AMORTIZED","principalAmount":100000,"interestRate":6,"amortizationTermMonths":12,"firstPaymentDate":"2027-01-01","paymentDueDay":1,"maturityDate":"2027-12-01","lateFeeType":"FLAT","lateFeeAmount":50}}
+  files: @file()
+}

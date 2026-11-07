@@ -1,6 +1,7 @@
 import { requireActiveSubscription } from "@/middlewares/requireActiveSubscription";
 import { withAuth } from "@/middlewares/withAuth";
 import { withRole } from "@/middlewares/withRole";
+import { prepareDocuments } from "@/services/documents.service";
 import * as loanRequestsService from "@/services/loanRequests.service";
 import { parseOrThrow } from "@/validations/parse";
 import {
@@ -26,11 +27,13 @@ async function requireLenderSession(request: Request) {
 }
 
 // PB-011.
-export async function createLoanRequest(request: Request, body: unknown) {
+// PB-002: `files` opcionales (multipart), se guardan cifrados con la loan request.
+export async function createLoanRequest(request: Request, body: unknown, files: File[] = []) {
   const session = await requireBorrowerSession(request);
   await requireActiveSubscription(session);
   const input = parseOrThrow(createLoanRequestSchema, body);
-  return loanRequestsService.createLoanRequest(session.userId, input);
+  const documents = await prepareDocuments(files);
+  return loanRequestsService.createLoanRequest(session.userId, input, documents);
 }
 
 export async function listLoanRequests(request: Request, query: unknown) {

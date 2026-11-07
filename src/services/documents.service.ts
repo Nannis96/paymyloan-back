@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { Document } from "@prisma/client";
+import type { Document, Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
-import { decryptFile, encryptFile } from "@/lib/documentCrypto";
+import { decryptFile, encryptFile, type EncryptedFile } from "@/lib/documentCrypto";
 import { deleteObject, getObject, putObject } from "@/lib/s3";
 import { requireContractAccess } from "@/middlewares/requireContractAccess";
 import type { Session } from "@/middlewares/withAuth";
@@ -100,17 +100,25 @@ function toParentColumns(parent: DocumentParent) {
     : { contractId: null, loanRequestId: parent.loanRequestId };
 }
 
-export async function uploadDocuments(session: Session, parent: DocumentParent, files: File[]) {
-  const columns = toParentColumns(parent);
-  await requireParentAccess(session, columns, true);
+export interface PreparedDocument {
+  id: string;
+  s3Key: string;
+  originalFileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  encrypted: EncryptedFile;
+}
 
-  if (files.length === 0) throw new AppError("At least one file is required in field 'files'", 400, "VALIDATION_ERROR");
+export type DocumentMeta = Prisma.DocumentGetPayload<{ select: typeof metadataSelect }>;
+
+// Paso 1 (antes de tocar S3 o la BD): valida y cifra. Un archivo inválido
+// corta todo el lote con 400. Acepta 0 archivos (las creaciones de
+// contrato/loan request los tienen opcionales).
+export async function prepareDocuments(files: File[]): Promise<PreparedDocument[]> {
   if (files.length > MAX_FILES_PER_UPLOAD) {
     throw new AppError(`At most ${MAX_FILES_PER_UPLOAD} files per upload`, 400, "VALIDATION_ERROR");
   }
-
-  // Validar todo antes de subir nada: el lote es todo o nada.
-  const prepared = await Promise.all(
+  return Promise.all(
     files.map(async (file) => {
       if (file.size === 0 || file.size > MAX_FILE_BYTES) {
         throw new AppError(`File '${file.name}' must be between 1 byte and ${MAX_FILE_BYTES / 1024 / 1024} MB`, 400, "FILE_TOO_LARGE");
@@ -121,61 +129,77 @@ export async function uploadDocuments(session: Session, parent: DocumentParent, 
         throw new AppError(`File '${file.name}' must be a PDF, JPEG, PNG, WEBP or HEIC`, 400, "UNSUPPORTED_FILE_TYPE");
       }
       const id = randomUUID();
-      const folder = columns.contractId ? `contracts/${columns.contractId}` : `loan-requests/${columns.loanRequestId}`;
-      return {
-        id,
-        s3Key: `documents/${folder}/${id}`,
-        originalFileName: sanitizeFileName(file.name),
-        mimeType,
-        sizeBytes: bytes.length,
-        encrypted: encryptFile(bytes),
-      };
+      // Sin carpeta del padre: al crear contrato/loan request con archivos,
+      // el padre todavía no existe cuando se sube.
+      return { id, s3Key: `documents/${id}`, originalFileName: sanitizeFileName(file.name), mimeType, sizeBytes: bytes.length, encrypted: encryptFile(bytes) };
     }),
   );
+}
 
-  const cleanup = (keys: string[]) => Promise.allSettled(keys.map(deleteObject));
+const discard = (prepared: PreparedDocument[]) => Promise.allSettled(prepared.map((doc) => deleteObject(doc.s3Key)));
 
+// Paso 2: sube a S3 y después corre `persist` (que crea las filas — en la
+// misma transacción que el padre, si lo hay). Si falla la subida o
+// `persist`, borra de S3 lo subido: el lote es todo o nada.
+export async function withStoredDocuments<T>(prepared: PreparedDocument[], persist: () => Promise<T>): Promise<T> {
   const uploads = await Promise.allSettled(prepared.map((doc) => putObject(doc.s3Key, doc.encrypted.ciphertext)));
-  if (uploads.some((result) => result.status === "rejected")) {
-    await cleanup(prepared.filter((_, i) => uploads[i].status === "fulfilled").map((doc) => doc.s3Key));
-    const reason = uploads.find((result) => result.status === "rejected") as PromiseRejectedResult;
-    throw new AppError(`Could not store the files: ${String(reason.reason)}`, 502, "STORAGE_ERROR");
+  const failed = uploads.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) {
+    await discard(prepared.filter((_, i) => uploads[i].status === "fulfilled"));
+    throw new AppError(`Could not store the files: ${String(failed.reason)}`, 502, "STORAGE_ERROR");
   }
-
-  let created;
   try {
-    created = await prisma.$transaction(
-      prepared.map(({ encrypted, ...doc }) =>
-        prisma.document.create({
-          data: {
-            ...doc,
-            ...columns,
-            wrappedKey: new Uint8Array(encrypted.wrappedKey),
-            iv: new Uint8Array(encrypted.iv),
-            authTag: new Uint8Array(encrypted.authTag),
-            uploadedByUserId: session.userId,
-          },
-          select: metadataSelect,
-        }),
-      ),
-    );
+    return await persist();
   } catch (error) {
-    await cleanup(prepared.map((doc) => doc.s3Key));
+    await discard(prepared);
     throw error;
   }
+}
 
+export async function createDocumentRows(
+  tx: Prisma.TransactionClient,
+  prepared: PreparedDocument[],
+  parent: DocumentParent,
+  uploadedByUserId: string,
+): Promise<DocumentMeta[]> {
+  if (prepared.length === 0) return [];
+  return tx.document.createManyAndReturn({
+    data: prepared.map(({ encrypted, ...doc }) => ({
+      ...doc,
+      ...toParentColumns(parent),
+      wrappedKey: new Uint8Array(encrypted.wrappedKey),
+      iv: new Uint8Array(encrypted.iv),
+      authTag: new Uint8Array(encrypted.authTag),
+      uploadedByUserId,
+    })),
+    select: metadataSelect,
+  });
+}
+
+export async function auditDocumentsUploaded(actorUserId: string, documents: DocumentMeta[]): Promise<void> {
   await Promise.all(
-    created.map((doc) =>
+    documents.map((doc) =>
       logAuditEvent({
         action: "DOCUMENT_UPLOADED",
         entityType: "Document",
         entityId: doc.id,
-        actorUserId: session.userId,
+        actorUserId,
         contractId: doc.contractId ?? undefined,
         metadata: { loanRequestId: doc.loanRequestId, fileName: doc.originalFileName, mimeType: doc.mimeType, sizeBytes: doc.sizeBytes },
       }),
     ),
   );
+}
+
+export async function uploadDocuments(session: Session, parent: DocumentParent, files: File[]) {
+  await requireParentAccess(session, toParentColumns(parent), true);
+  if (files.length === 0) throw new AppError("At least one file is required in field 'files'", 400, "VALIDATION_ERROR");
+
+  const prepared = await prepareDocuments(files);
+  const created = await withStoredDocuments(prepared, () =>
+    prisma.$transaction((tx) => createDocumentRows(tx, prepared, parent, session.userId)),
+  );
+  await auditDocumentsUploaded(session.userId, created);
   return created;
 }
 
