@@ -1914,7 +1914,7 @@ curl -X POST "$API/api/contracts/$CONTRACT_ID/documents" -H "Authorization: Bear
 **¿Para qué sirve?** Ver o descargar el archivo, ya descifrado.
 
 - **Response `200`**: el archivo binario con su `Content-Type` real, `Content-Disposition: inline` (o `attachment` con `?download=1`) y `Cache-Control: private, no-store`. No es JSON.
-- **Errores**: `401`/`403` · `404 NOT_FOUND` · `500 DOCUMENT_CORRUPTED` (el objeto en S3 fue alterado o no corresponde a la clave).
+- **Errores**: `401`/`403` · `404 NOT_FOUND` (también si la fila existe pero el objeto ya no está en S3) · `500 DOCUMENT_CORRUPTED` (el objeto en S3 fue alterado o no corresponde a la clave) · `502 STORAGE_ERROR` (S3 no disponible).
 
 ### `DELETE /api/documents/:id`
 
@@ -1922,7 +1922,7 @@ curl -X POST "$API/api/contracts/$CONTRACT_ID/documents" -H "Authorization: Bear
 
 - **Auth**: solo quien lo subió.
 - **Response `200`**: `{ "deleted": true }`.
-- **Errores**: `401` · `403 FORBIDDEN` (no lo subiste vos) · `404 NOT_FOUND`.
+- **Errores**: `401` · `403 FORBIDDEN` (no lo subiste vos) · `404 NOT_FOUND` · `502 STORAGE_ERROR` (S3 no disponible — la fila no se borra, se puede reintentar).
 
 ---
 
@@ -1986,7 +1986,7 @@ curl -X POST "$API/api/contracts/$CONTRACT_ID/documents" -H "Authorization: Bear
 | `INVALID_FORM_DATA` | 400 | `POST .../documents` cuyo body no es `multipart/form-data`, o `POST /api/contracts`/`POST /api/borrowers/me/loan-requests` en multipart sin el campo `data` (en los `PATCH` es opcional) |
 | `FILE_TOO_LARGE` | 400 | `POST .../documents` con un archivo vacío o de más de 10 MB |
 | `UNSUPPORTED_FILE_TYPE` | 400 | `POST .../documents` con un archivo que no es PDF/JPEG/PNG/WEBP/HEIC (detectado por contenido) |
-| `STORAGE_ERROR` | 502 | `POST .../documents`: S3 rechazó la subida — no queda guardado ningún archivo del lote |
+| `STORAGE_ERROR` | 502 | Cualquier falla de S3 al subir, ver o borrar un documento (credenciales, permisos, red, bucket). Mensaje **siempre genérico** (`Document storage is temporarily unavailable, please try again later`): el error real de AWS (que puede traer ARNs o nombres IAM) queda solo en el log del servidor (`S3 operation failed`, con `operation`/`key`/`errorName`), nunca en la respuesta. Al subir, no queda guardado ningún archivo del lote ni el alta/cambio asociado |
 | `DOCUMENT_CORRUPTED` | 500 | `GET /api/documents/:id/content`: el objeto en S3 no se pudo descifrar (alterado o clave incorrecta) |
 | `CONTRACT_HAS_TRANSACTIONS` | 409 | `DELETE /api/contracts/:id` — el contrato (aunque `DRAFT`) ya tiene alguna `Transaction` |
 | `CONTRACT_NOT_CANCELLABLE` | 409 | `POST /api/contracts/:id/cancel` con `status` fuera de `PENDING_ACCEPTANCE`/`ACTIVE`/`DELINQUENT` |

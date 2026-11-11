@@ -252,6 +252,7 @@ describe("crear contrato / loan request con documentos (PB-002)", () => {
     try {
       const down = await CREATE_CONTRACT(multipart(url, l.auth, CONTRACT_BODY, [[PDF, "ok.pdf"]]));
       expect(down.status).toBe(502);
+      expect((await down.json()).error).toEqual({ code: "STORAGE_ERROR", message: "Document storage is temporarily unavailable, please try again later" });
     } finally {
       s3.failPuts = false;
     }
@@ -314,6 +315,7 @@ describe("PATCH contrato / loan request con documentos (PB-002)", () => {
     try {
       const down = await UPDATE_CONTRACT(multipart(url, l.auth, { property: { city: "Houston" } }, [[PDF, "x.pdf"]], "PATCH"), ctx(contract.id));
       expect(down.status).toBe(502);
+      expect((await down.json()).error).toEqual({ code: "STORAGE_ERROR", message: "Document storage is temporarily unavailable, please try again later" });
     } finally {
       s3.failPuts = false;
     }

@@ -3,6 +3,7 @@ import type { Document, Prisma } from "@prisma/client";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { logger } from "@/lib/logger";
 import { decryptFile, encryptFile, type EncryptedFile } from "@/lib/documentCrypto";
 import { deleteObject, getObject, putObject } from "@/lib/s3";
 import { requireContractAccess } from "@/middlewares/requireContractAccess";
@@ -146,7 +147,10 @@ export async function withStoredDocuments<T>(prepared: PreparedDocument[], persi
   const failed = uploads.find((result): result is PromiseRejectedResult => result.status === "rejected");
   if (failed) {
     await discard(prepared.filter((_, i) => uploads[i].status === "fulfilled"));
-    throw new AppError(`Could not store the files: ${String(failed.reason)}`, 502, "STORAGE_ERROR");
+    // s3.ts ya traduce y loguea el error de AWS; nunca se reenvía su texto.
+    throw failed.reason instanceof AppError
+      ? failed.reason
+      : new AppError("Document storage is temporarily unavailable, please try again later", 502, "STORAGE_ERROR");
   }
   try {
     return await persist();
@@ -236,7 +240,8 @@ export async function getDocumentContent(session: Session, documentId: string) {
       iv: Buffer.from(document.iv),
       authTag: Buffer.from(document.authTag),
     });
-  } catch {
+  } catch (error) {
+    logger.error("Document decryption failed", { documentId, errorMessage: error instanceof Error ? error.message : String(error) });
     throw new AppError("Document could not be decrypted", 500, "DOCUMENT_CORRUPTED");
   }
   return { body, mimeType: document.mimeType, fileName: document.originalFileName };
