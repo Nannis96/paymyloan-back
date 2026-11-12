@@ -180,6 +180,7 @@ enum ContractOriginationSource {
   DIRECT
   MARKETPLACE
   PRIVATE_INVITE
+  LEGACY_IMPORT
 }
 
 enum WebhookProvider {
@@ -590,9 +591,13 @@ model Contract {
   createdByUserId String @db.Uuid
   createdByUser   User   @relation("ContractCreatedBy", fields: [createdByUserId], references: [id])
 
-  activatedAt DateTime?
-  paidOffAt   DateTime?
-  cancelledAt DateTime?
+  // Inicio del préstamo. Contratos nuevos: = activatedAt (se llena al activar).
+  // LEGACY_IMPORT: lo captura el usuario (anterior a activatedAt, que es la
+  // fecha real de alta en el sistema).
+  loanStartDate DateTime?
+  activatedAt   DateTime?
+  paidOffAt     DateTime?
+  cancelledAt   DateTime?
 
   deletedAt DateTime?
   createdAt DateTime  @default(now())

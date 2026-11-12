@@ -1,0 +1,41 @@
+meta {
+  name: POST /contracts/import
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseUrl}}/api/contracts/import
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "property": {
+      "addressLine1": "addressLine1",
+      "city": "city",
+      "state": "TX",
+      "postalCode": "postalCode",
+      "propertyType": "SINGLE_FAMILY"
+    },
+    "terms": {
+      "structure": "AMORTIZED",
+      "principalAmount": 50000,
+      "interestRate": 6,
+      "amortizationTermMonths": 12,
+      "firstPaymentDate": "2026-01-31",
+      "paymentDueDay": 31,
+      "maturityDate": "2026-12-31",
+      "lateFeeType": "FLAT",
+      "lateFeeAmount": 50
+    },
+    "borrowerProfileIds": ["{{borrowerProfileId}}"],
+    "loanStartDate": "2025-12-31",
+    "currentBalance": 41000
+  }
+}
+
+script:post-response {
+  if (res.body?.data?.id) bru.setEnvVar("contractId", res.body.data.id);
+}

@@ -223,6 +223,7 @@ describe("payments.service (Fase 7)", () => {
 
     const { contract } = await activateContract({
       firstPaymentDate: soon,
+      paymentDueDay: soon.getUTCDate(),
       maturityDate: new Date(Date.UTC(far.getUTCFullYear(), far.getUTCMonth() + 1, far.getUTCDate())),
       amortizationTermMonths: 3,
     });
