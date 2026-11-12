@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isFirstPaymentOnDueDay } from "@/lib/dueDate";
 import { paginationQuerySchema } from "@/validations/pagination";
 
 const uuid = z.string().trim().min(1, "Required");
@@ -52,7 +53,8 @@ const contractTermsFields = z.object({
   dayCountConvention: z.enum(["THIRTY_360", "ACTUAL_365"]).default("THIRTY_360"),
   amortizationTermMonths: positiveInt,
   firstPaymentDate: z.coerce.date(),
-  paymentDueDay: z.coerce.number().int().min(1).max(31),
+  // Opcional: si falta, se toma el día de firstPaymentDate (ver contractTermsSchema).
+  paymentDueDay: z.coerce.number().int().min(1).max(31).optional(),
   maturityDate: z.coerce.date(),
   lateFeeType: z.enum(["FLAT", "PERCENTAGE"]),
   lateFeeAmount: money,
@@ -62,11 +64,12 @@ const contractTermsFields = z.object({
   allowPrepayment: z.boolean().optional(),
   changeSummary: z.string().trim().max(500).optional(),
 });
-export type ContractTermsInput = z.infer<typeof contractTermsFields>;
-
 const contractTermsSchema = contractTermsFields.superRefine((data, ctx) => {
   if (data.maturityDate <= data.firstPaymentDate) {
     ctx.addIssue({ code: "custom", message: "maturityDate must be after firstPaymentDate", path: ["maturityDate"] });
+  }
+  if (data.paymentDueDay !== undefined && !isFirstPaymentOnDueDay(data.firstPaymentDate, data.paymentDueDay)) {
+    ctx.addIssue({ code: "custom", message: "firstPaymentDate must fall on paymentDueDay (or the last day of its month)", path: ["paymentDueDay"] });
   }
   if ((data.prePayPenaltyType == null) !== (data.prePayPenaltyAmount == null)) {
     ctx.addIssue({
@@ -75,7 +78,8 @@ const contractTermsSchema = contractTermsFields.superRefine((data, ctx) => {
       path: ["prePayPenaltyAmount"],
     });
   }
-});
+}).transform((data) => ({ ...data, paymentDueDay: data.paymentDueDay ?? data.firstPaymentDate.getUTCDate() }));
+export type ContractTermsInput = z.infer<typeof contractTermsSchema>;
 
 // BE-051. `lenderCompanyId` obligatorio solo si el Lender tiene más de una
 // LenderCompany — validado en el service (D-P6-1), no acá. `property` crea
@@ -89,6 +93,27 @@ export const createContractSchema = z.object({
   borrowerProfileIds: z.array(uuid).max(10).optional(),
 });
 export type CreateContractInput = z.infer<typeof createContractSchema>;
+
+// Contrato que ya venía cobrándose fuera de la plataforma. `terms` son los
+// términos ORIGINALES (principalAmount = monto prestado al inicio,
+// firstPaymentDate puede estar en el pasado); `currentBalance` es el saldo de
+// capital hoy. `lenderCompanyId` es obligatorio para el Admin. Sin aceptación
+// de los deudores (por ahora).
+export const importLegacyContractSchema = z
+  .object({
+    lenderCompanyId: uuid.optional(),
+    property: propertyFields,
+    terms: contractTermsSchema,
+    insuranceCompanyId: uuid.optional(),
+    borrowerProfileIds: z.array(uuid).min(1).max(10),
+    loanStartDate: z.coerce.date(),
+    currentBalance: money,
+  })
+  .refine((data) => data.loanStartDate <= data.terms.firstPaymentDate, {
+    message: "loanStartDate must not be after firstPaymentDate",
+    path: ["loanStartDate"],
+  });
+export type ImportLegacyContractInput = z.infer<typeof importLegacyContractSchema>;
 
 // BE-054. `terms` solo se aplica si la ContractTerms vigente está DRAFT
 // (validado en el service, no acá) — property/insuranceCompanyId son

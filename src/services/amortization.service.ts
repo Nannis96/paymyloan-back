@@ -1,5 +1,6 @@
 import { Prisma, type ContractTerms } from "@prisma/client";
 import { AppError } from "@/errors/AppError";
+import { dueDateAt } from "@/lib/dueDate";
 
 const { Decimal } = Prisma;
 
@@ -88,9 +89,9 @@ export function calculateAccruedInterest(
 // Exportada para Fase 13 (loanQuotes.service.ts) — deriva firstPaymentDate/
 // maturityDate a partir de LoanRequest.requestedClosingDate + los años que
 // pidió el Deudor.
+// Cae en el último día del mes si el destino no tiene ese día (31 ene + 1 = 28/29 feb).
 export function addMonths(date: Date, months: number): Date {
-  const result = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate()));
-  return result;
+  return dueDateAt(date, date.getUTCDate(), months);
 }
 
 function monthsBetween(from: Date, to: Date): number {
@@ -117,10 +118,12 @@ function buildDecliningBalanceRows(params: {
   annualRatePercent: Prisma.Decimal;
   monthlyPayment: Prisma.Decimal;
   firstPaymentDate: Date;
+  paymentDueDay: number;
   rowCount: number;
+  startIndex?: number;
   firstRowInterest?: Prisma.Decimal;
 }): ScheduleRowDraft[] {
-  const { principal, annualRatePercent, monthlyPayment, firstPaymentDate, rowCount, firstRowInterest } = params;
+  const { principal, annualRatePercent, monthlyPayment, firstPaymentDate, paymentDueDay, rowCount, startIndex = 0, firstRowInterest } = params;
   const monthlyRate = annualRatePercent.div(100).div(12);
 
   const rows: ScheduleRowDraft[] = [];
@@ -133,8 +136,8 @@ function buildDecliningBalanceRows(params: {
     balance = balance.minus(principalDue);
 
     rows.push({
-      sequenceNumber: i,
-      dueDate: addMonths(firstPaymentDate, i - 1),
+      sequenceNumber: startIndex + i,
+      dueDate: dueDateAt(firstPaymentDate, paymentDueDay, startIndex + i - 1),
       principalDue,
       interestDue,
       totalDue,
@@ -148,10 +151,12 @@ function buildInterestOnlyRows(params: {
   principal: Prisma.Decimal;
   annualRatePercent: Prisma.Decimal;
   firstPaymentDate: Date;
+  paymentDueDay: number;
   rowCount: number;
+  startIndex?: number;
   firstRowInterest?: Prisma.Decimal;
 }): ScheduleRowDraft[] {
-  const { principal, annualRatePercent, firstPaymentDate, rowCount, firstRowInterest } = params;
+  const { principal, annualRatePercent, firstPaymentDate, paymentDueDay, rowCount, startIndex = 0, firstRowInterest } = params;
   const monthlyInterest = calculateInterestOnlyPayment(principal, annualRatePercent);
 
   const rows: ScheduleRowDraft[] = [];
@@ -161,8 +166,8 @@ function buildInterestOnlyRows(params: {
     const interestDue = i === 1 && firstRowInterest ? firstRowInterest : monthlyInterest;
     const totalDue = interestDue.plus(principalDue);
     rows.push({
-      sequenceNumber: i,
-      dueDate: addMonths(firstPaymentDate, i - 1),
+      sequenceNumber: startIndex + i,
+      dueDate: dueDateAt(firstPaymentDate, paymentDueDay, startIndex + i - 1),
       principalDue,
       interestDue,
       totalDue,
@@ -178,13 +183,7 @@ function buildInterestOnlyRows(params: {
 // también mueve Contract.status/ContractTerms.status, D0-3). Sin el
 // auto-marcado de filas pasadas como PAID que tenía Owner (ADAPT, incorrecto
 // para un préstamo que nace hoy).
-export async function generateAmortizationSchedule(tx: TxClient, contractTermsId: string): Promise<void> {
-  const existing = await tx.scheduledPayment.count({ where: { contractTermsId } });
-  if (existing > 0) {
-    throw new AppError("A schedule already exists for this terms version", 409, "SCHEDULE_ALREADY_GENERATED");
-  }
-
-  const terms = await tx.contractTerms.findUniqueOrThrow({ where: { id: contractTermsId } });
+function buildOriginalSchedule(terms: ContractTerms): { rows: ScheduleRowDraft[]; monthlyPayment: Prisma.Decimal } {
   const rowCount = monthsBetween(terms.firstPaymentDate, terms.maturityDate) + 1;
   if (rowCount < 1) {
     throw new AppError("maturityDate must be after firstPaymentDate", 400, "VALIDATION_ERROR");
@@ -192,19 +191,30 @@ export async function generateAmortizationSchedule(tx: TxClient, contractTermsId
 
   const principal = d(terms.principalAmount);
   const annualRate = d(terms.interestRate);
+  const common = { principal, annualRatePercent: annualRate, firstPaymentDate: terms.firstPaymentDate, paymentDueDay: terms.paymentDueDay, rowCount };
 
-  let rows: ScheduleRowDraft[];
-  let monthlyPayment: Prisma.Decimal;
   if (terms.structure === "INTEREST_ONLY") {
-    monthlyPayment = calculateInterestOnlyPayment(principal, annualRate);
-    rows = buildInterestOnlyRows({ principal, annualRatePercent: annualRate, firstPaymentDate: terms.firstPaymentDate, rowCount });
-  } else if (terms.structure === "BALLOON") {
-    monthlyPayment = calculateBalloonPayment(principal, annualRate, terms.amortizationTermMonths, terms.maturityDate, terms.firstPaymentDate);
-    rows = buildDecliningBalanceRows({ principal, annualRatePercent: annualRate, monthlyPayment, firstPaymentDate: terms.firstPaymentDate, rowCount });
-  } else {
-    monthlyPayment = calculateAmortizedPayment(principal, annualRate, terms.amortizationTermMonths);
-    rows = buildDecliningBalanceRows({ principal, annualRatePercent: annualRate, monthlyPayment, firstPaymentDate: terms.firstPaymentDate, rowCount });
+    return { monthlyPayment: calculateInterestOnlyPayment(principal, annualRate), rows: buildInterestOnlyRows(common) };
   }
+  const monthlyPayment =
+    terms.structure === "BALLOON"
+      ? calculateBalloonPayment(principal, annualRate, terms.amortizationTermMonths, terms.maturityDate, terms.firstPaymentDate)
+      : calculateAmortizedPayment(principal, annualRate, terms.amortizationTermMonths);
+  return { monthlyPayment, rows: buildDecliningBalanceRows({ ...common, monthlyPayment }) };
+}
+
+async function assertNoSchedule(tx: TxClient, contractTermsId: string): Promise<void> {
+  const existing = await tx.scheduledPayment.count({ where: { contractTermsId } });
+  if (existing > 0) {
+    throw new AppError("A schedule already exists for this terms version", 409, "SCHEDULE_ALREADY_GENERATED");
+  }
+}
+
+export async function generateAmortizationSchedule(tx: TxClient, contractTermsId: string): Promise<void> {
+  await assertNoSchedule(tx, contractTermsId);
+
+  const terms = await tx.contractTerms.findUniqueOrThrow({ where: { id: contractTermsId } });
+  const { rows, monthlyPayment } = buildOriginalSchedule(terms);
 
   await tx.scheduledPayment.createMany({
     data: rows.map((row) => ({
@@ -222,7 +232,94 @@ export async function generateAmortizationSchedule(tx: TxClient, contractTermsId
   await tx.contractTerms.update({ where: { id: contractTermsId }, data: { calculatedMonthlyPayment: monthlyPayment } });
   await tx.contract.update({
     where: { id: terms.contractId },
-    data: { currentPrincipalBalance: principal, nextPaymentDueDate: rows[0].dueDate },
+    data: { currentPrincipalBalance: d(terms.principalAmount), nextPaymentDueDate: rows[0].dueDate },
+  });
+}
+
+// Importación de un contrato que ya venía cobrándose (LEGACY_IMPORT). Las
+// cuotas con vencimiento anterior a `asOf` se registran como PAID (sin
+// Transaction): el capital pagado (`principalAmount - currentBalance`) se
+// reparte entre ellas en proporción a su capital teórico, de modo que el saldo
+// proyectado de la última cuota pasada es exactamente `currentBalance`. Las
+// cuotas futuras se recalculan desde `currentBalance` hasta maturityDate.
+// ponytail: asume que todas las cuotas pasadas están pagadas; un contrato
+// atrasado (capital pagado < teórico) se rechaza — soportarlo exige saber
+// cuáles cuotas están pagadas.
+export async function generateLegacyAmortizationSchedule(
+  tx: TxClient,
+  contractTermsId: string,
+  params: { currentBalance: DecimalInput; asOf?: Date },
+): Promise<void> {
+  await assertNoSchedule(tx, contractTermsId);
+
+  const terms = await tx.contractTerms.findUniqueOrThrow({ where: { id: contractTermsId } });
+  const { rows: original } = buildOriginalSchedule(terms);
+  const principal = d(terms.principalAmount);
+  const currentBalance = d(params.currentBalance);
+  const asOf = params.asOf ?? new Date();
+  const today = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
+
+  if (currentBalance.lte(0) || currentBalance.gt(principal)) {
+    throw new AppError("currentBalance must be greater than 0 and not exceed principalAmount", 400, "VALIDATION_ERROR");
+  }
+
+  const pastCount = original.filter((row) => row.dueDate < today).length;
+  const futureCount = original.length - pastCount;
+  if (futureCount === 0) {
+    throw new AppError("The loan already reached its maturityDate — a legacy import needs remaining installments", 400, "VALIDATION_ERROR");
+  }
+
+  const past = original.slice(0, pastCount);
+  const principalPaid = principal.minus(currentBalance);
+  const theoreticalPaid = past.reduce((sum, row) => sum.plus(row.principalDue), new Decimal(0));
+  if (principalPaid.lt(theoreticalPaid)) {
+    throw new AppError(
+      "currentBalance is higher than the original schedule allows — the loan is behind on payments, which is not supported yet",
+      400,
+      "LEGACY_CONTRACT_IN_ARREARS",
+    );
+  }
+  if (pastCount === 0 && !principalPaid.isZero()) {
+    throw new AppError("currentBalance must equal principalAmount when no installment is past due", 400, "VALIDATION_ERROR");
+  }
+
+  // Reparto del capital pagado de más (abonos) entre las cuotas pasadas.
+  const extra = principalPaid.minus(theoreticalPaid);
+  let cumulativePrincipal = new Decimal(0);
+  let distributedExtra = new Decimal(0);
+  const pastRows = past.map((row, index) => {
+    const isLast = index === pastCount - 1;
+    const share = isLast
+      ? extra.minus(distributedExtra)
+      : (theoreticalPaid.isZero() ? extra.div(pastCount) : extra.times(row.principalDue).div(theoreticalPaid)).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    distributedExtra = distributedExtra.plus(share);
+    const principalDue = row.principalDue.plus(share);
+    cumulativePrincipal = cumulativePrincipal.plus(principalDue);
+    return { ...row, principalDue, totalDue: principalDue.plus(row.interestDue), projectedRemainingBalance: principal.minus(cumulativePrincipal) };
+  });
+
+  const rate = d(terms.interestRate);
+  const future = (() => {
+    const common = { principal: currentBalance, annualRatePercent: rate, firstPaymentDate: terms.firstPaymentDate, paymentDueDay: terms.paymentDueDay, rowCount: futureCount, startIndex: pastCount };
+    if (terms.structure === "INTEREST_ONLY") {
+      return { monthlyPayment: calculateInterestOnlyPayment(currentBalance, rate), rows: buildInterestOnlyRows(common) };
+    }
+    const paymentTerm = terms.structure === "BALLOON" ? Math.max(terms.amortizationTermMonths - pastCount, 1) : futureCount;
+    const monthlyPayment = calculateAmortizedPayment(currentBalance, rate, paymentTerm);
+    return { monthlyPayment, rows: buildDecliningBalanceRows({ ...common, monthlyPayment }) };
+  })();
+
+  await tx.scheduledPayment.createMany({
+    data: [
+      ...pastRows.map((row) => ({ ...row, status: "PAID" as const, amountPaid: row.totalDue, paidInFullAt: row.dueDate })),
+      ...future.rows,
+    ].map((row) => ({ contractId: terms.contractId, contractTermsId, ...row })),
+  });
+
+  await tx.contractTerms.update({ where: { id: contractTermsId }, data: { calculatedMonthlyPayment: future.monthlyPayment } });
+  await tx.contract.update({
+    where: { id: terms.contractId },
+    data: { currentPrincipalBalance: currentBalance, nextPaymentDueDate: future.rows[0].dueDate },
   });
 }
 
@@ -261,7 +358,7 @@ export async function applyPrepaymentToSchedule(
 
   const newBalance = currentBalance.minus(amount);
   const rate = d(terms.interestRate);
-  const periodStart = addMonths(rows[0].dueDate, -1);
+  const periodStart = dueDateAt(rows[0].dueDate, terms.paymentDueDay, -1);
   const firstRowInterest = calculateAccruedInterest(currentBalance, rate, terms.dayCountConvention, periodStart, asOf).plus(
     calculateAccruedInterest(newBalance, rate, terms.dayCountConvention, asOf > periodStart ? asOf : periodStart, rows[0].dueDate),
   );
@@ -270,12 +367,12 @@ export async function applyPrepaymentToSchedule(
   let drafts: ScheduleRowDraft[];
   if (terms.structure === "INTEREST_ONLY") {
     monthlyPayment = calculateInterestOnlyPayment(newBalance, rate);
-    drafts = buildInterestOnlyRows({ principal: newBalance, annualRatePercent: rate, firstPaymentDate: rows[0].dueDate, rowCount: rows.length, firstRowInterest });
+    drafts = buildInterestOnlyRows({ principal: newBalance, annualRatePercent: rate, firstPaymentDate: rows[0].dueDate, paymentDueDay: terms.paymentDueDay, rowCount: rows.length, firstRowInterest });
   } else {
     const paidRows = await tx.scheduledPayment.count({ where: { contractId, contractTermsId: terms.id, status: "PAID" } });
     const paymentTerm = terms.structure === "BALLOON" ? Math.max(terms.amortizationTermMonths - paidRows, 1) : rows.length;
     monthlyPayment = calculateAmortizedPayment(newBalance, rate, paymentTerm);
-    drafts = buildDecliningBalanceRows({ principal: newBalance, annualRatePercent: rate, monthlyPayment, firstPaymentDate: rows[0].dueDate, rowCount: rows.length, firstRowInterest });
+    drafts = buildDecliningBalanceRows({ principal: newBalance, annualRatePercent: rate, monthlyPayment, firstPaymentDate: rows[0].dueDate, paymentDueDay: terms.paymentDueDay, rowCount: rows.length, firstRowInterest });
   }
 
   for (const [index, draft] of drafts.entries()) {

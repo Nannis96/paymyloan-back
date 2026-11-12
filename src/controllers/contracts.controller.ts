@@ -12,6 +12,7 @@ import {
   addContractBorrowerSchema,
   cancelContractSchema,
   createContractSchema,
+  importLegacyContractSchema,
   createFeeItemSchema,
   listContractsQuerySchema,
   proposeContractTermsSchema,
@@ -61,6 +62,13 @@ export async function createContract(request: Request, body: unknown, files: Fil
   const input = parseOrThrow(createContractSchema, body);
   const documents = await prepareDocuments(files);
   return contractsService.createContract(session.userId, input, documents);
+}
+
+// Importa un contrato que ya venía cobrándose (Admin o Lender).
+export async function importLegacyContract(request: Request, body: unknown) {
+  const session = await requireLenderOrAdminSession(request);
+  const input = parseOrThrow(importLegacyContractSchema, body);
+  return contractsService.importLegacyContract(session, input);
 }
 
 // BE-052.

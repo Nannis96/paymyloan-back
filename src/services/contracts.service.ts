@@ -5,15 +5,17 @@ import { requireContractAccess } from "@/middlewares/requireContractAccess";
 import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
+import { isFirstPaymentOnDueDay } from "@/lib/dueDate";
 import { sendEmail } from "@/lib/email";
 import { notify, notifyLenderCompany } from "@/lib/notify";
 import type { RequestMeta } from "@/lib/requestMeta";
-import { calculateAccruedInterest, generateAmortizationSchedule, regenerateScheduleAfterTermsChange } from "@/services/amortization.service";
+import { calculateAccruedInterest, generateAmortizationSchedule, generateLegacyAmortizationSchedule, regenerateScheduleAfterTermsChange } from "@/services/amortization.service";
 import { assertNotSelfLending, assertPropertyNotSelfEncumbered } from "@/services/selfDealing.service";
 import type {
   AddContractBorrowerInput,
   CancelContractInput,
   CreateContractInput,
+  ImportLegacyContractInput,
   ListContractsQuery,
   ProposeContractTermsInput,
   RejectContractTermsInput,
@@ -125,7 +127,7 @@ async function createContractCore(
     insuranceCompanyId?: string;
     createdByUserId: string;
     terms: CreateContractInput["terms"];
-    originationSource?: "DIRECT" | "MARKETPLACE" | "PRIVATE_INVITE";
+    originationSource?: "DIRECT" | "MARKETPLACE" | "PRIVATE_INVITE" | "LEGACY_IMPORT";
     loanRequestId?: string;
     borrowerProfileIds?: string[];
   },
@@ -225,6 +227,60 @@ export async function createContract(
   return { ...contract, documents: created };
 }
 
+// Importa un contrato que ya venía cobrándose fuera de la plataforma: nace
+// ACTIVE (sin aceptación de los deudores — pendiente si piden que la haya),
+// con términos ACCEPTED y el cronograma histórico ya marcado como pagado.
+// Admin (indica lenderCompanyId) o Lender (dueño de la empresa).
+export async function importLegacyContract(session: Session, input: ImportLegacyContractInput): Promise<ContractDetail> {
+  const { userId } = session;
+  let lenderCompanyId: string;
+  if (session.roles.includes("ADMIN")) {
+    const company = input.lenderCompanyId ? await prisma.lenderCompany.findUnique({ where: { id: input.lenderCompanyId } }) : null;
+    if (!input.lenderCompanyId) {
+      throw new AppError("lenderCompanyId is required", 400, "LENDER_COMPANY_REQUIRED");
+    }
+    if (!company || company.deletedAt) {
+      throw new AppError("Company not found", 404, "NOT_FOUND");
+    }
+    lenderCompanyId = company.id;
+  } else {
+    lenderCompanyId = await resolveTargetLenderCompanyId(userId, input.lenderCompanyId);
+  }
+
+  if (input.insuranceCompanyId) {
+    const insuranceCompany = await prisma.insuranceCompanyProfile.findUnique({ where: { id: input.insuranceCompanyId } });
+    if (!insuranceCompany || insuranceCompany.deletedAt) {
+      throw new AppError("Insurance company not found", 404, "NOT_FOUND");
+    }
+  }
+  await requireActiveLenderBorrowers(lenderCompanyId, input.borrowerProfileIds);
+  await assertNotSelfLending(lenderCompanyId, input.borrowerProfileIds);
+  await assertPropertyNotSelfEncumbered(userId, input.property);
+
+  const contractId = await prisma.$transaction(async (tx) => {
+    const property = await tx.property.create({ data: { ...input.property, lenderCompanyId, createdByUserId: userId } });
+    const id = await createContractCore(tx, {
+      lenderCompanyId,
+      propertyId: property.id,
+      insuranceCompanyId: input.insuranceCompanyId,
+      createdByUserId: userId,
+      terms: input.terms,
+      originationSource: "LEGACY_IMPORT",
+      borrowerProfileIds: input.borrowerProfileIds,
+    });
+    const contract = await tx.contract.findUniqueOrThrow({ where: { id }, select: { currentTermsId: true } });
+    const termsId = contract.currentTermsId as string;
+    await tx.contractTerms.update({ where: { id: termsId }, data: { status: "ACCEPTED" } });
+    await generateLegacyAmortizationSchedule(tx, termsId, { currentBalance: input.currentBalance });
+    await tx.contract.update({ where: { id }, data: { status: "ACTIVE", activatedAt: new Date(), loanStartDate: input.loanStartDate } });
+    return id;
+  });
+
+  await logAuditEvent({ action: "CONTRACT_IMPORTED", entityType: "Contract", entityId: contractId, actorUserId: userId, lenderCompanyId, contractId });
+
+  return prisma.contract.findUniqueOrThrow({ where: { id: contractId }, include: contractInclude });
+}
+
 // BE-052. LENDER ve todas sus LenderCompany (D-P4-1); BORROWER ve donde es
 // ContractBorrower activo.
 //
@@ -319,6 +375,12 @@ export async function updateContract(
       throw new AppError("Financial terms can only be edited while the current version is DRAFT — propose a new version instead", 409, "TERMS_NOT_EDITABLE");
     }
     currentTermsId = currentTerms.id;
+    // El PATCH es parcial: el par firstPaymentDate/paymentDueDay se valida ya mezclado con lo guardado.
+    const firstPaymentDate = input.terms.firstPaymentDate ?? currentTerms.firstPaymentDate;
+    const paymentDueDay = input.terms.paymentDueDay ?? currentTerms.paymentDueDay;
+    if ((input.terms.firstPaymentDate || input.terms.paymentDueDay) && !isFirstPaymentOnDueDay(firstPaymentDate, paymentDueDay)) {
+      throw new AppError("firstPaymentDate must fall on paymentDueDay (or the last day of its month)", 400, "VALIDATION_ERROR");
+    }
   }
 
   if (input.insuranceCompanyId) {
@@ -591,7 +653,8 @@ export async function acceptContractTerms(userId: string, contractId: string, te
 
     if (!contract.activatedAt) {
       await generateAmortizationSchedule(tx, termsId);
-      await tx.contract.update({ where: { id: contractId }, data: { status: "ACTIVE", activatedAt: new Date() } });
+      const activatedAt = new Date();
+      await tx.contract.update({ where: { id: contractId }, data: { status: "ACTIVE", activatedAt, loanStartDate: activatedAt } });
       await logAuditEvent({ action: "CONTRACT_ACTIVATED", entityType: "Contract", entityId: contractId, actorUserId: userId, lenderCompanyId: contract.lenderCompanyId, contractId });
     } else if (terms.supersedesId) {
       await regenerateScheduleAfterTermsChange(tx, { previousContractTermsId: terms.supersedesId, newContractTermsId: termsId });

@@ -43,6 +43,7 @@ export type AuditAction =
   | "PROPERTY_UPDATED"
   // Contratos (Fase 6)
   | "CONTRACT_CREATED"
+  | "CONTRACT_IMPORTED"
   | "CONTRACT_UPDATED"
   | "CONTRACT_DELETED"
   | "CONTRACT_BORROWER_ADDED"
