@@ -89,6 +89,9 @@ export const env = {
   // 32 bytes en base64. Placeholder de dev = "dev-insecure-documents-key-32byt".
   documentsMasterKey: readSecret("DOCUMENTS_MASTER_KEY", "ZGV2LWluc2VjdXJlLWRvY3VtZW50cy1rZXktMzJieXQ="),
 
+  // RentCast (autollenado de Property en Submit Deal). Opcional: sin key el lookup responde 503.
+  rentcastApiKey: process.env.RENTCAST_API_KEY ?? "",
+
   // Suscripciones (Fase 20, Docs/plan/18-suscripciones.md §18.2).
   subscriptionPriceCents: Number(process.env.SUBSCRIPTION_PRICE_CENTS ?? 900),
   subscriptionTrialDays: Number(process.env.SUBSCRIPTION_TRIAL_DAYS ?? 7),
