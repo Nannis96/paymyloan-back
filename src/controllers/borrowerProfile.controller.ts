@@ -25,7 +25,7 @@ export async function updateOwnProfile(request: Request, body: unknown) {
 
 export async function changeOwnPassword(request: Request, body: unknown) {
   const session = await withAuth(request);
-  await withRole(session, ["BORROWER", "LENDER"], { requireTwoFactor: false });
+  await withRole(session, ["BORROWER", "LENDER", "ADMIN"], { requireTwoFactor: false });
   const input = parseOrThrow(changePasswordSchema, body);
   await borrowerProfileService.changeOwnPassword(session.userId, input);
   return { changed: true };
