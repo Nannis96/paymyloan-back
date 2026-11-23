@@ -100,19 +100,28 @@ export async function createUser(input: CreateUserInput, actorUserId: string): P
   }
 
   const placeholderPassword = await hashPassword(generateOpaqueToken());
-  const user = await prisma.user.create({
-    data: {
-      name: input.name,
-      email: input.email,
-      phone: input.phone,
-      password: placeholderPassword,
-      role: input.role,
-      isActive: false,
-      // Marca que la contraseña en disco es un placeholder inservible, no
-      // una elegida por el usuario — es la señal que usa activateUserAccount
-      // para decidir si debe generar y enviar una temporal (ver ese archivo).
-      mustChangePassword: true,
-    },
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        password: placeholderPassword,
+        role: input.role,
+        isActive: false,
+        // Marca que la contraseña en disco es un placeholder inservible, no
+        // una elegida por el usuario — es la señal que usa activateUserAccount
+        // para decidir si debe generar y enviar una temporal (ver ese archivo).
+        mustChangePassword: true,
+      },
+    });
+    // Mismo par User+perfil que el auto-registro (auth.service.ts).
+    if (input.role === "LENDER") {
+      await tx.lenderProfile.create({ data: { userId: created.id, createdByAdminId: actorUserId } });
+    } else if (input.role === "BORROWER") {
+      await tx.borrowerProfile.create({ data: { userId: created.id, createdByUserId: actorUserId } });
+    }
+    return created;
   });
 
   if (input.isActive === false) {
