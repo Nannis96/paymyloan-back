@@ -96,6 +96,8 @@ export const env = {
   subscriptionPriceCents: Number(process.env.SUBSCRIPTION_PRICE_CENTS ?? 900),
   subscriptionTrialDays: Number(process.env.SUBSCRIPTION_TRIAL_DAYS ?? 7),
   subscriptionCurrency: process.env.SUBSCRIPTION_CURRENCY ?? "usd",
+  // Tarifa única de verificación del Deudor (BorrowerApplication, D-S2-6): va a la plataforma.
+  verificationFeeCents: Number(process.env.VERIFICATION_FEE_CENTS ?? 9900),
   billingMode: process.env.BILLING_MODE === "stripe" ? "stripe" : "simulated",
   // Freno (D-SU-8): en producción el cobro simulado queda apagado salvo opt-in explícito.
   allowSimulatedBilling: process.env.ALLOW_SIMULATED_BILLING === "true",

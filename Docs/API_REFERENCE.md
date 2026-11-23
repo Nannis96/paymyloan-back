@@ -97,6 +97,7 @@ Fuente única: `src/config/env.ts` (`.env.example` documenta lo mismo con coment
 | `SUBSCRIPTION_PRICE_CENTS` | `900` | `subscription.service.ts` | Precio mensual de la suscripción del Borrower, en centavos. Cambiarlo = editar y redesplegar; afecta solo cobros futuros ([plan/18](plan/18-suscripciones.md)) |
 | `SUBSCRIPTION_TRIAL_DAYS` | `7` | idem | Días de trial al crear la suscripción (`0` = vencida desde el inicio) |
 | `SUBSCRIPTION_CURRENCY` | `usd` | idem | Moneda guardada en cada pago |
+| `VERIFICATION_FEE_CENTS` | `9900` | idem | Tarifa única de verificación del Deudor (`BorrowerApplication`, `D-S2-6`); los $99 van a la plataforma. Se expone en `GET /api/subscription/price` (`verificationFeeCents`) y el front la toma de ahí |
 | `AFFILIATE_APPROVAL_MODE` | `admin` | `affiliates.service.ts#applyAffiliate` | `admin`: el Admin aprueba las solicitudes; `self`: el usuario se prende/apaga solo ([plan/19](plan/19-afiliados.md)) |
 | `AFFILIATE_DEFAULT_COMMISSION_TYPE` / `AFFILIATE_DEFAULT_COMMISSION_VALUE` | `PERCENT` / `0` | `resolveTerms` | Tarifa para afiliados sin tarifa propia. Valor `0` = no se genera comisión |
 | `AFFILIATE_DEFAULT_PAYOUT_DELAY_DAYS` | *(vacío)* | `computePayableAt` | Retraso por defecto antes de poder pagar una comisión; vacío = inmediato |

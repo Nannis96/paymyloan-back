@@ -35,6 +35,7 @@
 | `SUBSCRIPTION_PRICE_CENTS` | `900` | Precio mensual en centavos ($9.00) |
 | `SUBSCRIPTION_TRIAL_DAYS` | `7` | Días de trial al crear la suscripción |
 | `SUBSCRIPTION_CURRENCY` | `usd` | Moneda guardada en cada pago |
+| `VERIFICATION_FEE_CENTS` | `9900` | Tarifa única de verificación del Deudor (`D-S2-6`, va a la plataforma). La expone `GET /api/subscription/price` como `verificationFeeCents`; el front no la hardcodea |
 | `ALLOW_SIMULATED_BILLING` | `false` | Solo importa en producción: `true` deja pasar el cobro simulado (p. ej. un staging con `NODE_ENV=production`) |
 | `BILLING_MODE` | `simulated` | `simulated` (etapa 1) o `stripe` (etapa 2). Con `stripe` el endpoint `pay` responde `409 BILLING_NOT_SIMULATED` |
 
