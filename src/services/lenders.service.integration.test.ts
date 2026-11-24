@@ -59,6 +59,16 @@ describe("lenders.service (BE-041..044, BE-100, D-P4-5: createLenderCompany/crea
     expect((error as AppError).code).toBe("EIN_TAKEN");
   });
 
+  it("createLenderCompany permite repetir el EIN dentro del mismo Lender", async () => {
+    const admin = await createTestAdmin();
+    const { lenderProfile } = await createTestLenderWithoutCompany();
+    const ein = "34-3434343";
+
+    await lendersService.createLenderCompany(lenderProfile.id, { ...VALID_COMPANY_INPUT, ein }, admin.id);
+    const second = await lendersService.createLenderCompany(lenderProfile.id, { ...VALID_COMPANY_INPUT, ein }, admin.id);
+    expect(second.ein).toBe(ein);
+  });
+
   it("createLenderCompany acepta también el User.id de la persona, no solo el LenderProfile.id (D-P4-7)", async () => {
     const admin = await createTestAdmin();
     const { lenderUser } = await createTestLenderWithoutCompany();

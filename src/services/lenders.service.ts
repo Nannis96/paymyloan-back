@@ -68,6 +68,16 @@ async function requireLenderProfileByUserId(userId: string): Promise<LenderProfi
   return profile;
 }
 
+// El EIN es único entre usuarios, pero un mismo LenderProfile puede repetirlo en varias entidades.
+// ponytail: check-then-write sin constraint en DB; una carrera entre dos usuarios podría duplicar. Índice parcial/trigger si importa.
+async function assertEinAvailable(ein: string, ownerLenderProfileId?: string): Promise<void> {
+  const taken = await prisma.lenderCompany.findFirst({
+    where: { ein, ...(ownerLenderProfileId && { lenderProfileId: { not: ownerLenderProfileId } }) },
+    select: { id: true },
+  });
+  if (taken) throw new AppError("A company with that EIN already exists", 409, "EIN_TAKEN");
+}
+
 // D-P4-5 (rescopeo de BE-040): la persona (User+LenderProfile) ya existe —
 // vía auto-registro (D-P2-1) — así que esto solo crea una LenderCompany
 // nueva bajo un LenderProfile que ya existe. No genera contraseña ni manda
@@ -82,10 +92,7 @@ export async function createLenderCompany(
 ): Promise<LenderCompanySummary> {
   const profile = await requireLenderProfile(lenderProfileId);
 
-  const existingEin = await prisma.lenderCompany.findUnique({ where: { ein: input.ein } });
-  if (existingEin) {
-    throw new AppError("A company with that EIN already exists", 409, "EIN_TAKEN");
-  }
+  await assertEinAvailable(input.ein, profile.id);
 
   const lenderCompany = await prisma.lenderCompany.create({
     data: {
@@ -140,10 +147,7 @@ export async function becomeLender(userId: string, input: CreateLenderCompanyInp
     throw new AppError("You already have a lender profile", 409, "LENDER_PROFILE_ALREADY_EXISTS");
   }
 
-  const existingEin = await prisma.lenderCompany.findUnique({ where: { ein: input.ein } });
-  if (existingEin) {
-    throw new AppError("A company with that EIN already exists", 409, "EIN_TAKEN");
-  }
+  await assertEinAvailable(input.ein);
 
   const { lenderProfile, lenderCompany } = await prisma.$transaction(async (tx) => {
     const lenderProfile = await tx.lenderProfile.create({ data: { userId, createdByAdminId: null } });
@@ -196,10 +200,7 @@ export async function updateLenderCompany(
   const company = await requireLenderCompany(profile.id, companyId);
 
   if (input.ein !== undefined && input.ein !== company.ein) {
-    const existingEin = await prisma.lenderCompany.findUnique({ where: { ein: input.ein } });
-    if (existingEin) {
-      throw new AppError("A company with that EIN already exists", 409, "EIN_TAKEN");
-    }
+    await assertEinAvailable(input.ein, profile.id);
   }
 
   const data: Prisma.LenderCompanyUpdateInput = {};

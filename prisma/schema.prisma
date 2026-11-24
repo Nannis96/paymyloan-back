@@ -319,7 +319,7 @@ model LenderCompany {
   lenderProfile   LenderProfile @relation(fields: [lenderProfileId], references: [id], onDelete: Restrict)
 
   companyName String
-  ein         String @unique // formato XX-XXXXXXX; validación de formato en Zod (Fase 4) — ver riesgo #13/#14
+  ein         String // formato XX-XXXXXXX (Zod). Único ENTRE usuarios, repetible dentro del mismo LenderProfile: se valida en lenders.service (assertEinAvailable)
 
   contactPhone String?
   addressLine1 String
@@ -357,6 +357,7 @@ model LenderCompany {
   reviews              Review[]
 
   @@index([lenderProfileId])
+  @@index([ein])
   @@index([status])
   @@map("lender_companies")
 }
