@@ -15,7 +15,7 @@ type Subject = { lenderCompanyId: string } | { borrowerProfileId: string };
 const subjectKind = (subject: { lenderCompanyId: string | null }) => (subject.lenderCompanyId ? "LENDER" : "BORROWER");
 
 const adminInclude = {
-  lenderCompany: { select: { id: true, companyName: true } },
+  lenderCompany: { select: { id: true, companyName: true, addressLine1: true, addressLine2: true, city: true, state: true, postalCode: true } },
   borrowerProfile: { select: { id: true, user: { select: { name: true, email: true } } } },
   submittedByUser: { select: { id: true, name: true, email: true } },
 } satisfies Prisma.VerificationRequestInclude;
