@@ -24,8 +24,10 @@ services:
       - .:/app
       - /app/node_modules
       - /app/.next
-    # Aplica migraciones pendientes antes de levantar el server de desarrollo.
-    command: sh -c "pnpm exec prisma migrate deploy && pnpm run dev -H 0.0.0.0 -p 4000"
+    # Aplica migraciones pendientes y regenera el cliente de Prisma (el volumen
+    # de node_modules persiste y quedaría viejo al cambiar schema.prisma) antes
+    # de levantar el server de desarrollo.
+    command: sh -c "pnpm exec prisma migrate deploy && pnpm exec prisma generate && pnpm run dev -H 0.0.0.0 -p 4000"
 
   db:
     # postgres:18 (BE-001): uuidv7() nativo para las PK de toda tabla nueva
