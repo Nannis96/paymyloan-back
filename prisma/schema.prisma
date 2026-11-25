@@ -331,6 +331,10 @@ model LenderCompany {
   isOpenToDeals Boolean             @default(true) // M-4
   status        LenderCompanyStatus @default(ACTIVE) // D-P1-8
 
+  // Criterios por defecto de la vista Lending preferences (maxLtv, montos, tasa,
+  // plazo, experiencia, estados). Validado con Zod en lenders.validation.ts.
+  lendingPreferences Json?
+
   stripeConnectedAccountId String? // reservado — A-3 sin resolver
 
   createdByUserId String @db.Uuid

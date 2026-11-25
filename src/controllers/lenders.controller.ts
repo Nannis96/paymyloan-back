@@ -5,7 +5,7 @@ import * as borrowerProfileService from "@/services/borrowerProfile.service";
 import * as lendersService from "@/services/lenders.service";
 import { becomeBorrowerSchema } from "@/validations/borrowers.validation";
 import { parseOrThrow } from "@/validations/parse";
-import { createLenderCompanySchema, listLendersQuerySchema, sendLenderAlertSchema, updateLenderCompanySchema, updateOwnLenderCompanySchema } from "@/validations/lenders.validation";
+import { createLenderCompanySchema, lendingPreferencesSchema, listLendersQuerySchema, sendLenderAlertSchema, updateLenderCompanySchema, updateOwnLenderCompanySchema } from "@/validations/lenders.validation";
 
 // BE-041..044: /api/admin/lenders — ADMIN, escrituras exigen 2FA (D-P3-1).
 async function requireAdminSession(request: Request, options?: { requireTwoFactor?: boolean }) {
@@ -105,4 +105,18 @@ export async function becomeBorrower(request: Request, body: unknown) {
   const result = await borrowerProfileService.becomeBorrower(session.userId, input);
   const { accessToken } = await reissueAccessToken(session.userId);
   return { ...result, accessToken };
+}
+
+// Preferencias de préstamo del propio Lender (GET sin 2FA, PUT es escritura de negocio).
+export async function getOwnLendingPreferences(request: Request, companyId: string) {
+  const session = await withAuth(request);
+  await withRole(session, ["LENDER"], { requireTwoFactor: false });
+  return lendersService.getOwnLendingPreferences(session.userId, companyId);
+}
+
+export async function setOwnLendingPreferences(request: Request, companyId: string, body: unknown) {
+  const session = await withAuth(request);
+  await withRole(session, ["LENDER"]);
+  const input = parseOrThrow(lendingPreferencesSchema, body);
+  return lendersService.setOwnLendingPreferences(session.userId, companyId, input);
 }

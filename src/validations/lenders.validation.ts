@@ -75,3 +75,15 @@ export const sendLenderAlertSchema = z.object({
   body: z.string().trim().min(1, "Body is required").max(1000),
 });
 export type SendLenderAlertInput = z.infer<typeof sendLenderAlertSchema>;
+
+// Vista "Lending preferences" del Lender: criterios por defecto de una empresa.
+export const lendingPreferencesSchema = z.object({
+  maxLtv: z.number().int().min(50).max(90),
+  minAmount: z.number().int().min(0),
+  maxAmount: z.number().int().min(0),
+  rateRange: z.string().trim().min(1).max(40),
+  loanTerms: z.string().trim().min(1).max(60),
+  borrowerExperience: z.string().trim().min(1).max(80),
+  states: z.array(state).max(60),
+}).refine((d) => d.minAmount <= d.maxAmount, { message: "Minimum amount cannot exceed maximum amount", path: ["minAmount"] });
+export type LendingPreferences = z.infer<typeof lendingPreferencesSchema>;

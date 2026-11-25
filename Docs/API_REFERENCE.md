@@ -785,6 +785,21 @@ Lista + paginación (ver [Convenciones](#convenciones)). Query params opcionales
 - **Response `200` (`DELETE`)**: `{ "success": true, "data": { "deleted": true } }` — soft-delete de esa sola empresa, no de todo el Lender ni sus otras empresas.
 - **Errores**: `400 VALIDATION_ERROR` (`PATCH`) · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_COMPANY_NOT_FOUND` · `409 EIN_TAKEN` (`PATCH`) · `409 LENDER_HAS_ACTIVE_CONTRACTS` (`DELETE`, esa empresa tiene un `Contract` `ACTIVE`/`DELINQUENT`).
 
+### `GET`/`PUT /api/lenders/me/companies/:companyId/preferences`
+
+**¿Para qué sirve?** Leer y guardar los criterios por defecto de una empresa del Lender (vista "Lending preferences"). Se guardan en `LenderCompany.lendingPreferences` (JSON).
+
+- **Auth**: Autenticado, rol `LENDER`; `PUT` exige 2FA activo. Empresa ajena o inexistente → `404 LENDER_COMPANY_NOT_FOUND`.
+- **`GET` → `200`**: `data` es el objeto de abajo, o `null` si aún no se configuraron.
+- **`PUT` body** (reemplaza todo; devuelve el mismo objeto):
+
+  ```json
+  { "maxLtv": 75, "minAmount": 50000, "maxAmount": 500000, "rateRange": "10% - 12%", "loanTerms": "6 months only", "borrowerExperience": "No minimum - first deals welcome", "states": ["TX", "TN"] }
+  ```
+
+  `maxLtv` entero 50–90; `minAmount` ≤ `maxAmount`; `states` códigos de 2 letras.
+- **Errores**: `400 VALIDATION_ERROR` · `401`/`403`/`403 TWO_FACTOR_REQUIRED` · `404 LENDER_COMPANY_NOT_FOUND`.
+
 ### `POST /api/lenders/me/become-borrower`
 
 **¿Para qué sirve?** Para que un Lender que también quiere pedir dinero (rol dual, `D-P7-1`) adquiera el rol BORROWER sin crear una cuenta nueva — completa la dirección que ese rol exige y listo.

@@ -3,7 +3,7 @@ import { prisma } from "@/db/prisma";
 import { AppError } from "@/errors/AppError";
 import { logAuditEvent } from "@/lib/audit";
 import { type SafeUser, toSafeUser } from "@/services/users.service";
-import type { CreateLenderCompanyInput, ListLendersQuery, SendLenderAlertInput, UpdateLenderCompanyInput, UpdateOwnLenderCompanyInput } from "@/validations/lenders.validation";
+import type { CreateLenderCompanyInput, LendingPreferences, ListLendersQuery, SendLenderAlertInput, UpdateLenderCompanyInput, UpdateOwnLenderCompanyInput } from "@/validations/lenders.validation";
 import { buildPaginatedResult, type PaginatedResult } from "@/validations/pagination";
 
 export interface LenderCompanySummary {
@@ -374,4 +374,18 @@ export async function updateOwnLenderCompany(userId: string, companyId: string, 
 export async function deleteOwnLenderCompany(userId: string, companyId: string): Promise<void> {
   const profile = await requireLenderProfileByUserId(userId);
   return deleteLenderCompany(profile.id, companyId, userId);
+}
+
+// Preferencias de préstamo de una empresa propia. `null` = aún no configuradas.
+export async function getOwnLendingPreferences(userId: string, companyId: string): Promise<LendingPreferences | null> {
+  const profile = await requireLenderProfileByUserId(userId);
+  const company = await requireLenderCompany(profile.id, companyId);
+  return (company.lendingPreferences as LendingPreferences | null) ?? null;
+}
+
+export async function setOwnLendingPreferences(userId: string, companyId: string, input: LendingPreferences): Promise<LendingPreferences> {
+  const profile = await requireLenderProfileByUserId(userId);
+  await requireLenderCompany(profile.id, companyId);
+  await prisma.lenderCompany.update({ where: { id: companyId }, data: { lendingPreferences: input } });
+  return input;
 }
